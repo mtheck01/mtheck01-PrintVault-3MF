@@ -1,0 +1,23 @@
+PrintVault 3MF 9.0.33 — WHOLE-LIBRARY CATALOG SYNCHRONIZATION FIX
+
+Purpose:
+Fix the infrastructure mismatch exposed by 9.0.32 where the Dashboard showed 1,758 rebuilt records but the Whole-Library Root-Cause Pass independently analyzed Catalog 0 and reported a misleading PASS.
+
+Changes:
+- Root-cause analysis waits for active scan/rebuild completion.
+- MainWindow captures the exact active catalog snapshot displayed by the dashboard.
+- WholeLibraryRootCauseAnalysisService accepts that snapshot.
+- If the live repository unexpectedly contains 0 records while the active catalog contains valid records, the repository is repaired from the same catalog snapshot before analysis.
+- Reports/JSON record repository counts before/after sync, active snapshot count, data source, and mismatch state.
+- No 3MF files are deleted, moved, or modified by the synchronization repair.
+
+Validation:
+- WHOLE-LIBRARY CATALOG SYNC 9.0.33 — PASS
+- WHOLE-LIBRARY ROOT-CAUSE 9.0.33 — PASS
+- INDEPENDENT EVIDENCE 9.0.33 — PASS
+- SOURCE-DERIVED ANALYZER EVIDENCE 9.0.33 — PASS
+- LIBRARY RESET 9.0.33 — PASS
+- SEMANTIC EVIDENCE TAXONOMY CONTRACT — PASS
+- SOURCE INTEGRITY — PASS (46 C# files)
+
+This package contains source and test changes. A Windows Release build should be performed with the project's normal build script before installation.

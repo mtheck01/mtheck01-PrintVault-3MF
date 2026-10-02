@@ -1,0 +1,75 @@
+﻿# ============================================================
+# PrintVault 3MF - Git Ignore
+# ============================================================
+
+# Visual Studio / .NET
+.vs/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bld/
+artifacts/
+
+# User-specific Visual Studio files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Build/debug output
+*.pdb
+*.ilk
+*.obj
+*.log
+*.binlog
+
+# NuGet generated files
+project.assets.json
+project.nuget.cache
+*.nuget.g.props
+*.nuget.g.targets
+*.nuget.dgspec.json
+
+# Test output
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+
+# IDE/editor
+.vscode/
+.idea/
+
+# PrintVault generated build/release output
+dist/
+build_logs/
+
+# Previously generated patch packages
+PrintVault_3MF_v*_PATCH/
+PrintVault_3MF_v*_PATCH.zip
+
+# Generated installers
+*.exe
+*.msi
+
+# Local databases / runtime data
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Local version backup files
+VERSION.backup-*

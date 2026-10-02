@@ -1,0 +1,10 @@
+<Project>
+  <!-- Single authoritative release version for the entire solution. -->
+  <PropertyGroup>
+    <PrintVaultReleaseVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</PrintVaultReleaseVersion>
+    <Version>$(PrintVaultReleaseVersion)</Version>
+    <AssemblyVersion>$(PrintVaultReleaseVersion)</AssemblyVersion>
+    <FileVersion>$(PrintVaultReleaseVersion)</FileVersion>
+    <InformationalVersion>$(PrintVaultReleaseVersion)</InformationalVersion>
+  </PropertyGroup>
+</Project>

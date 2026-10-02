@@ -1,0 +1,22 @@
+PRINTVAULT 3MF 9.0.0 — BUILD INSTRUCTIONS
+==========================================
+
+1. Extract the package.
+2. Open a Developer Command Prompt or normal Windows command prompt with .NET 8 available.
+3. Run:
+   build_windows.bat
+4. Confirm restore, build, publish and installer steps complete successfully.
+5. Launch PrintVault.
+6. Verify the library loads normally.
+7. Open Intelligence -> Model Intelligence.
+8. Select several known models, including one multilingual/entity-recognized model and one ordinary model.
+9. Confirm profile data and related-model results display.
+10. Close/reopen PrintVault and verify normal library behavior remains unchanged.
+
+Do not run the 1,758-file reconciliation as part of the first 9.0 smoke test.
+
+Safety rules:
+- Model Intelligence is read-only.
+- Never rename/move/modify physical .3mf files during tests.
+- Manual CategoryOverride records remain protected.
+- If the Windows build fails, stop and provide build_output.log before making feature changes.
