@@ -25,3 +25,24 @@ Historical challenge/report text is allowed to retain its historical build numbe
 
 ## Packaging rule
 A release package must contain one source root only. Do not nest an extracted source package inside another source package. The Windows build log must identify the exact source root.
+
+
+## Canonical production release pipeline
+There is one production release path: `.github/workflows/windows-build.yml`.
+
+- Every push to `main` runs the complete Windows build and test gate.
+- A production release is eligible only when the commit changes `VERSION`.
+- The release publisher consumes the installer produced by that same successful build; it does not rebuild a second source snapshot.
+- The publisher refuses an existing release version and refuses to move the RemotePatch manifest backward or sideways.
+- The package is locally extracted and verified before publication.
+- After publication, the exact GitHub release asset is downloaded and its SHA-256 is compared with the locally built package.
+- Only after that remote verification succeeds is `manifest.json` promoted.
+- The manifest is fetched again after promotion and its version, URL, and SHA-256 are verified.
+- Any failure before manifest promotion leaves the previous RemotePatch manifest unchanged.
+- The former standalone `release.yml` workflow must not be recreated; a second release path would bypass the canonical gate.
+
+This makes the release chain fail closed:
+
+`source commit -> complete build/tests -> tested installer -> package -> publish -> download/verify -> manifest promotion -> final manifest verification`.
+
+A CI-only commit that does not change `VERSION` cannot publish a production release.
