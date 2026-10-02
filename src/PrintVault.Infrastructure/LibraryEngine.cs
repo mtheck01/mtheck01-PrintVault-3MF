@@ -8,6 +8,7 @@ public sealed class LibraryEngine : ILibraryEngine
     private readonly LibraryRepository repo = new();
     private readonly ThreeMfAnalyzer analyzer = new();
     private readonly EntityClassificationService entityClassification = new();
+    private readonly SemanticEvidenceFusionService semanticFusion = new();
     public LibraryRepository Repository => repo;
 
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
@@ -82,6 +83,7 @@ public sealed class LibraryEngine : ILibraryEngine
                     // manual/custom categories remain protected. Raw analyzer evidence is
                     // retained in IntelligenceReason by EntityClassificationService.
                     entityClassification.Apply(m);
+                    ApplyHighConfidenceFusion(m);
                     // Preserve user tags; the intelligence layer stores its own suggested tags separately.
                     if (doHash)
                     {
@@ -208,6 +210,13 @@ public sealed class LibraryEngine : ILibraryEngine
                 m.SuggestedTags = a.SuggestedTags;
                 m.IntelligenceReason = a.Reason;
                 m.RiskFlags = a.RiskFlags;
+                // Rebuilds must use the same semantic arbitration path as incremental scans.
+                // Previously the forensic fusion engine existed but RebuildAsync never applied
+                // it, so whole-library rebuilds could not benefit from the architecture we were
+                // testing. Named entities and high-confidence role/source-derived evidence now
+                // participate in production classification during the actual rebuild.
+                entityClassification.Apply(m);
+                ApplyHighConfidenceFusion(m);
                 // Optional enrichment must never be allowed to discard an otherwise valid model.
                 // A corrupt/unsupported thumbnail or hash is a property of the enrichment step,
                 // not a reason to lose the catalog record.
@@ -263,6 +272,37 @@ public sealed class LibraryEngine : ILibraryEngine
         return Task.FromResult(new LibraryStats(all.Count, all.Count(m => m.Favorite), dup, all.Count(m => m.IntelligenceScore < .5), all.Sum(m => m.Size), all.Count(m => !m.HasThumbnail)));
     }
 
+
+    private void ApplyHighConfidenceFusion(ModelRecord model)
+    {
+        if (model.CategoryOverride) return;
+        if (!BuiltInCategories.All.Contains(model.Category, StringComparer.OrdinalIgnoreCase)) return;
+
+        var entity = new MultilingualEntityService().Recognize(model);
+        var result = semanticFusion.Fuse(model, entity);
+        if (string.IsNullOrWhiteSpace(result.Category) ||
+            string.Equals(result.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase)) return;
+
+        // Only promote evidence channels that are strong enough to make an automatic
+        // production classification decision. Generic lexical evidence remains diagnostic;
+        // it cannot rewrite the library by itself.
+        var strongBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
+                          result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
+                          result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
+                          result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
+                          result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
+        if (!strongBasis || result.ClassificationConfidence < 90) return;
+
+        model.Category = result.Category;
+        model.Family = result.Family;
+        model.SemanticType = result.SemanticType;
+        model.Subtype = result.Subtype;
+        model.IntelligenceScore = Math.Max(model.IntelligenceScore, result.ClassificationConfidence / 100d);
+        var fusionEvidence = $"Semantic fusion: {result.Basis}; confidence {result.ClassificationConfidence}%";
+        model.IntelligenceReason = string.IsNullOrWhiteSpace(model.IntelligenceReason)
+            ? fusionEvidence.TrimEnd('"')
+            : $"{model.IntelligenceReason}; {fusionEvidence.TrimEnd('"')}";
+    }
 
     private static bool IsCustomCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) &&
