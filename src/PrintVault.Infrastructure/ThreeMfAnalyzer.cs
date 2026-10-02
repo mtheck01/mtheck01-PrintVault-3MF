@@ -75,6 +75,7 @@ public sealed class ThreeMfAnalyzer
         new("Figures & Characters","soldier",5,"soldier","Figure","Character","Soldier"), new("Figures & Characters","robot",5,"robot","Figure","Character","Robot"),
         new("Figures & Characters","bust",5,"bust","Figure","Figure","Bust"), new("Figures & Characters","skull",4,"skull","Figure","Figure","Skull"),
         // Vehicles
+        new("Vehicles","a-10",10,"a-10","Vehicle","Vehicle","Aircraft"), new("Vehicles","a-10 thunderbolt",12,"a-10-thunderbolt","Vehicle","Vehicle","Aircraft"), new("Vehicles","ah-64",10,"ah-64","Vehicle","Vehicle","Helicopter"), new("Vehicles","ac130",10,"ac130","Vehicle","Vehicle","Aircraft"), new("Vehicles","b-1",10,"b-1","Vehicle","Vehicle","Aircraft"), new("Vehicles","bf-109",10,"bf-109","Vehicle","Vehicle","Aircraft"), new("Vehicles","f-16",10,"f-16","Vehicle","Vehicle","Aircraft"), new("Vehicles","p-51",10,"p-51","Vehicle","Vehicle","Aircraft"), new("Vehicles","pby",10,"pby","Vehicle","Vehicle","Aircraft"),
         new("Vehicles","batmobile",10,"batmobile","Vehicle","Vehicle","Car"), new("Vehicles","batwing",10,"batwing","Vehicle","Vehicle","Aircraft"),
         new("Vehicles","batboat",10,"batboat","Vehicle","Vehicle","Boat"), new("Vehicles","batpod",10,"batpod","Vehicle","Vehicle","Motorcycle"),
         new("Vehicles","delorean",10,"delorean","Vehicle","Vehicle","Car"), new("Vehicles","de lorean",10,"delorean","Vehicle","Vehicle","Car"),
@@ -185,7 +186,10 @@ public sealed class ThreeMfAnalyzer
                 low=allText.ToString().ToLowerInvariant();
                 var semanticLow=semanticText.ToString().ToLowerInvariant();
                 special=DetectSpecialType(low, z);
-                var scored=Signals.Select(s=>(s,score:TokenScore(semanticLow,s.Phrase,s.Weight))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
+                // Normalize common filename separators before semantic scoring. '+' and '_'
+                // are frequently used as spaces in model repositories.
+                var semanticScoringText = NormalizeSemanticSeparators(semanticLow);
+                var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
                 if(special is not null)
                 {
                     category=special.Category; family=special.Family; type=special.Type; subtype=special.Subtype; specialType=special.Type;
@@ -267,10 +271,23 @@ public sealed class ThreeMfAnalyzer
         if(string.IsNullOrWhiteSpace(text)) return 0;
         var p=phrase.ToLowerInvariant();
         var count=Regex.Matches(text,$@"(?<![a-z0-9]){Regex.Escape(p)}(?![a-z0-9])",RegexOptions.IgnoreCase).Count;
+        // Aircraft/model designations are often stored with punctuation differences
+        // (AH-64 vs AH64). Compact matching is therefore allowed only for phrases that
+        // contain a digit or hyphen; ordinary words retain strict whole-token boundaries.
+        if(count==0 && (p.Any(char.IsDigit) || p.Contains('-')))
+        {
+            var compactText=Regex.Replace(text, @"[^a-z0-9]", "");
+            var compactPhrase=Regex.Replace(p, @"[^a-z0-9]", "");
+            if(compactPhrase.Length >= 3 && compactText.Contains(compactPhrase, StringComparison.OrdinalIgnoreCase))
+                count=1;
+        }
         if(count==0) return 0;
         var phraseBoost=p.Contains(' ')?1.4:1.0;
         return Math.Min(10,count) * Math.Max(.5,weight / 5.0) * phraseBoost;
     }
+
+    private static string NormalizeSemanticSeparators(string value)
+        => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"[\\/|]+", " ");
 
     private static string ComputeDimensions(List<XElement> vertices,string unit)
     {
