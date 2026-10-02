@@ -76,7 +76,8 @@ jobs:
             ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py",
             ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py",
             ".\tools\test_semantic_evidence_large_scale_fix_9_0_40.py",
-            ".\tools\test_semantic_evidence_arbitration_9_0_42.py"
+            ".\tools\test_semantic_evidence_arbitration_9_0_42.py",
+            ".\tools\test_semantic_evidence_architecture_9_0_43.py"
           )
           foreach ($test in $tests) {
             Write-Host "RUNNING $test"
