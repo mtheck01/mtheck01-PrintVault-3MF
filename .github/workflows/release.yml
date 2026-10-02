@@ -122,7 +122,7 @@ jobs:
             Automated PrintVault 3MF release generated from the version-controlled source repository.
 
             The release ZIP is SHA-256 verified before publication and is compatible with the PrintVault Remote Patch Agent.
-          files: PrintVault_3MF_v${{ github.ref_name }}_PATCH.zip
+          files: PrintVault_3MF_v*_PATCH.zip
           fail_on_unmatched_files: true
 
       - name: Update RemotePatch manifest
