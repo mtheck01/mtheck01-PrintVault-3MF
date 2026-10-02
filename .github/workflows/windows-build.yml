@@ -112,13 +112,15 @@ jobs:
           Write-Host "SHA256=$hash"
 
 
+
       - name: Determine production release eligibility
         id: release_gate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           $version = (Get-Content ".\VERSION" -Raw).Trim()
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+        uses: actions/upload-artifact@v4
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+
+        uses: actions/upload-artifact@v4
         with:
           name: PrintVault-${{ hashFiles('VERSION') }}
           path: |
