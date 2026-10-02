@@ -305,7 +305,7 @@ public sealed class SemanticEvidenceFusionService
             category = analyzerCategory;
             type = string.IsNullOrWhiteSpace(model.SemanticType) ? type : model.SemanticType;
             subtype = string.IsNullOrWhiteSpace(model.Subtype) ? subtype : model.Subtype;
-            family = string.IsNullOrWhiteSpace(model.Family) ? model.Family : model.Family;
+            family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
             var analyzerConfidence = Math.Clamp(70 + (int)Math.Round(model.IntelligenceScore * 25), 70, 95);
             classification = Math.Max(classification, analyzerConfidence);
             identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 66, 91));
