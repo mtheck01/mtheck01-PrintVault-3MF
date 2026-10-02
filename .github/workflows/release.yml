@@ -103,12 +103,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\installer") | Out-Null
           Copy-Item -LiteralPath (Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Destination (Join-Path $packageRoot ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
 
+          $installer = Join-Path $PWD ("dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe")
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Installer artifact missing: $installer"
+          }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\\installer") | Out-Null
+          Copy-Item -LiteralPath $installer -Destination (Join-Path $packageRoot ("dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
           Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
 
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+
+          $extractRoot = Join-Path $PWD "_release_verify"
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
+          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH\\dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe"
+          $extractedInstaller = Join-Path $extractRoot $expectedRelative
+          if (-not (Test-Path -LiteralPath $extractedInstaller -PathType Leaf)) {
+            throw "RemotePatch ZIP structure invalid. Expected: $expectedRelative"
+          }
+
           Write-Host "VERSION=$version"
           Write-Host "ZIP=$zip"
           Write-Host "SHA256=$hash"
+          Write-Host "ZIP STRUCTURE=PASS"
 
       - name: Require distribution token
         shell: pwsh
@@ -177,3 +195,44 @@ jobs:
           Write-Host "Published manifest for $version"
           Write-Host "Package URL: $releaseUrl"
           Write-Host "SHA256: $sha"
+
+      - name: Verify published release and manifest
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          $version = (Get-Content ".\\VERSION" -Raw).Trim()
+          $releaseApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/releases/tags/v" + $version
+          $manifestApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/contents/manifest.json?ref=main"
+          $headers = @{
+            Authorization = "Bearer " + $env:RELEASE_TOKEN
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2026-03-10"
+            "User-Agent" = "PrintVault-Release-Automation"
+          }
+
+          $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
+          if ($release.tag_name -ne ("v" + $version)) {
+            throw "Published release tag mismatch. Expected v$version, found $($release.tag_name)"
+          }
+
+          $assetName = "PrintVault_3MF_v" + $version + "_PATCH.zip"
+          $asset = @($release.assets | Where-Object { $_.name -eq $assetName })
+          if ($asset.Count -ne 1) {
+            throw "Expected exactly one published release asset named $assetName; found $($asset.Count)."
+          }
+
+          $manifestResponse = Invoke-RestMethod -Uri $manifestApi -Headers $headers -Method Get
+          $manifestJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($manifestResponse.content -replace "\\s","")))
+          $publishedManifest = $manifestJson | ConvertFrom-Json
+
+          if ($publishedManifest.version -ne $version) { throw "Manifest version mismatch." }
+          if ($publishedManifest.sha256 -ne $sha) { throw "Manifest SHA-256 mismatch." }
+          if ($publishedManifest.packageUrl -ne $releaseUrl) { throw "Manifest packageUrl mismatch." }
+          if ($publishedManifest.installerRelativePath -ne ("PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe")) {
+            throw "Manifest installerRelativePath mismatch."
+          }
+
+          Write-Host "PUBLISHED RELEASE=PASS"
+          Write-Host "MANIFEST VERIFICATION=PASS"
+
