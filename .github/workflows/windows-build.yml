@@ -1,0 +1,106 @@
+name: PrintVault Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $paths = @(
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles(x86)\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
+          )
+          if (-not ($paths | Where-Object { Test-Path $_ })) {
+            throw "Inno Setup compiler was not found after installation."
+          }
+
+      - name: Release preflight
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
+
+      - name: Static audit
+        shell: pwsh
+        run: |
+          python ".\tools\static_audit.py"
+
+      - name: Contract and source tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            ".\tools\test_release_preflight_contract.py",
+            ".\tools\test_source_integrity.py",
+            ".\tools\test_challenge_version_consistency.py",
+            ".\tools\test_xaml_cs_integrity.py",
+            ".\tools\test_ui_features.py",
+            ".\tools\test_ui_navigation.py",
+            ".\tools\test_scan_modes.py",
+            ".\tools\test_scan_progress.py"
+          )
+          foreach ($test in $tests) {
+            Write-Host "RUNNING $test"
+            python $test
+            if ($LASTEXITCODE -ne 0) {
+              throw "Test failed: $test"
+            }
+          }
+
+      - name: Build installer
+        shell: cmd
+        env:
+          PRINTVAULT_CI: '1'
+        run: build_windows.bat
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          $exe = ".\dist\PrintVault\PrintVault.exe"
+          $installer = ".\dist\installer\PrintVault_3MF_v$($version)_Setup.exe"
+
+          if (-not (Test-Path $exe)) { throw "Missing application: $exe" }
+          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+
+          $fileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $exe)).FileVersion
+          if ($fileVersion -ne $version) {
+            throw "Executable version mismatch. Expected $version, found $fileVersion."
+          }
+
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash
+          Write-Host "VERSION=$version"
+          Write-Host "INSTALLER=$installer"
+          Write-Host "SHA256=$hash"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintVault-${{ hashFiles('VERSION') }}
+          path: |
+            dist/installer/*.exe
+            dist/PrintVault/PrintVault.exe
+            build_logs/build_output.log
+            build_logs/version_preflight.log
+          if-no-files-found: error
