@@ -159,7 +159,7 @@ public sealed class SemanticEvidenceFusionService
         var organizerRoleHits = OrganizerRoleTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var referencedToolHits = ReferencedToolTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var explicitRole = roleHits.FirstOrDefault();
-        var isToolOrganizer = organizerRoleHits.Length > 0 || explicitRole.Hits.Length > 0;
+        var isToolOrganizer = organizerRoleHits.Length > 0;
 
         if (entity is not null)
             evidence.Add($"Named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
