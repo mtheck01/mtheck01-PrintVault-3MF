@@ -157,11 +157,18 @@ public sealed class WholeLibraryRootCauseAnalysisService
         // Root-cause classification must not treat substrings such as "database", "mountain",
         // or "understand" as object-role evidence. Use lexical boundaries and the actual
         // purpose/storage phrases instead. This diagnostic pass remains read-only.
+        // Use only high-precision multi-word role constructions. Generic words such as
+        // frame, base, support, display, and stand occur routinely in model names and
+        // previously created false OBJECT_ROLE_MISMATCH diagnoses.
         var roleTerms = new[]
         {
-            "stand", "base", "holder", "mount", "rack", "display", "support", "frame",
-            "stand for", "base for", "holder for", "mount for", "rack for", "display stand",
-            "display base", "support stand", "support bracket", "mounting bracket"
+            "soap holder", "key holder", "phone holder", "book holder",
+            "business card holder", "card holder", "tool holder",
+            "socket holder", "tool organizer", "socket organizer",
+            "tool tray", "socket tray", "display stand", "phone stand",
+            "book stand", "display base", "support stand", "stand rack",
+            "mounting bracket", "support bracket", "rack for", "holder for",
+            "mount for", "stand for"
         };
         return roleTerms.Any(term =>
         {
