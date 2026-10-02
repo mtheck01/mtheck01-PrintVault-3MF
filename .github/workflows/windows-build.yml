@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: printvault-production-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -17,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -68,7 +74,8 @@ jobs:
             ".\tools\test_scan_modes.py",
             ".\tools\test_scan_progress.py",
             ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py",
-            ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py"
+            ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py",
+            ".\tools\test_semantic_evidence_large_scale_fix_9_0_40.py"
           )
           foreach ($test in $tests) {
             Write-Host "RUNNING $test"
@@ -103,6 +110,53 @@ jobs:
           Write-Host "VERSION=$version"
           Write-Host "INSTALLER=$installer"
           Write-Host "SHA256=$hash"
+
+
+      - name: Determine production release eligibility
+        id: release_gate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintVault-${{ hashFiles('VERSION') }}
+          path: |
+            dist/installer/*.exe
+            dist/PrintVault/PrintVault.exe
+            build_logs/build_output.log
+            build_logs/version_preflight.log
+          if-no-files-found: error
+) {
+            throw "Invalid VERSION: $version"
+          }
+          $versionChanged = -not [string]::IsNullOrWhiteSpace((git diff --name-only HEAD^ HEAD -- VERSION))
+          if (-not $versionChanged) {
+            Write-Host "VERSION=$version has not changed in this commit. CI-only run; no production release."
+            "should_release=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          Write-Host "VERSION changed to $version. Production release is eligible."
+          "should_release=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Require distribution token
+        if: steps.release_gate.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
+            throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
+          }
+
+      - name: Publish verified production release
+        if: steps.release_gate.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version }}" -SourceSha "${{ github.sha }}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
