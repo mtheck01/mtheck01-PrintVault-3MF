@@ -79,6 +79,32 @@ public sealed class SemanticEvidenceFusionService
         (new[]{"organizer","storage","hook","hanger","drawer","container","soap dispenser","spool"}, "Household", "Functional", "Organization / Storage", "Household", 15, "household terminology")
     };
 
+    // Whole-library 9.0.39 analysis exposed a second large population: titles with clear
+    // semantic nouns/proper names that were never represented in the fusion lexicon. Keep
+    // these as high-precision title evidence only. They are deliberately grouped by the
+    // physical object represented by the filename, not by stored folders/categories.
+    private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] ExpandedCues =
+    {
+        (new[]{"bear","elephant","turtle","tortoise","snake","shark","whale","orca","fish","bee","beehive","butterfly","bird","bluejay","chicken","duck","goose","rabbit","bunny","frog","crab","crocodile","lizard","gecko","chameleon","capybara","otter","seal","snail","octopus","axolotl","squirrel","fox","wolf","lion","tiger","monkey","panda","penguin","dolphin","dinosaur","wyvern","frost wyvern","dragon"}, "Figures & Characters", "Figure", "Creature", "Figure", 17, "creature terminology"),
+        (new[]{"batman","superman","wolverine","yoda","stormtrooper","stormtrooper","c3po","c-3po","bowser","pokemon","pikachu","charmander","applejack","bluey","mario","sonic","transformer","optimus prime","bumblebee","ahsoka","darth","jedi","sith","tf2","anime","cartoon"}, "Figures & Characters", "Figure", "Character", "Figure", 18, "character terminology"),
+        (new[]{"peterbilt","semi truck","dump truck","fire truck","pickup truck","ambulance","bus","bulldozer","excavator","forklift","tractor","tank","abrams","aeroplane","airplane","aircraft","bomber","b-2","b1 lancer","c130","c-130","ac130","ah64","ah-64","v-22","f-18","f-16","f-4 phantom","f4u corsair","f-86","p-51","p51","pby","747","a380","a400m","concorde","constellation","corsair","sea fury","valkyrie","airbus","helicopter","warship","war ship","aircraft carrier","spaceshuttle","space shuttle","shuttle","starship","x-wing","y-wing","tie fighter","cr90","corvette"}, "Vehicles", "Vehicle", "Vehicle", "Vehicle", 19, "vehicle terminology"),
+        (new[]{"lightsaber","light saber","saber","sword","scabbard","blaster","phaser","revolver","pistol","rifle","gun","helmet","armor","cosplay","prop","mask"}, "Props & Accessories", "Prop", "Cosplay / Prop", "Prop", 18, "prop/cosplay terminology"),
+        (new[]{"tray","sockettray","socket tray","card holder","business card","phone holder","phone stand","book holder","book stand","key holder","keychain holder","soap holder","soap dispenser","toolbox","tool box","tool organizer","organizer","storage box","storage","drawer","shelf","shelving","rack","hook","hanger","mount","bracket","stand","display stand","display base","phone jail","feeder","caddy","coaster","coasters"}, "Functional", "Functional", "Organizer / Holder", "Functional", 18, "functional role terminology"),
+        (new[]{"flag","sign","logo","jersey","home plate","badge","medal","trophy","ornament","rose","watercolor","portrait","sculpture","art","artwork","lithophane","shadowbox"}, "Art & Decor", "Decor", "Art / Display", "Decor", 16, "art/decor terminology"),
+        (new[]{"castle","house","building","lighthouse","barn","shed","cabin","church","temple","tavern","booknook","book nook","diorama","zen garden","garden","hive"}, "Buildings", "Building", "Structure / Diorama", "Building", 16, "building/diorama terminology"),
+        (new[]{"terrain","dungeon","battlemap","battle map","wargame","tabletop","dnd","cave","caves of chaos","ruin"}, "Tabletop Terrain", "Terrain", "Tabletop Terrain", "Terrain", 18, "tabletop/terrain terminology"),
+        (new[]{"dice","chess","puzzle","fidget","toy","game","pokeball","pokemon ball"}, "Toys & Games", "Game/Toy", "Game / Toy", "Game", 18, "game/toy terminology"),
+        (new[]{"打印","航空母舰","航空","战机","飞机","轰炸机","舰","军舰","医疗舰","坦克","龙","蛇","熊","狗","猫","鸟","蜥蜴","剑","雕塑","挂钩","收纳","支架","举升机","龙门"}, "Vehicles", "Vehicle", "Vehicle / Aircraft", "Vehicle", 18, "multilingual semantic terminology"),
+        (new[]{"mummy","mumia","statue","stone","rock","mountain","mountains","tree","forest","flower","plant","foliage","mushroom"}, "Nature & Scenery", "Scenery", "Natural / Scenic", "Nature", 16, "scenery terminology"),
+    };
+
+    private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] ExplicitRoleCues =
+    {
+        (new[]{"soap holder","soap dispenser holder","key holder","phone holder","book holder","business card holder","card holder","tool holder","socket holder","wrench holder","screwdriver holder","holder"}, "Functional", "Functional", "Holder", "Functional", 24, "explicit holder role"),
+        (new[]{"display stand","phone stand","book stand","lightsaber stand","saber stand","sword stand","display base","support stand","stand rack","stand"}, "Functional", "Functional", "Stand / Display", "Functional", 22, "explicit stand role"),
+        (new[]{"tool organizer","socket organizer","wrench organizer","screwdriver organizer","tool tray","socket tray","organizer","storage box","rack","shelf","hook","hanger","mount","bracket"}, "Functional", "Functional", "Organizer / Mount", "Functional", 20, "explicit functional role"),
+    };
+
     private static readonly string[] ContextTerms = { "hueforge", "hue forge", "200x200", "200x200mm", "front", "back", "x1c", "p1s", "p1p", "kobra", "ams", "bambu" };
 
     // Identity-bearing lexical patterns are intentionally broader than the named-entity
@@ -132,7 +158,8 @@ public sealed class SemanticEvidenceFusionService
         var evidence = new List<string>();
         var organizerRoleHits = OrganizerRoleTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var referencedToolHits = ReferencedToolTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var isToolOrganizer = organizerRoleHits.Length > 0;
+        var explicitRole = roleHits.FirstOrDefault();
+        var isToolOrganizer = organizerRoleHits.Length > 0 || explicitRole.Hits.Length > 0;
 
         if (entity is not null)
             evidence.Add($"Named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
@@ -143,7 +170,13 @@ public sealed class SemanticEvidenceFusionService
         if (!string.IsNullOrWhiteSpace(model.SemanticType) || !string.IsNullOrWhiteSpace(model.Subtype))
             evidence.Add($"Stored classification: {model.Category} / {model.SemanticType} / {model.Subtype}");
 
-        var cueHits = Cues
+        var allCues = Cues.Concat(ExpandedCues).ToArray();
+        var cueHits = allCues
+            .Select(c => (Cue: c, Hits: c.Terms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+            .Where(x => x.Hits.Length > 0)
+            .OrderByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
+            .ToList();
+        var roleHits = ExplicitRoleCues
             .Select(c => (Cue: c, Hits: c.Terms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
             .Where(x => x.Hits.Length > 0)
             .OrderByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
@@ -176,7 +209,11 @@ public sealed class SemanticEvidenceFusionService
         string type = model.SemanticType ?? "";
         string subtype = model.Subtype ?? "";
         string family = model.Family ?? "";
-        var classification = Clamp(model.IntelligenceScore);
+        // ThreeMfAnalyzer stores IntelligenceScore on a 0..1 scale. The fusion result
+        // is a 0..100 public confidence scale. The previous build passed the raw decimal
+        // through Clamp(), turning 0.99 into confidence 1 and materially understating
+        // analyzer-backed models across the whole library.
+        var classification = ClampScore(model.IntelligenceScore);
         var identity = entity?.Confidence ?? (hasTranslation ? model.TranslationConfidence : classification);
         var basis = "Stored classification";
 
@@ -197,6 +234,16 @@ public sealed class SemanticEvidenceFusionService
                 evidence.Add($"Referenced tool: {string.Join(", ", referencedToolHits)}");
             if (entity is not null)
                 evidence.Add($"Referenced entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
+        }
+        else if (explicitRole.Hits.Length > 0)
+        {
+            var role = explicitRole.Cue;
+            category = role.Category; type = role.Type; subtype = role.Subtype; family = role.Family;
+            var roleConfidence = Math.Min(96, 66 + role.Weight + Math.Min(8, (explicitRole.Hits.Length - 1) * 4));
+            identity = Math.Max(identity, Math.Min(90, roleConfidence - 5));
+            classification = Math.Max(classification, roleConfidence);
+            basis = $"Object role evidence: {role.Label}";
+            evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits)}");
         }
         else if (entity is not null)
         {
@@ -386,5 +433,11 @@ public sealed class SemanticEvidenceFusionService
     private static string Normalize(string value)
         => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"\s+", " ").Trim().ToLowerInvariant();
 
-    private static int Clamp(double value) => (int)Math.Clamp(Math.Round(value), 0, 100);
+    private static int ClampScore(double value)
+    {
+        // IntelligenceScore is normalized 0..1 in ThreeMfAnalyzer. Accept an already
+        // percentage-scaled value defensively so future analyzer contracts remain stable.
+        var percent = value <= 1.0 ? value * 100.0 : value;
+        return (int)Math.Clamp(Math.Round(percent), 0, 100);
+    }
 }
