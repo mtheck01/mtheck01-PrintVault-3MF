@@ -424,6 +424,14 @@ public sealed class SemanticEvidenceFusionService
                                !string.Equals(storedCategory, category, StringComparison.OrdinalIgnoreCase);
         var actionableConflict = categoriesDiffer &&
                                  !string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase);
+        // Retain the bounded convergence diagnostics used by the historical regression
+        // suite, but do not let them independently convert an unresolved record into a
+        // review item. Review state is now driven by actionable category disagreement.
+        var analyzerTranslationConvergenceClearsReview = strongSourceDerivedAnalyzer && hasTranslation &&
+                                                         classification >= 82 && quality >= 75;
+        var analyzerConvergenceClearsReview = strongSourceDerivedAnalyzer &&
+                                              classification >= 85 && quality >= 75;
+        var convergenceClearsReview = aviationConvergence;
         var strongAlternative = entity is not null ||
                                 strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
