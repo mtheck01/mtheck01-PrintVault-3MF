@@ -159,8 +159,18 @@ public sealed class SemanticEvidenceFusionService
             aviationDomainHits = aviationDescriptorHits;
         var hasTranslation = model.TranslationConfidence >= 70 && !string.IsNullOrWhiteSpace(model.TranslatedTitle);
         var hasSourceDerivedAnalyzer = TryGetSourceDerivedAnalyzerEvidence(model, out var analyzerCategory);
+        // ThreeMfAnalyzer only emits a source-derived category when it crossed its own
+        // semantic threshold (or a deterministic special-format rule). Therefore the
+        // presence of category + semantic type + subtype is materially stronger than the
+        // overall IntelligenceScore, which also includes geometry/readiness/metadata.
+        var strongSourceDerivedAnalyzer = hasSourceDerivedAnalyzer &&
+                                          !string.IsNullOrWhiteSpace(model.SemanticType) &&
+                                          !string.IsNullOrWhiteSpace(model.Subtype) &&
+                                          !string.Equals(analyzerCategory, "Uncategorized", StringComparison.OrdinalIgnoreCase);
         if (hasSourceDerivedAnalyzer)
             evidence.Add($"Source-derived analyzer semantics: {analyzerCategory} / {model.SemanticType} / {model.Subtype} ({model.IntelligenceScore:P0})");
+        if (strongSourceDerivedAnalyzer)
+            evidence.Add("Analyzer semantic threshold crossed independently of overall structural score");
 
         string category = model.Category ?? "";
         string type = model.SemanticType ?? "";
@@ -275,10 +285,20 @@ public sealed class SemanticEvidenceFusionService
         var quality = Math.Clamp(25 + convergence, 0, 100);
         if (hasSourceDerivedAnalyzer)
         {
-            // Source-derived analyzer semantics are a legitimate evidence channel, but they
-            // are still one channel. Keep the base contribution bounded, then allow a second
-            // genuinely separate channel (translation) to raise evidence quality.
-            quality = Math.Max(quality, Math.Clamp(55 + (int)Math.Round(model.IntelligenceScore * 35), 55, 90));
+            // The analyzer's semantic threshold is a category-bearing source signal. Do not
+            // incorrectly demote a semantically valid model merely because geometry/readiness
+            // lowered the aggregate IntelligenceScore. Keep it bounded and still require
+            // either a second channel or the explicit analyzer threshold for review clearance.
+            if (strongSourceDerivedAnalyzer)
+            {
+                quality = Math.Max(quality, 78);
+                classification = Math.Max(classification, 88);
+                identity = Math.Max(identity, 82);
+            }
+            else
+            {
+                quality = Math.Max(quality, Math.Clamp(55 + (int)Math.Round(model.IntelligenceScore * 35), 55, 90));
+            }
             if (hasTranslation)
                 quality = Math.Max(quality, Math.Clamp(63 + (int)Math.Round(model.IntelligenceScore * 25), 63, 88));
         }
@@ -313,9 +333,9 @@ public sealed class SemanticEvidenceFusionService
         // A strong lexical/domain convergence is independently corroborated unless it
         // conflicts with an existing stored category. This removes the prior dependence
         // on the named-entity dictionary while retaining the conflict safety gate.
-        var analyzerTranslationConvergenceClearsReview = hasSourceDerivedAnalyzer && hasTranslation &&
+        var analyzerTranslationConvergenceClearsReview = strongSourceDerivedAnalyzer && hasTranslation &&
                                                          !storedConflict && classification >= 82 && quality >= 75;
-        var analyzerConvergenceClearsReview = hasSourceDerivedAnalyzer && !storedConflict &&
+        var analyzerConvergenceClearsReview = strongSourceDerivedAnalyzer && !storedConflict &&
                                               classification >= 85 && quality >= 75;
         var convergenceClearsReview = aviationConvergence && !storedConflict;
         var review = storedConflict || (!convergenceClearsReview && !analyzerTranslationConvergenceClearsReview &&
