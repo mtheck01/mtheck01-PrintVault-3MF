@@ -100,16 +100,13 @@ jobs:
           Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
 
-          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\installer") | Out-Null
-          Copy-Item -LiteralPath (Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Destination (Join-Path $packageRoot ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
-
-          $installer = Join-Path $PWD ("dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe")
+          $installer = Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
             throw "Installer artifact missing: $installer"
           }
 
-          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\\installer") | Out-Null
-          Copy-Item -LiteralPath $installer -Destination (Join-Path $packageRoot ("dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\installer") | Out-Null
+          Copy-Item -LiteralPath $installer -Destination (Join-Path $packageRoot ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
           Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
 
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
@@ -117,7 +114,7 @@ jobs:
           $extractRoot = Join-Path $PWD "_release_verify"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
-          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH\\dist\\installer\\PrintVault_3MF_v" + $version + "_Setup.exe"
+          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH\dist\installer\PrintVault_3MF_v + $version + "_Setup.exe"
           $extractedInstaller = Join-Path $extractRoot $expectedRelative
           if (-not (Test-Path -LiteralPath $extractedInstaller -PathType Leaf)) {
             throw "RemotePatch ZIP structure invalid. Expected: $expectedRelative"
@@ -223,7 +220,7 @@ jobs:
           }
 
           $manifestResponse = Invoke-RestMethod -Uri $manifestApi -Headers $headers -Method Get
-          $manifestJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($manifestResponse.content -replace "\\s","")))
+          $manifestJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($manifestResponse.content -replace '\s','')))
           $publishedManifest = $manifestJson | ConvertFrom-Json
 
           if ($publishedManifest.version -ne $version) { throw "Manifest version mismatch." }
