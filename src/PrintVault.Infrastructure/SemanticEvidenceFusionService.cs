@@ -252,6 +252,41 @@ public sealed class SemanticEvidenceFusionService
             classification = Math.Max(classification, entity.Confidence);
             basis = "Named entity + classification mapping";
         }
+        else if (strongSourceDerivedAnalyzer)
+        {
+            // Arbitration rule: once the rebuilt analyzer has crossed its semantic threshold
+            // and supplied a complete source-derived category/type/subtype, generic lexical
+            // cues are corroboration only. They cannot replace a stronger semantic channel.
+            // This prevents words such as "dragon", "cat", "castle", "revolver", etc. from
+            // overriding a file-level semantic result such as HueForge, Keychains, Workshop,
+            // or another source-derived domain.
+            category = analyzerCategory;
+            type = model.SemanticType;
+            subtype = model.Subtype;
+            family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
+            var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
+            classification = Math.Max(classification, analyzerConfidence);
+            identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 78, 91));
+            if (cueHits.Count > 0 && best.Hits.Length > 0)
+            {
+                var lexicalCategory = best.Cue.Category;
+                if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
+                {
+                    basis = "Source-derived analyzer + lexical corroboration";
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                }
+                else
+                {
+                    basis = "Source-derived analyzer arbitration";
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Analyzer arbitration: {analyzerCategory} outranks lexical category {lexicalCategory}");
+                }
+            }
+            else
+            {
+                basis = "Source-derived analyzer semantics";
+            }
+        }
         else if (cueHits.Count > 0 && best.Hits.Length > 0)
         {
             var cue = best.Cue;
@@ -265,12 +300,12 @@ public sealed class SemanticEvidenceFusionService
         else if (hasSourceDerivedAnalyzer)
         {
             // The analyzer result is now a clean source-derived semantic channel. Reuse it
-            // only as a fallback when the independent lexical/entity layers have no stronger
-            // inference. Never use Tags, SuggestedTags, or this fusion result as evidence.
+            // when no stronger entity, role, or lexical inference is available. Never use
+            // Tags, SuggestedTags, or this fusion result as evidence.
             category = analyzerCategory;
             type = string.IsNullOrWhiteSpace(model.SemanticType) ? type : model.SemanticType;
             subtype = string.IsNullOrWhiteSpace(model.Subtype) ? subtype : model.Subtype;
-            family = string.IsNullOrWhiteSpace(model.Family) ? family : model.Family;
+            family = string.IsNullOrWhiteSpace(model.Family) ? model.Family : model.Family;
             var analyzerConfidence = Math.Clamp(70 + (int)Math.Round(model.IntelligenceScore * 25), 70, 95);
             classification = Math.Max(classification, analyzerConfidence);
             identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 66, 91));
@@ -318,7 +353,7 @@ public sealed class SemanticEvidenceFusionService
         // is sufficient to establish the broad aircraft classification even when the
         // lexical cue table does not contain that exact model name (for example F-16).
         // This is a generalized classification rule, not a per-model exception.
-        if (aviationConvergence && entity is null)
+        if (aviationConvergence && entity is null && !strongSourceDerivedAnalyzer)
         {
             category = "Vehicles";
             type = "Vehicle";
@@ -357,7 +392,7 @@ public sealed class SemanticEvidenceFusionService
         // evidence even when the named-entity dictionary does not recognize the exact model.
         // This is intentionally domain-general within the aviation evidence family; it is
         // not a special case for A-10. Context-only signals still contribute nothing here.
-        if (aviationConvergence)
+        if (aviationConvergence && !strongSourceDerivedAnalyzer)
         {
             identity = Math.Max(identity, 88);
             classification = Math.Max(classification, 90);
