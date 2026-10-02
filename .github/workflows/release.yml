@@ -199,6 +199,9 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
         run: |
           $version = (Get-Content ".\\VERSION" -Raw).Trim()
+          $zip = "PrintVault_3MF_v" + $version + "_PATCH.zip"
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $PWD $zip)).Hash
+          $releaseUrl = "https://github.com/" + $env:RELEASE_REPO + "/releases/download/v" + $version + "/" + $zip
           $releaseApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/releases/tags/v" + $version
           $manifestApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/contents/manifest.json?ref=main"
           $headers = @{
