@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PrintVault.Core;
 
 namespace PrintVault.Infrastructure;
@@ -152,14 +153,22 @@ public sealed class WholeLibraryRootCauseAnalysisService
     }
 
     private static bool IsObjectRoleMismatch(string text, ModelRecord m, SemanticEvidenceFusionResult f)
-        => text.Contains("stand", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("base", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("holder", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("mount", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("rack", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("display", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("support", StringComparison.OrdinalIgnoreCase) ||
-           text.Contains("frame", StringComparison.OrdinalIgnoreCase);
+    {
+        // Root-cause classification must not treat substrings such as "database", "mountain",
+        // or "understand" as object-role evidence. Use lexical boundaries and the actual
+        // purpose/storage phrases instead. This diagnostic pass remains read-only.
+        var roleTerms = new[]
+        {
+            "stand", "base", "holder", "mount", "rack", "display", "support", "frame",
+            "stand for", "base for", "holder for", "mount for", "rack for", "display stand",
+            "display base", "support stand", "support bracket", "mounting bracket"
+        };
+        return roleTerms.Any(term =>
+        {
+            var pattern = $@"(?<![\\p{{L}}\\p{{N}}]){Regex.Escape(term)}(?![\\p{{L}}\\p{{N}}])";
+            return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        });
+    }
 
     private static bool ContainsFolderLikeCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) && category.Contains("/", StringComparison.Ordinal);
