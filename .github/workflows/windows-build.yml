@@ -113,23 +113,14 @@ jobs:
 
 
 
+
       - name: Determine production release eligibility
         id: release_gate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           $version = (Get-Content ".\VERSION" -Raw).Trim()
-          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+
-        uses: actions/upload-artifact@v4
-        with:
-          name: PrintVault-${{ hashFiles('VERSION') }}
-          path: |
-            dist/installer/*.exe
-            dist/PrintVault/PrintVault.exe
-            build_logs/build_output.log
-            build_logs/version_preflight.log
-          if-no-files-found: error
-) {
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
             throw "Invalid VERSION: $version"
           }
           $versionChanged = -not [string]::IsNullOrWhiteSpace((git diff --name-only HEAD^ HEAD -- VERSION))
@@ -146,7 +137,7 @@ jobs:
         if: steps.release_gate.outputs.should_release == 'true'
         shell: pwsh
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN $}}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
             throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
@@ -156,14 +147,14 @@ jobs:
         if: steps.release_gate.outputs.should_release == 'true'
         shell: pwsh
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN $}}
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version }}" -SourceSha "${{ github.sha }}"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version $}}" -SourceSha "${{ github.sha $}}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PrintVault-${{ hashFiles('VERSION') }}
+          name: PrintVault-${{ hashFiles('VERSION') $}}
           path: |
             dist/installer/*.exe
             dist/PrintVault/PrintVault.exe
