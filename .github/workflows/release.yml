@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example 9.0.36'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +19,8 @@ jobs:
     runs-on: windows-latest
     env:
       RELEASE_REPO: mtheck01/PrintVault-Updates
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
     steps:
       - name: Checkout tagged source
@@ -45,14 +53,202 @@ jobs:
           }
           Write-Host "Inno Setup compiler: $iscc"
 
-      - name: Validate tag matches VERSION
+      - name: Validate release version matches VERSION
         shell: pwsh
         run: |
           $version = (Get-Content ".\VERSION" -Raw).Trim()
-          $tag = "$env:GITHUB_REF_NAME".TrimStart("v")
-          if ($tag -ne $version) {
-            throw "Tag/version mismatch. Tag=$tag VERSION=$version"
+          $releaseVersion = "$env:RELEASE_VERSION".Trim().TrimStart("v")
+          if ($releaseVersion -notmatch '^\d+\.\d+\.\d+
+
+      - name: Release preflight
+        shell: pwsh
+        run: |
+          $tagVersion = "$env:RELEASE_VERSION".TrimStart("v")
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD" -ExpectedVersion "$tagVersion"
+          if ($LASTEXITCODE -ne 0) { throw "Release preflight failed for $tagVersion." }
+
+      - name: Static audit
+        shell: pwsh
+        run: python ".\tools\static_audit.py"
+
+      - name: Contract and source tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            ".\tools\test_release_preflight_contract.py",
+            ".\tools\test_source_integrity.py",
+            ".\tools\test_challenge_version_consistency.py",
+            ".\tools\test_xaml_cs_integrity.py",
+            ".\tools\test_ui_features.py",
+            ".\tools\test_ui_navigation.py",
+            ".\tools\test_scan_modes.py",
+            ".\tools\test_scan_progress.py"
+          )
+          foreach ($test in $tests) {
+            Write-Host "RUNNING $test"
+            python $test
+            if ($LASTEXITCODE -ne 0) { throw "Test failed: $test" }
           }
+
+      - name: Build installer
+        shell: cmd
+        env:
+          PRINTVAULT_CI: '1'
+        run: build_windows.bat
+
+      - name: Package RemotePatch ZIP
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          $packageRoot = Join-Path $PWD ("PrintVault_3MF_v" + $version + "_PATCH")
+          $zip = Join-Path $PWD ("PrintVault_3MF_v" + $version + "_PATCH.zip")
+
+          Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+
+          $installer = Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Installer artifact missing: $installer"
+          }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\installer") | Out-Null
+          Copy-Item -LiteralPath $installer -Destination (Join-Path $packageRoot ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
+          Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
+
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+
+          $extractRoot = Join-Path $PWD "_release_verify"
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
+          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe"
+          $extractedInstaller = Join-Path $extractRoot $expectedRelative
+          if (-not (Test-Path -LiteralPath $extractedInstaller -PathType Leaf)) {
+            throw "RemotePatch ZIP structure invalid. Expected: $expectedRelative"
+          }
+
+          Write-Host "VERSION=$version"
+          Write-Host "ZIP=$zip"
+          Write-Host "SHA256=$hash"
+          Write-Host "ZIP STRUCTURE=PASS"
+
+      - name: Require distribution token
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
+            throw "Missing PRINTVAULT_RELEASE_TOKEN repository secret."
+          }
+
+      - name: Publish distribution release
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: ${{ env.RELEASE_REPO }}
+          token: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: PrintVault 3MF ${{ env.RELEASE_TAG }}
+          body: |
+            Automated PrintVault 3MF release generated from the version-controlled source repository.
+
+            The release ZIP is SHA-256 verified before publication and is compatible with the PrintVault Remote Patch Agent.
+          files: PrintVault_3MF_v*_PATCH.zip
+          fail_on_unmatched_files: true
+
+      - name: Update RemotePatch manifest
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          $zip = "PrintVault_3MF_v" + $version + "_PATCH.zip"
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $PWD $zip)).Hash
+          $manifestPath = "manifest.json"
+          $api = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/contents/" + $manifestPath
+          $headers = @{
+            Authorization = "Bearer " + $env:RELEASE_TOKEN
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2026-03-10"
+            "User-Agent" = "PrintVault-Release-Automation"
+          }
+
+          $current = Invoke-RestMethod -Uri $api -Headers $headers -Method Get
+          $releaseUrl = "https://github.com/" + $env:RELEASE_REPO + "/releases/download/v" + $version + "/" + $zip
+
+          $manifest = [ordered]@{
+            version = $version
+            packageUrl = $releaseUrl
+            sha256 = $sha
+            installerRelativePath = "PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe"
+            installerArguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-"
+          }
+
+          $json = $manifest | ConvertTo-Json -Depth 5
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($json + [Environment]::NewLine)
+          $base64 = [Convert]::ToBase64String($bytes)
+
+          $body = @{
+            message = "Update RemotePatch manifest to " + $version
+            content = $base64
+            sha = $current.sha
+            branch = "main"
+          } | ConvertTo-Json
+
+          Invoke-RestMethod -Uri $api -Headers $headers -Method Put -Body $body -ContentType "application/json"
+
+          Write-Host "Published manifest for $version"
+          Write-Host "Package URL: $releaseUrl"
+          Write-Host "SHA256: $sha"
+
+      - name: Verify published release and manifest
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+        run: |
+          $version = (Get-Content ".\\VERSION" -Raw).Trim()
+          $zip = "PrintVault_3MF_v" + $version + "_PATCH.zip"
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $PWD $zip)).Hash
+          $releaseUrl = "https://github.com/" + $env:RELEASE_REPO + "/releases/download/v" + $version + "/" + $zip
+          $releaseApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/releases/tags/v" + $version
+          $manifestApi = "https://api.github.com/repos/" + $env:RELEASE_REPO + "/contents/manifest.json?ref=main"
+          $headers = @{
+            Authorization = "Bearer " + $env:RELEASE_TOKEN
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2026-03-10"
+            "User-Agent" = "PrintVault-Release-Automation"
+          }
+
+          $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
+          if ($release.tag_name -ne ("v" + $version)) {
+            throw "Published release tag mismatch. Expected v$version, found $($release.tag_name)"
+          }
+
+          $assetName = "PrintVault_3MF_v" + $version + "_PATCH.zip"
+          $asset = @($release.assets | Where-Object { $_.name -eq $assetName })
+          if ($asset.Count -ne 1) {
+            throw "Expected exactly one published release asset named $assetName; found $($asset.Count)."
+          }
+
+          $manifestResponse = Invoke-RestMethod -Uri $manifestApi -Headers $headers -Method Get
+          $manifestJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($manifestResponse.content -replace '\s','')))
+          $publishedManifest = $manifestJson | ConvertFrom-Json
+
+          if ($publishedManifest.version -ne $version) { throw "Manifest version mismatch." }
+          if ($publishedManifest.sha256 -ne $sha) { throw "Manifest SHA-256 mismatch." }
+          if ($publishedManifest.packageUrl -ne $releaseUrl) { throw "Manifest packageUrl mismatch." }
+          if ($publishedManifest.installerRelativePath -ne ("PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe")) {
+            throw "Manifest installerRelativePath mismatch."
+          }
+
+          Write-Host "PUBLISHED RELEASE=PASS"
+          Write-Host "MANIFEST VERIFICATION=PASS"
+
+) {
+            throw "Invalid release version: $releaseVersion"
+          }
+          if ($releaseVersion -ne $version) {
+            throw "Release/version mismatch. Requested=$releaseVersion VERSION=$version"
+          }
+          Write-Host "Release version validated: $releaseVersion"
 
       - name: Release preflight
         shell: pwsh
