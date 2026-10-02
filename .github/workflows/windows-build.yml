@@ -67,7 +67,8 @@ jobs:
             ".\tools\test_ui_navigation.py",
             ".\tools\test_scan_modes.py",
             ".\tools\test_scan_progress.py",
-            ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py"
+            ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py",
+            ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py"
           )
           foreach ($test in $tests) {
             Write-Host "RUNNING $test"
