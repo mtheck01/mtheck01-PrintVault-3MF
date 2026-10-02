@@ -235,11 +235,11 @@ public sealed class SemanticEvidenceFusionService
             if (entity is not null)
                 evidence.Add($"Referenced entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
         }
-        else if (explicitRole.Hits.Length > 0)
+        else if ((explicitRole.Hits?.Length ?? 0) > 0)
         {
             var role = explicitRole.Cue;
             category = role.Category; type = role.Type; subtype = role.Subtype; family = role.Family;
-            var roleConfidence = Math.Min(96, 66 + role.Weight + Math.Min(8, (explicitRole.Hits.Length - 1) * 4));
+            var roleConfidence = Math.Min(96, 66 + role.Weight + Math.Min(8, ((explicitRole.Hits?.Length ?? 0) - 1) * 4));
             identity = Math.Max(identity, Math.Min(90, roleConfidence - 5));
             classification = Math.Max(classification, roleConfidence);
             basis = $"Object role evidence: {role.Label}";
