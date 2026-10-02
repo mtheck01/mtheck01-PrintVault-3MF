@@ -1,0 +1,112 @@
+name: PrintVault Release Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout main source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y | Out-Host
+          $paths = @(
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles(x86)\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $paths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) { $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source }
+          if (-not $iscc) { throw "Inno Setup compiler was not found on the runner." }
+          Write-Host "Inno Setup compiler: $iscc"
+
+      - name: Validate source version
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION value: $version" }
+          Write-Host "Testing release pipeline for VERSION=$version"
+
+      - name: Release preflight
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD" -ExpectedVersion "$version"
+          if ($LASTEXITCODE -ne 0) { throw "Release preflight failed for $version." }
+
+      - name: Static audit
+        shell: pwsh
+        run: python ".\tools\static_audit.py"
+
+      - name: Contract and source tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            ".\tools\test_release_preflight_contract.py",
+            ".\tools\test_source_integrity.py",
+            ".\tools\test_challenge_version_consistency.py",
+            ".\tools\test_xaml_cs_integrity.py",
+            ".\tools\test_ui_features.py",
+            ".\tools\test_ui_navigation.py",
+            ".\tools\test_scan_modes.py",
+            ".\tools\test_scan_progress.py"
+          )
+          foreach ($test in $tests) {
+            Write-Host "RUNNING $test"
+            python $test
+            if ($LASTEXITCODE -ne 0) { throw "Test failed: $test" }
+          }
+
+      - name: Build installer
+        shell: cmd
+        env:
+          PRINTVAULT_CI: '1'
+        run: build_windows.bat
+
+      - name: Package and verify RemotePatch ZIP
+        shell: pwsh
+        run: |
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          $packageRoot = Join-Path $PWD ("PrintVault_3MF_v" + $version + "_PATCH")
+          $zip = Join-Path $PWD ("PrintVault_3MF_v" + $version + "_PATCH.zip")
+          Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+          $installer = Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")
+          if (-not (Test-Path -LiteralPath $installer)) { throw "Installer artifact missing: $installer" }
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "dist\installer") | Out-Null
+          Copy-Item -LiteralPath $installer -Destination (Join-Path $packageRoot ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")) -Force
+          Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+          $zipSize = (Get-Item -LiteralPath $zip).Length
+          $expectedInstaller = "PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe"
+          $extract = Join-Path $PWD "_release_test_extract"
+          Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+          $inside = Join-Path $extract $expectedInstaller
+          if (-not (Test-Path -LiteralPath $inside)) { throw "RemotePatch ZIP structure is invalid. Expected: $expectedInstaller" }
+          Write-Host "RELEASE TEST PASS"
+          Write-Host "VERSION=$version"
+          Write-Host "ZIP_SIZE=$zipSize"
+          Write-Host "SHA256=$sha"
+          Write-Host "INSTALLER_PATH=$expectedInstaller"
+
+      - name: Upload release-test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintVault-Release-Test
+          path: PrintVault_3MF_v*_PATCH.zip
+          if-no-files-found: error
