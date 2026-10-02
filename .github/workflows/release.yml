@@ -48,7 +48,10 @@ jobs:
 
       - name: Release preflight
         shell: pwsh
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
+        run: |
+          $tagVersion = "$env:GITHUB_REF_NAME".TrimStart("v")
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD" -ExpectedVersion "$tagVersion"
+          if ($LASTEXITCODE -ne 0) { throw "Release preflight failed for $tagVersion." }
 
       - name: Static audit
         shell: pwsh
