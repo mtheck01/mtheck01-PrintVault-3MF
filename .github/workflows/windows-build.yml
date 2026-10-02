@@ -137,7 +137,7 @@ jobs:
         if: steps.release_gate.outputs.should_release == 'true'
         shell: pwsh
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN $}}
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
             throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
@@ -147,14 +147,14 @@ jobs:
         if: steps.release_gate.outputs.should_release == 'true'
         shell: pwsh
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN $}}
+          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version $}}" -SourceSha "${{ github.sha $}}"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version }}" -SourceSha "${{ github.sha }}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PrintVault-${{ hashFiles('VERSION') $}}
+          name: PrintVault-${{ hashFiles('VERSION') }}
           path: |
             dist/installer/*.exe
             dist/PrintVault/PrintVault.exe
