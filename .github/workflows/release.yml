@@ -114,7 +114,7 @@ jobs:
           $extractRoot = Join-Path $PWD "_release_verify"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
-          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH\dist\installer\PrintVault_3MF_v + $version + "_Setup.exe"
+          $expectedRelative = "PrintVault_3MF_v" + $version + "_PATCH/dist/installer/PrintVault_3MF_v" + $version + "_Setup.exe"
           $extractedInstaller = Join-Path $extractRoot $expectedRelative
           if (-not (Test-Path -LiteralPath $extractedInstaller -PathType Leaf)) {
             throw "RemotePatch ZIP structure invalid. Expected: $expectedRelative"
