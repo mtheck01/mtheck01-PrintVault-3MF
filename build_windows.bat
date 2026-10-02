@@ -194,6 +194,7 @@ echo Installer: %INSTALLER%
 echo Application: %APPDIST%\PrintVault.exe
 echo Log: %LOG%
 echo.
+if /I "%PRINTVAULT_CI%"=="1" exit /b 0
 pause
 exit /b 0
 
@@ -218,5 +219,6 @@ echo BUILD FAILED
 echo Full log: %LOG%
 echo The window will remain open.
 echo.
+if /I "%PRINTVAULT_CI%"=="1" exit /b 1
 pause
 exit /b 1
