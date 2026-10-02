@@ -158,7 +158,6 @@ public sealed class SemanticEvidenceFusionService
         var evidence = new List<string>();
         var organizerRoleHits = OrganizerRoleTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var referencedToolHits = ReferencedToolTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var explicitRole = roleHits.FirstOrDefault();
         var isToolOrganizer = organizerRoleHits.Length > 0;
 
         if (entity is not null)
@@ -181,6 +180,7 @@ public sealed class SemanticEvidenceFusionService
             .Where(x => x.Hits.Length > 0)
             .OrderByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
             .ToList();
+        var explicitRole = roleHits.FirstOrDefault();
 
         var best = cueHits.FirstOrDefault();
         var aviationIdentityHits = AviationIdentityTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
