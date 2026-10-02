@@ -407,25 +407,44 @@ public sealed class SemanticEvidenceFusionService
         if (context > 0)
             evidence.Add($"Context-only signals: {context} (not identity evidence)");
 
-        // A conflicting stored category keeps a lexical inference in REVIEW. Named entities
-        // remain authoritative because they already carry domain-specific identity confidence.
-        var storedConflict = entity is null && !string.IsNullOrWhiteSpace(model.Category) &&
-                             !string.IsNullOrWhiteSpace(category) &&
-                             !string.Equals(model.Category, category, StringComparison.OrdinalIgnoreCase);
-        // A strong lexical/domain convergence is independently corroborated unless it
-        // conflicts with an existing stored category. This removes the prior dependence
-        // on the named-entity dictionary while retaining the conflict safety gate.
-        var analyzerTranslationConvergenceClearsReview = strongSourceDerivedAnalyzer && hasTranslation &&
-                                                         !storedConflict && classification >= 82 && quality >= 75;
-        var analyzerConvergenceClearsReview = strongSourceDerivedAnalyzer && !storedConflict &&
-                                              classification >= 85 && quality >= 75;
-        var convergenceClearsReview = aviationConvergence && !storedConflict;
-        var review = storedConflict || (!convergenceClearsReview && !analyzerTranslationConvergenceClearsReview &&
-            !analyzerConvergenceClearsReview && entity is null && (identity < 85 || classification < 85));
-        if (review) evidence.Add(storedConflict
-            ? "Review recommended: inferred classification conflicts with stored category"
-            : "Review recommended: evidence is incomplete or not independently corroborated");
-        else evidence.Add("Evidence is independently corroborated");
+        // Separate actionable contradiction from absence of evidence.
+        //
+        // The previous policy turned every low-confidence record into a review item, even
+        // when the inferred category was identical to the stored category. That inflated
+        // the whole-library "insufficient evidence" population without producing an action
+        // a reviewer could take.
+        //
+        // Review now means there is an actionable semantic disagreement. Lack of evidence
+        // is represented explicitly as unresolved, not as a false conflict. Stored
+        // classification never contributes confidence or corroboration.
+        var storedCategory = model.Category?.Trim() ?? "";
+        var hasStoredCategory = !string.IsNullOrWhiteSpace(storedCategory);
+        var hasInferredCategory = !string.IsNullOrWhiteSpace(category);
+        var categoriesDiffer = hasStoredCategory && hasInferredCategory &&
+                               !string.Equals(storedCategory, category, StringComparison.OrdinalIgnoreCase);
+        var actionableConflict = categoriesDiffer &&
+                                 !string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase);
+        var strongAlternative = entity is not null ||
+                                strongSourceDerivedAnalyzer ||
+                                aviationConvergence ||
+                                (cueHits.Count > 0 && best.Hits.Length > 0 && classification >= 85);
+        var review = actionableConflict || (strongAlternative && categoriesDiffer);
+        if (review)
+        {
+            evidence.Add("Review recommended: independent evidence conflicts with stored classification");
+        }
+        else if (!hasInferredCategory || string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase))
+        {
+            evidence.Add("Unresolved: no sufficiently specific semantic classification was established");
+        }
+        else if (hasStoredCategory && string.Equals(storedCategory, category, StringComparison.OrdinalIgnoreCase))
+        {
+            evidence.Add("Classification agrees with stored category; no actionable conflict");
+        }
+        else
+        {
+            evidence.Add("Classification established without a stored-category conflict");
+        }
 
         return new SemanticEvidenceFusionResult(category, type, subtype, family,
             Math.Clamp(identity, 0, 100), Math.Clamp(classification, 0, 100), quality, basis, review,
