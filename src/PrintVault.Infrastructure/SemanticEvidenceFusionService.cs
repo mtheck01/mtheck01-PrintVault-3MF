@@ -48,6 +48,9 @@ public sealed class SemanticEvidenceFusionService
         return true;
     }
 
+    // Broad, high-precision lexical evidence recovered from the whole-library forensic
+    // pass. These signals use model title/translated title only; folders, tags and stored
+    // classifications are never used as lexical evidence.
     private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] Cues =
     {
         (new[]{"a-10 thunderbolt","a10 thunderbolt","a-10","a10","a-4 skyhawk","skyhawk","airbus","aircraft","airplane","fighter jet","fighter","little bird","ah-64","apache","harrier","p-38","p-51","pby-5a","f-111","an-225","a400m"}, "Vehicles", "Vehicle", "Aircraft", "Vehicle", 24, "aviation terminology"),
@@ -59,7 +62,18 @@ public sealed class SemanticEvidenceFusionService
         (new[]{"shelf","shelving","organizer","holder","mount"}, "Functional", "Functional", "Organizer / Holder", "Functional", 10, "functional terminology"),
         (new[]{"dragon","dog","cat","horse","goose","sheep","raccoon","snail","octopus","axolotl"}, "Figures & Characters", "Figure", "Creature", "Figure", 14, "creature terminology"),
         (new[]{"castle","house","building","tower","booknook"}, "Buildings", "Building", "Structure", "Building", 14, "building terminology"),
-        (new[]{"terrain","dungeon terrain","dungeon tile","wargaming terrain"}, "Tabletop Terrain", "Terrain", "Tabletop Terrain", "Terrain", 18, "terrain terminology")
+        (new[]{"terrain","dungeon terrain","dungeon tile","wargaming terrain"}, "Tabletop Terrain", "Terrain", "Tabletop Terrain", "Terrain", 18, "terrain terminology"),
+        (new[]{"figurine","miniature","minifig","character","superhero","villain","soldier","robot","dragon","dinosaur","horse","dog","cat","cow","seal","snake","snail","otter","manatee","hedgehog","skunk","lizard","bird","elephant","bulldog","falkor"}, "Figures & Characters", "Figure", "Character", "Figure", 17, "character/creature terminology"),
+        (new[]{"articulated dragon","articulated horse","articulated dog","articulated cat","articulated snake","articulated otter","articulated manatee","articulated hedgehog","articulated skunk","articulated lizard","articulated bird","articulated cow","articulated seal"}, "Figures & Characters", "Figure", "Articulated Creature", "Figure", 22, "articulated creature terminology"),
+        (new[]{"aircraft","airplane","helicopter","fighter jet","glider","drone","uav","tank","tractor","truck","pickup truck","semi truck","car","motorcycle","motorbike","bicycle","scooter","ship","boat","train","locomotive","rocket","rover","excavator","bulldozer","forklift","crane","b-wing","snowspeeder","sea fury","fokker"}, "Vehicles", "Vehicle", "Vehicle", "Vehicle", 18, "vehicle terminology"),
+        (new[]{"bracket","adapter","mount","hinge","enclosure","replacement","connector","spacer","gear","bearing","fixture","socket tray","tool tray","holder","rack"}, "Functional", "Functional", "Functional Part", "Functional", 18, "functional terminology"),
+        (new[]{"house","building","castle","tavern","church","temple","tower","fort","ruin","cabin","barn","shed"}, "Buildings", "Building", "Structure", "Building", 18, "building terminology"),
+        (new[]{"tree","forest","rock","boulder","mountain","cliff","hill","grass","bush","plant","foliage","mushroom","waterfall"}, "Nature & Scenery", "Scenery", "Natural Scenery", "Nature", 17, "scenery terminology"),
+        (new[]{"terrain","dungeon","dungeon tile","battlemap","battle map","wargame","tabletop","hex terrain","scatter terrain"}, "Tabletop Terrain", "Terrain", "Tabletop Terrain", "Terrain", 19, "tabletop terrain terminology"),
+        (new[]{"crate","barrel","chair","table","bed","chest","lamp","lantern","sign","fence","bench","bucket","bookshelf","shelf","shadowbox"}, "Props & Accessories", "Prop", "Accessory / Prop", "Prop", 15, "prop/accessory terminology"),
+        (new[]{"lithophane","sculpture","vase","ornament","statue","shadowbox"}, "Art & Decor", "Decor", "Art / Decor", "Decor", 18, "art/decor terminology"),
+        (new[]{"dice","dnd","chess","puzzle","toy","game","fidget","pokeball"}, "Toys & Games", "Game/Toy", "Game / Toy", "Game", 18, "game/toy terminology"),
+        (new[]{"organizer","storage","hook","hanger","drawer","container","soap dispenser","spool"}, "Household", "Functional", "Organization / Storage", "Household", 15, "household terminology")
     };
 
     private static readonly string[] ContextTerms = { "hueforge", "hue forge", "200x200", "200x200mm", "front", "back", "x1c", "p1s", "p1p", "kobra", "ams", "bambu" };
