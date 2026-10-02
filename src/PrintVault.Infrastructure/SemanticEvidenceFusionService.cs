@@ -51,6 +51,9 @@ public sealed class SemanticEvidenceFusionService
     // Broad, high-precision lexical evidence recovered from the whole-library forensic
     // pass. These signals use model title/translated title only; folders, tags and stored
     // classifications are never used as lexical evidence.
+    // Broad, high-precision lexical evidence recovered from the whole-library forensic
+    // pass. These signals use model title/translated title only; folders, tags and stored
+    // classifications are never used as lexical evidence.
     private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] Cues =
     {
         (new[]{"a-10 thunderbolt","a10 thunderbolt","a-10","a10","a-4 skyhawk","skyhawk","airbus","aircraft","airplane","fighter jet","fighter","little bird","ah-64","apache","harrier","p-38","p-51","pby-5a","f-111","an-225","a400m"}, "Vehicles", "Vehicle", "Aircraft", "Vehicle", 24, "aviation terminology"),
