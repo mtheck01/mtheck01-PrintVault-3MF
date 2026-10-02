@@ -37,7 +37,7 @@ try {
 }
 
 $manifestApi = "https://api.github.com/repos/$distributionRepo/contents/manifest.json"
-$current = Invoke-RestMethod -Uri "$manifestApi?ref=main" -Headers $headers -Method Get
+$current = Invoke-RestMethod -Uri "${manifestApi}?ref=main" -Headers $headers -Method Get
 $manifestText = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($current.content -replace '\s','')))
 $currentManifest = $manifestText | ConvertFrom-Json
 if ($currentManifest.version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Existing manifest version is invalid: $($currentManifest.version)" }
@@ -92,7 +92,7 @@ $body = @{
 Invoke-RestMethod -Uri $manifestApi -Headers $headers -Method Put -Body $body -ContentType "application/json"
 Write-Host "MANIFEST_PROMOTION=PASS"
 
-$finalResponse = Invoke-RestMethod -Uri "$manifestApi?ref=main" -Headers $headers -Method Get
+$finalResponse = Invoke-RestMethod -Uri "${manifestApi}?ref=main" -Headers $headers -Method Get
 $finalText = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($finalResponse.content -replace '\s','')))
 $finalManifest = $finalText | ConvertFrom-Json
 if ($finalManifest.version -ne $Version) { throw "Final manifest version mismatch." }
