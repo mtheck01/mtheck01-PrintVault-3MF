@@ -257,7 +257,14 @@ public sealed class SemanticEvidenceFusionService
 
         var quality = Math.Clamp(25 + convergence, 0, 100);
         if (hasSourceDerivedAnalyzer)
+        {
+            // Source-derived analyzer semantics are a legitimate evidence channel, but they
+            // are still one channel. Keep the base contribution bounded, then allow a second
+            // genuinely separate channel (translation) to raise evidence quality.
             quality = Math.Max(quality, Math.Clamp(55 + (int)Math.Round(model.IntelligenceScore * 35), 55, 90));
+            if (hasTranslation)
+                quality = Math.Max(quality, Math.Clamp(63 + (int)Math.Round(model.IntelligenceScore * 25), 63, 88));
+        }
         if (entity is not null)
             quality = Math.Max(quality, Math.Min(100, entity.Confidence));
 
@@ -289,10 +296,13 @@ public sealed class SemanticEvidenceFusionService
         // A strong lexical/domain convergence is independently corroborated unless it
         // conflicts with an existing stored category. This removes the prior dependence
         // on the named-entity dictionary while retaining the conflict safety gate.
+        var analyzerTranslationConvergenceClearsReview = hasSourceDerivedAnalyzer && hasTranslation &&
+                                                         !storedConflict && classification >= 82 && quality >= 75;
         var analyzerConvergenceClearsReview = hasSourceDerivedAnalyzer && !storedConflict &&
                                               classification >= 85 && quality >= 75;
         var convergenceClearsReview = aviationConvergence && !storedConflict;
-        var review = storedConflict || (!convergenceClearsReview && !analyzerConvergenceClearsReview && entity is null && (identity < 85 || classification < 85));
+        var review = storedConflict || (!convergenceClearsReview && !analyzerTranslationConvergenceClearsReview &&
+            !analyzerConvergenceClearsReview && entity is null && (identity < 85 || classification < 85));
         if (review) evidence.Add(storedConflict
             ? "Review recommended: inferred classification conflicts with stored category"
             : "Review recommended: evidence is incomplete or not independently corroborated");
