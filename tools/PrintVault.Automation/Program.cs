@@ -19,6 +19,12 @@ var expectedCatalog = args.Length > 2 && int.TryParse(args[2], out var parsed)
     ? parsed
     : 1758;
 
+bool IsBuiltInOrUnresolved(string? category) =>
+    string.IsNullOrWhiteSpace(category) ||
+    string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase) ||
+    BuiltInCategories.All.Contains(category.Trim(), StringComparer.OrdinalIgnoreCase);
+
 try
 {
     var repository = new LibraryRepository();
