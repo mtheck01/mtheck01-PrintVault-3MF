@@ -28,8 +28,9 @@ permissions:
   contents: write
 
 concurrency:
+  # Serialize cycles; never cancel an active validation run.
   group: printvault-autonomous-cycle
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   cycle:
@@ -80,6 +81,9 @@ jobs:
           $branch = "autonomous/cycle-$env:GITHUB_RUN_ID"
           git config user.name "PrintVault Autonomous Cycle"
           git config user.email "printvault-automation@users.noreply.github.com"
+          git fetch origin main --prune
+          $startingMainSha = (git rev-parse origin/main).Trim()
+          Write-Host "STARTING_MAIN_SHA=$startingMainSha"
           git switch -c $branch
 
           function Get-Version {
@@ -315,6 +319,11 @@ jobs:
             }
 
             if ($gate -eq "PASS" -and -not $needsRepair) {
+              git fetch origin main --prune
+              $currentMainSha = (git rev-parse origin/main).Trim()
+              Write-Host "PROMOTION_GUARD_START_SHA=$startingMainSha"
+              Write-Host "PROMOTION_GUARD_CURRENT_SHA=$currentMainSha"
+              if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
               exit 0
             }
@@ -324,6 +333,9 @@ jobs:
               if ($gate -eq "FAIL") { exit 20 }
 
               if ($publish) {
+                git fetch origin main --prune
+                $currentMainSha = (git rev-parse origin/main).Trim()
+                if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation. Refusing stale promotion." }
                 git add .
                 git commit -m "${version}: autonomous validated patch"
                 git push origin "HEAD:refs/heads/$branch"
