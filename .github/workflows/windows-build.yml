@@ -1,5 +1,7 @@
 name: PrintVault Windows Build
 
+# .NET 10 is the application foundation; release infrastructure remains unchanged.
+
 on:
   push:
     branches: [ main ]
@@ -25,10 +27,10 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Setup .NET 8
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Install Inno Setup
         shell: pwsh

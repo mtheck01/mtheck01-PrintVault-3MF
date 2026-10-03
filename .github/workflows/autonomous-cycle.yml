@@ -53,7 +53,9 @@ jobs:
           if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "dotnet is required." }
           if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "python is required." }
           Write-Host "RUNNER=$env:RUNNER_NAME"
-          dotnet --version
+          $dotnetVersion = [version]((& dotnet --version).Trim())
+          if ($dotnetVersion.Major -lt 10) { throw "PrintVault validation runner requires .NET 10 SDK or newer; found $dotnetVersion." }
+          Write-Host "DOTNET_VALIDATION_SDK=$dotnetVersion"
           python --version
 
       - name: Run autonomous cycle
@@ -330,7 +332,14 @@ jobs:
 
             if (-not $autoRepair -or $attempt -eq $maxAttempts) {
               Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
-              if ($gate -eq "FAIL") { exit 20 }
+
+              # FAIL-CLOSED: exhausting repair attempts is never a publish condition.
+              # Production promotion is permitted only by the explicit PASS gate above.
+              if ($gate -ne "PASS" -or $needsRepair) {
+                Write-Host "VALIDATION=FAIL_REPAIR_EXHAUSTED"
+                Write-Host "PUBLISH=BLOCKED"
+                exit 20
+              }
 
               if ($publish) {
                 git fetch origin main --prune
