@@ -78,8 +78,7 @@ try
 
             if (string.IsNullOrWhiteSpace(inferred) ||
                 string.Equals(inferred, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
-                model.CategoryOverride ||
-                !IsBuiltInOrUnresolved(model.Category))
+                model.CategoryOverride)
             {
                 if (model.CategoryOverride) skippedProtected++;
                 continue;
@@ -107,6 +106,9 @@ try
 
             var highConfidenceResolution = string.Equals(disposition, "RESOLUTION_CANDIDATE", StringComparison.OrdinalIgnoreCase) &&
                                             confidence >= 85;
+
+            if (!IsBuiltInOrUnresolved(model.Category) && !highConfidenceResolution)
+                continue;
 
             if (!strongUnresolvedLexical && !unresolvedFunctionalCandidate && !unresolvedRoleCandidate && !highConfidenceResolution)
                 continue;
