@@ -276,7 +276,15 @@ public sealed class LibraryEngine : ILibraryEngine
     private void ApplyHighConfidenceFusion(ModelRecord model)
     {
         if (model.CategoryOverride) return;
-        if (!BuiltInCategories.All.Contains(model.Category, StringComparer.OrdinalIgnoreCase)) return;
+
+        // Unresolved records are explicitly eligible for semantic promotion. Previously
+        // this guard rejected Uncategorized/Unknown before fusion could run, which meant
+        // the lexical engine could identify a strong category but the production rebuild
+        // could never apply it. User-defined/custom categories remain protected.
+        var unresolved = string.IsNullOrWhiteSpace(model.Category) ||
+                         string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase);
+        if (!unresolved && !BuiltInCategories.All.Contains(model.Category, StringComparer.OrdinalIgnoreCase)) return;
 
         var entity = new MultilingualEntityService().Recognize(model);
         var result = semanticFusion.Fuse(model, entity);
