@@ -157,6 +157,10 @@ jobs:
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
               Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
             if (-not $json) { throw "No whole-library JSON report found." }
+            $artifactDir = Join-Path $PWD "build_logs\reports"
+            New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($json.Name)
+            Get-ChildItem $reportDir -Filter "$base.*" | Copy-Item -Destination $artifactDir -Force
             return $json.FullName
           }
 
@@ -192,7 +196,7 @@ jobs:
 
               if ($publish) {
                 git add .
-                git commit -m "$version: autonomous validated patch"
+                git commit -m "${version}: autonomous validated patch"
                 git push origin "HEAD:refs/heads/$branch"
 
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$(git rev-parse HEAD)"
@@ -237,7 +241,7 @@ jobs:
           name: PrintVault-autonomous-cycle-${{ github.run_id }}
           path: |
             build_logs/**
-            C:\Users\*\AppData\Roaming\PrintVault\reports\whole-library-root-cause.*.json
-            C:\Users\*\AppData\Roaming\PrintVault\reports\whole-library-root-cause.*.csv
-            C:\Users\*\AppData\Roaming\PrintVault\reports\whole-library-root-cause.*.txt
+            build_logs\reports\whole-library-root-cause.*.json
+            build_logs\reports\whole-library-root-cause.*.csv
+            build_logs\reports\whole-library-root-cause.*.txt
           if-no-files-found: warn
