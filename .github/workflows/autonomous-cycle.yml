@@ -110,7 +110,8 @@ jobs:
               "test_semantic_evidence_arbitration_9_0_42.py",
               "test_semantic_evidence_architecture_9_0_43.py",
               "test_semantic_evidence_dimensional_arbitration_9_0_44.py",
-              "test_semantic_evidence_artifact_role_precision_9_0_45.py"
+              "test_semantic_evidence_artifact_role_precision_9_0_45.py",
+              "test_semantic_evidence_unresolved_category_gate_9_0_46.py"
             )
             foreach ($test in $tests) {
               python ".\tools\$test"
