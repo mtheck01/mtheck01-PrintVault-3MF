@@ -270,8 +270,10 @@ jobs:
                 git push origin "HEAD:refs/heads/$branch"
 
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$(git rev-parse HEAD)"
+                if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
 
                 git push origin "HEAD:refs/heads/main"
+                if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
                 Write-Host "PROMOTED_VERSION=$version"
               }
 
