@@ -45,3 +45,9 @@ try
 
     return 0;
 }
+catch (Exception ex)
+{
+    Console.Error.WriteLine("WHOLE_LIBRARY_AUTOMATION_EXCEPTION");
+    Console.Error.WriteLine(ex.ToString());
+    return 99;
+}
