@@ -219,7 +219,12 @@ jobs:
               $disposition = [string]$row.Disposition
               $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.Contains("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase)
               $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
-              if ($strongUnresolvedLexical -or $highConfidenceResolution) { $count++ }
+              $unresolvedRoleCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $confidence -ge 85 -and $evidence -ge 25 -and (
+                $basis.Contains("Object role evidence:",[System.StringComparison]::OrdinalIgnoreCase) -or
+                $basis.Contains("Generalized artifact role evidence",[System.StringComparison]::OrdinalIgnoreCase) -or
+                $basis.Contains("Role-aware artifact arbitration:",[System.StringComparison]::OrdinalIgnoreCase)
+              )
+              if ($strongUnresolvedLexical -or $unresolvedRoleCandidate -or $highConfidenceResolution) { $count++ }
             }
             return $count
           }
