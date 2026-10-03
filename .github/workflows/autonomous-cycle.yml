@@ -284,7 +284,7 @@ jobs:
             if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=FULL_LIBRARY_REBUILD"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
-              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair
+              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair $report $expectedCatalog
               $repairExit = $LASTEXITCODE
               if ($repairExit -ne 0) { throw "Deterministic full-library repair failed with exit code $repairExit." }
               $deterministicRepairAttempted = $true
