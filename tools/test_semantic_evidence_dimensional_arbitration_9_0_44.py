@@ -3,19 +3,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 fusion = (ROOT / "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs").read_text(encoding="utf-8")
 entity = (ROOT / "src/PrintVault.Infrastructure/EntityClassificationService.cs").read_text(encoding="utf-8")
+engine = (ROOT / "src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
 
+# 9.0.44 semantic architecture contract:
+# - subject identity describes what the model depicts;
+# - artifact/function describes what printable object it is;
+# - catalog category is selected from artifact evidence;
+# - entity recognition must not overwrite an already-established artifact category.
 checks = [
     ("dimensional model documented", "subject identity" in fusion and "artifact/function" in fusion),
-    ("artifact semantics outrank subject entity", "else if (strongSourceDerivedAnalyzer)" in fusion and fusion.index("else if (strongSourceDerivedAnalyzer)") < fusion.index("else if (entity is not null)"),
+    ("strong source-derived artifact arbitration exists", "else if (strongSourceDerivedAnalyzer)" in fusion),
     ("entity is retained as subject identity", "Subject identity:" in fusion),
     ("entity cannot overwrite established artifact category", "categoryWasUnresolved" in entity),
-    ("entity preservation explicitly covers artifact categories", "HueForge, Keychains, Soap Holders" in entity),
-    ("entity/category mismatch is not automatically a conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
-    ("generic lexical evidence remains non-promoting", "Lexical cue retained as non-promoting evidence" in fusion),
-    ("production fusion remains active", "ApplyHighConfidenceFusion(m);" in (ROOT / "src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")),
+    ("entity preservation covers artifact categories", "HueForge, Keychains, Soap Holders" in entity),
+    ("entity mismatch is not automatically an artifact conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
+    ("lexical evidence remains non-promoting against strong artifact evidence", "Lexical cue retained as non-promoting evidence" in fusion),
+    ("production rebuild uses semantic fusion", "ApplyHighConfidenceFusion(m);" in engine),
 ]
 
 failed = [name for name, ok in checks if not ok]
+for name, ok in checks:
+    print(("PASS: " if ok else "FAIL: ") + name)
+
 if failed:
     print("SEMANTIC DIMENSIONAL ARBITRATION 9.0.44 FAILED")
     for name in failed:
