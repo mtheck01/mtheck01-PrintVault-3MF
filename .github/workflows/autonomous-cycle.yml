@@ -104,7 +104,7 @@ jobs:
               "test_semantic_evidence_large_scale_fix_9_0_40.py",
               "test_semantic_evidence_arbitration_9_0_42.py",
               "test_semantic_evidence_architecture_9_0_43.py",
-              "test_semantic_evidence_dimensional_arbitration_9_0_44.py"
+              "test_semantic_evidence_dimensional_arbitration_9_0_44.py",
               "test_semantic_evidence_artifact_role_precision_9_0_45.py"
             )
             foreach ($test in $tests) {
@@ -193,8 +193,8 @@ jobs:
             if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
 
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
-            if ($r.Failed -ne 0) { return $false }
-            if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return $false }
+            if ($r.Failed -ne 0) { return "FAIL" }
+            if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return "FAIL" }
             if ($r.Conflicts -gt $baseline.conflicts) { return "FAIL" }
 
             $lexical = 0
@@ -213,7 +213,13 @@ jobs:
 
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
-            $version = Bump-PatchVersion
+            if ($attempt -eq 1) {
+              $version = Get-Version
+              Write-Host "INITIAL_CANDIDATE_VERSION=$version"
+            }
+            else {
+              $version = Bump-PatchVersion
+            }
             $candidate = Invoke-CandidateBuild
             Install-And-Smoke $candidate
             $report = Invoke-WholeLibrary
