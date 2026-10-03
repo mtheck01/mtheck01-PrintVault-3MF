@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PrintVault.Core;
 using PrintVault.Infrastructure;
 
@@ -32,30 +33,86 @@ try
             return 12;
         }
 
+        var reportPath = args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
+            ? Path.GetFullPath(args[1])
+            : "";
+        if (string.IsNullOrWhiteSpace(reportPath) || !File.Exists(reportPath))
+        {
+            Console.Error.WriteLine("REPAIR_ABORTED=REPORT_REQUIRED");
+            return 13;
+        }
+
+        var report = JsonDocument.Parse(File.ReadAllText(reportPath));
+        var rows = report.RootElement.GetProperty("rows");
+        var byId = models.ToDictionary(m => m.Id);
+        var changed = 0;
+        var unresolvedLexical = 0;
+        var resolutionCandidates = 0;
+        var skippedProtected = 0;
+
         var backup = repository.BackupDatabase();
         Console.WriteLine($"REPAIR_BACKUP={backup}");
         Console.WriteLine($"REPAIR_INPUT_CATALOG={models.Count}");
-        Console.WriteLine("REPAIR_MODE=CATEGORY_RECONCILIATION_ONLY");
+        Console.WriteLine("REPAIR_MODE=REPORT_DRIVEN_DETERMINISTIC_WRITEBACK");
+        Console.WriteLine($"REPAIR_REPORT={reportPath}");
 
-        var engine = new LibraryEngine();
-        var result = engine.ReconcileCategoriesAsync(
-            progress: new Progress<(int processed, int total, int reclassified, int failed)>(p =>
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (!row.TryGetProperty("Id", out var idNode) || !idNode.TryGetInt32(out var id) || !byId.TryGetValue(id, out var model))
+                continue;
+
+            var inferred = row.TryGetProperty("InferredCategory", out var inferredNode) ? inferredNode.GetString() ?? "" : "";
+            var stored = row.TryGetProperty("StoredCategory", out var storedNode) ? storedNode.GetString() ?? "" : "";
+            var disposition = row.TryGetProperty("Disposition", out var dispositionNode) ? dispositionNode.GetString() ?? "" : "";
+            var basis = row.TryGetProperty("Basis", out var basisNode) ? basisNode.GetString() ?? "" : "";
+            var evidence = row.TryGetProperty("Evidence", out var evidenceNode) ? evidenceNode.GetString() ?? "" : "";
+            var confidence = row.TryGetProperty("ClassificationConfidence", out var confidenceNode) && confidenceNode.TryGetInt32(out var c) ? c : 0;
+
+            if (string.IsNullOrWhiteSpace(inferred) ||
+                string.Equals(inferred, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                model.CategoryOverride ||
+                !IsBuiltInOrUnresolved(model.Category))
             {
-                if (p.processed == p.total || p.processed % 100 == 0)
-                    Console.WriteLine($"REPAIR_PROGRESS={p.processed}/{p.total} RECLASSIFIED={p.reclassified} FAILURES={p.failed}");
-            }))
-            .GetAwaiter().GetResult();
+                if (model.CategoryOverride) skippedProtected++;
+                continue;
+            }
 
-        Console.WriteLine($"REPAIR_CATALOG={result.Models}");
-        Console.WriteLine($"REPAIR_RECLASSIFIED={result.Reclassified}");
-        Console.WriteLine($"REPAIR_FAILURES={result.Failed}");
+            var storedUnresolved = string.IsNullOrWhiteSpace(stored) ||
+                                   string.Equals(stored, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(stored, "Unknown", StringComparison.OrdinalIgnoreCase);
 
-        if (result.Failed != 0) return 14;
-        if (result.Models != expectedCatalog) return 15;
+            var strongUnresolvedLexical = storedUnresolved &&
+                                          basis.StartsWith("Lexical evidence:", StringComparison.OrdinalIgnoreCase) &&
+                                          confidence >= 60 &&
+                                          evidence.Contains("Lexical cue:", StringComparison.OrdinalIgnoreCase);
 
+            var highConfidenceResolution = string.Equals(disposition, "RESOLUTION_CANDIDATE", StringComparison.OrdinalIgnoreCase) &&
+                                            confidence >= 85;
+
+            if (!strongUnresolvedLexical && !highConfidenceResolution)
+                continue;
+
+            if (string.Equals(model.Category, inferred, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            model.Category = inferred;
+            changed++;
+            if (strongUnresolvedLexical) unresolvedLexical++;
+            if (highConfidenceResolution) resolutionCandidates++;
+        }
+
+        repository.SaveAll(models, new HashSet<string>(models.Select(m => m.Path), StringComparer.OrdinalIgnoreCase));
         var persisted = repository.GetAll().Count;
+
+        Console.WriteLine($"REPAIR_RECLASSIFIED={changed}");
+        Console.WriteLine($"REPAIR_UNRESOLVED_LEXICAL={unresolvedLexical}");
+        Console.WriteLine($"REPAIR_RESOLUTION_CANDIDATES={resolutionCandidates}");
+        Console.WriteLine($"REPAIR_SKIPPED_PROTECTED={skippedProtected}");
+        Console.WriteLine($"REPAIR_CATALOG={models.Count}");
         Console.WriteLine($"REPAIR_PERSISTED_CATALOG={persisted}");
-        if (persisted != expectedCatalog) return 16;
+
+        if (models.Count != expectedCatalog) return 14;
+        if (persisted != expectedCatalog) return 15;
 
         Console.WriteLine("REPAIR=PASS");
         return 0;
