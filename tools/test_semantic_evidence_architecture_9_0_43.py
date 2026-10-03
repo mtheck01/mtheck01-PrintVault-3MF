@@ -8,7 +8,8 @@ assert "Separate actionable contradiction from absence of evidence." in fusion
 assert 'Unresolved: no sufficiently specific semantic classification was established' in fusion
 assert 'Classification agrees with stored category; no actionable conflict' in fusion
 assert 'var actionableConflict = categoriesDiffer' in fusion
-assert 'entity is not null ||' in fusion
+assert 'Subject identity:' in fusion
+assert 'strongSourceDerivedAnalyzer' in fusion
 assert 'strongSourceDerivedAnalyzer' in fusion
 
 # The semantic fusion engine must be part of the actual production rebuild path,
