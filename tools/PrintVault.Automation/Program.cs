@@ -25,35 +25,29 @@ try
 
     if (string.Equals(command, "repair", StringComparison.OrdinalIgnoreCase))
     {
-        var models = repository.GetAll()
-            .Where(m => !string.IsNullOrWhiteSpace(m.Path) && File.Exists(m.Path))
-            .ToList();
-
+        var models = repository.GetAll();
         if (models.Count == 0)
         {
-            Console.Error.WriteLine("REPAIR_ABORTED=NO_LIBRARY_FILES");
+            Console.Error.WriteLine("REPAIR_ABORTED=NO_LIBRARY_RECORDS");
             return 12;
-        }
-
-        var roots = InferCommonRoots(models.Select(m => m.Path));
-        if (roots.Count == 0)
-        {
-            Console.Error.WriteLine("REPAIR_ABORTED=LIBRARY_ROOT_NOT_DETERMINED");
-            return 13;
         }
 
         var backup = repository.BackupDatabase();
         Console.WriteLine($"REPAIR_BACKUP={backup}");
-        Console.WriteLine($"REPAIR_ROOTS={string.Join(";", roots)}");
         Console.WriteLine($"REPAIR_INPUT_CATALOG={models.Count}");
+        Console.WriteLine("REPAIR_MODE=CATEGORY_RECONCILIATION_ONLY");
 
         var engine = new LibraryEngine();
-        var result = engine.RebuildAsync(roots).GetAwaiter().GetResult();
+        var result = engine.ReconcileCategoriesAsync(
+            progress: new Progress<(int processed, int total, int reclassified, int failed)>(p =>
+            {
+                if (p.processed == p.total || p.processed % 100 == 0)
+                    Console.WriteLine($"REPAIR_PROGRESS={p.processed}/{p.total} RECLASSIFIED={p.reclassified} FAILURES={p.failed}");
+            }))
+            .GetAwaiter().GetResult();
 
         Console.WriteLine($"REPAIR_CATALOG={result.Models}");
         Console.WriteLine($"REPAIR_RECLASSIFIED={result.Reclassified}");
-        Console.WriteLine($"REPAIR_PRESERVED_CUSTOM={result.PreservedCustomCategories}");
-        Console.WriteLine($"REPAIR_DISCOVERED={result.Discovered}");
         Console.WriteLine($"REPAIR_FAILURES={result.Failed}");
 
         if (result.Failed != 0) return 14;
@@ -64,9 +58,6 @@ try
         if (persisted != expectedCatalog) return 16;
 
         Console.WriteLine("REPAIR=PASS");
-        return 0;
-    }
-
     Console.WriteLine($"EXPECTED_CATALOG={expectedCatalog}");
 
     var forensic = new WholeLibraryRootCauseAnalysisService(repository);
