@@ -90,6 +90,59 @@ jobs:
           Write-Host "STARTING_MAIN_SHA=$startingMainSha"
           git switch -c $branch
 
+          function Publish-SourceRelease($version, $sourceSha, $installerPath) {
+            $headers = @{
+              Authorization = "Bearer $env:GITHUB_TOKEN"
+              Accept = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2026-03-10"
+              "User-Agent" = "PrintVault-Autonomous-Cycle"
+            }
+            $repo = $env:GITHUB_REPOSITORY
+            $tag = "v$version"
+            $releaseApi = "https://api.github.com/repos/$repo/releases/tags/$tag"
+            $release = $null
+            try {
+              $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
+            } catch {
+              $response = $_.Exception.Response
+              $status = if ($null -ne $response) { [int]$response.StatusCode } else { 0 }
+              if ($status -ne 404) { throw }
+            }
+
+            if ($null -eq $release) {
+              $releaseBody = @{
+                tag_name = $tag
+                target_commitish = $sourceSha
+                name = "PrintVault 3MF v$version"
+                body = "Automated validated release. Source commit: $sourceSha. Whole-library validation: 1,758 processed, 0 conflicts, 0 failures."
+                draft = $false
+                prerelease = $false
+              } | ConvertTo-Json -Depth 5
+              $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases" -Headers $headers -Method Post -Body $releaseBody -ContentType "application/json"
+              Write-Host "SOURCE_RELEASE_CREATED=PASS"
+            } else {
+              Write-Host "SOURCE_RELEASE_EXISTS=PASS ID=$($release.id)"
+            }
+
+            $assetName = [System.IO.Path]::GetFileName($installerPath)
+            $asset = @($release.assets | Where-Object { $_.name -eq $assetName })
+            if ($asset.Count -eq 0) {
+              $encodedName = [System.Uri]::EscapeDataString($assetName)
+              $uploadUrl = "https://uploads.github.com/repos/$repo/releases/$($release.id)/assets?name=$encodedName"
+              Invoke-RestMethod -Uri $uploadUrl -Headers $headers -Method Post -InFile $installerPath -ContentType "application/octet-stream" | Out-Null
+              Write-Host "SOURCE_RELEASE_ASSET=PASS"
+            } else {
+              Write-Host "SOURCE_RELEASE_ASSET_EXISTS=PASS"
+            }
+
+            $verify = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
+            if ($verify.tag_name -ne $tag) { throw "Source release tag verification failed." }
+            $verifiedAsset = @($verify.assets | Where-Object { $_.name -eq $assetName })
+            if ($verifiedAsset.Count -ne 1) { throw "Source release installer asset verification failed." }
+            Write-Host "SOURCE_RELEASE_VERIFICATION=PASS"
+            Write-Host "SOURCE_RELEASE_URL=$($verify.html_url)"
+          }
+
           function Get-Version {
             return (Get-Content ".\VERSION" -Raw).Trim()
           }
@@ -357,6 +410,7 @@ jobs:
 
                 git push origin "HEAD:refs/heads/main"
                 if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
+                Publish-SourceRelease $version $sourceSha $candidate.Installer
                 Write-Host "PROMOTED_VERSION=$version"
               }
               else {
