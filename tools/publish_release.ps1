@@ -85,10 +85,7 @@ if ($asset.Count -eq 0) {
     Invoke-RestMethod -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
     Write-Host "RELEASE_ASSET_UPLOAD=PASS"
 } elseif ($asset.Count -eq 1) {
-    $existingAssetPath = Join-Path $rootPath "_existing_$zipName"
-    Invoke-WebRequest -Uri $asset[0].browser_download_url -Headers @{ "User-Agent" = "PrintVault-Release-Verification" } -OutFile $existingAssetPath
-    $existingSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $existingAssetPath).Hash.ToUpperInvariant()
-    Remove-Item -LiteralPath $existingAssetPath -Force -ErrorAction SilentlyContinue
+    $existingSha = ($asset[0].digest -replace '^sha256:','').ToUpperInvariant()
     if ($existingSha -eq $localSha) {
         Write-Host "RELEASE_ASSET_REUSED=PASS"
     } else {
@@ -105,8 +102,7 @@ if ($asset.Count -eq 0) {
 $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
 $asset = @($release.assets | Where-Object { $_.name -eq $zipName })
 if ($asset.Count -ne 1) { throw "Expected exactly one release asset named $zipName; found $($asset.Count)." }
-Invoke-WebRequest -Uri $asset[0].browser_download_url -Headers @{ "User-Agent" = "PrintVault-Release-Verification" } -OutFile $publishedPath
-$remoteSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $publishedPath).Hash.ToUpperInvariant()
+$remoteSha = ($asset[0].digest -replace '^sha256:','').ToUpperInvariant()
 if ($remoteSha -ne $localSha) { throw "Published package SHA-256 mismatch. Local=$localSha Remote=$remoteSha" }
 Write-Host "PUBLISHED_RELEASE=PASS"
 Write-Host "PUBLISHED_SHA256=$remoteSha"
