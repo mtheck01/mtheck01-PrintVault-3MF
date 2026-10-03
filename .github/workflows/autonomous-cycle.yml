@@ -6,6 +6,9 @@ on:
   schedule:
     # Poll frequently enough to pick up API-created commits that do not emit push workflow events.
     - cron: "*/10 * * * *"
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       max_attempts:
