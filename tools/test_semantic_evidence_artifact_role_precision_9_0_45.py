@@ -34,7 +34,8 @@ checks = [
     ("generalized role matcher exists", "TryGetFunctionalArtifactRole" in fusion),
     ("role grammar requires a subject", 'subjectTokens.Length == 0 || subjectTokens.Length > 6' in fusion),
     ("role matcher uses Unicode token boundaries", "\\p{{L}}" in fusion and "\\p{{N}}" in fusion),
-    ("all high-impact role suffixes are covered", all(term in fusion for term in required_suffixes)),
+    ("high-impact role suffixes are represented", all(term in fusion for term in required_suffixes if term not in ['"case"', '"cover"', '"support"', '"base"'])),
+    ("ambiguous role suffixes are explicitly contextualized", "ContextualArtifactRoleSuffixes" in fusion and "HasContextualArtifactRole" in fusion),
     ("role classification is Functional", 'category = "Functional";' in fusion and 'family = "Functional";' in fusion),
     ("role confidence is strong", "classification = Math.Max(classification, 94);" in fusion),
     ("role evidence is explicit", "Role-aware artifact arbitration:" in fusion),
@@ -42,6 +43,7 @@ checks = [
         fusion.index("else if (hasGeneralizedArtifactRole)") <
         fusion.index("else if (cueHits.Count > 0 && best.Hits.Length > 0)")),
     ("subject lexical cues are explicitly prevented from winning", "subject-domain lexical cues" in fusion),
+    ("generic suffixes cannot promote without context", "ContextualArtifactRoleSuffixes.Contains(role" in fusion and "HasContextualArtifactRole(subject, role)" in fusion),
     ("bounded role grammar is not a free-form contains rule", "not a free-form" in fusion),
 ]
 
