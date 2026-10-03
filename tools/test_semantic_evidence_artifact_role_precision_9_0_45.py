@@ -33,7 +33,7 @@ checks = [
     ("bounded artifact-role grammar exists", "ArtifactRoleSuffixes" in fusion),
     ("generalized role matcher exists", "TryGetFunctionalArtifactRole" in fusion),
     ("role grammar requires a subject", 'subjectTokens.Length == 0 || subjectTokens.Length > 6' in fusion),
-    ("role matcher uses Unicode token boundaries", r"\\p{{L}}" in fusion and r"\\p{{N}}" in fusion),
+    ("role matcher uses Unicode token boundaries", "\\p{L}" in fusion and "\\p{N}" in fusion),
     ("all high-impact role suffixes are covered", all(term in fusion for term in required_suffixes)),
     ("role classification is Functional", 'category = "Functional";' in fusion and 'family = "Functional";' in fusion),
     ("role confidence is strong", "classification = Math.Max(classification, 94);" in fusion),
