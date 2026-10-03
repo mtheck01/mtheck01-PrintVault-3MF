@@ -330,7 +330,14 @@ jobs:
 
             if (-not $autoRepair -or $attempt -eq $maxAttempts) {
               Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
-              if ($gate -eq "FAIL") { exit 20 }
+
+              # FAIL-CLOSED: exhausting repair attempts is never a publish condition.
+              # Production promotion is permitted only by the explicit PASS gate above.
+              if ($gate -ne "PASS" -or $needsRepair) {
+                Write-Host "VALIDATION=FAIL_REPAIR_EXHAUSTED"
+                Write-Host "PUBLISH=BLOCKED"
+                exit 20
+              }
 
               if ($publish) {
                 git fetch origin main --prune
