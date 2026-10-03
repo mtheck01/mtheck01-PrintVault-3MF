@@ -107,10 +107,24 @@ try
             var highConfidenceResolution = string.Equals(disposition, "RESOLUTION_CANDIDATE", StringComparison.OrdinalIgnoreCase) &&
                                             confidence >= 85;
 
-            if (!IsBuiltInOrUnresolved(model.Category) && !highConfidenceResolution)
+            // Legacy/custom folder categories are not semantic classifications. When an
+            // unprotected record has a strong built-in inference, migrate it deterministically
+            // instead of spending an AI repair call on a known taxonomy migration problem.
+            // Manual CategoryOverride records remain protected above.
+            var legacyCategoryMigration = !IsBuiltInOrUnresolved(model.Category) &&
+                                          BuiltInCategories.All.Contains(inferred.Trim(), StringComparer.OrdinalIgnoreCase) &&
+                                          confidence >= 60 &&
+                                          evidenceQuality >= 25 &&
+                                          (basis.StartsWith("Lexical evidence:", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Object role evidence:", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Generalized artifact role evidence", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Role-aware artifact arbitration:", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase));
+
+            if (!IsBuiltInOrUnresolved(model.Category) && !highConfidenceResolution && !legacyCategoryMigration)
                 continue;
 
-            if (!strongUnresolvedLexical && !unresolvedFunctionalCandidate && !unresolvedRoleCandidate && !highConfidenceResolution)
+            if (!strongUnresolvedLexical && !unresolvedFunctionalCandidate && !unresolvedRoleCandidate && !highConfidenceResolution && !legacyCategoryMigration)
                 continue;
 
             if (string.Equals(model.Category, inferred, StringComparison.OrdinalIgnoreCase))
