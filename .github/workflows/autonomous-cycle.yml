@@ -238,10 +238,8 @@ jobs:
             $gate = Test-RegressionGate $report
             if ($gate -eq "BASELINE") {
               Write-Host "REGRESSION_GATE=BASELINE_MATCH"
-              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
-                Write-Host "VALIDATION=PASS_NO_CHANGE"
-                exit 0
-              }
+              Write-Host "VALIDATION=PASS_NO_CHANGE"
+              exit 0
             }
             elseif ($gate -eq "PASS") {
               Write-Host "REGRESSION_GATE=PASS"
