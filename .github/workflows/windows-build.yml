@@ -61,32 +61,61 @@ jobs:
         run: |
           python ".\tools\static_audit.py"
 
-      - name: Contract and source tests
+      - name: Test test_release_preflight_contract
         shell: pwsh
-        run: |
-          $tests = @(
-            ".\tools\test_release_preflight_contract.py",
-            ".\tools\test_source_integrity.py",
-            ".\tools\test_challenge_version_consistency.py",
-            ".\tools\test_xaml_cs_integrity.py",
-            ".\tools\test_ui_features.py",
-            ".\tools\test_ui_navigation.py",
-            ".\tools\test_scan_modes.py",
-            ".\tools\test_scan_progress.py",
-            ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py",
-            ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py",
-            ".\tools\test_semantic_evidence_large_scale_fix_9_0_40.py",
-            ".\tools\test_semantic_evidence_arbitration_9_0_42.py",
-            ".\tools\test_semantic_evidence_architecture_9_0_43.py",
-            ".\tools\test_semantic_evidence_dimensional_arbitration_9_0_44.py"
-          )
-          foreach ($test in $tests) {
-            Write-Host "RUNNING $test"
-            python $test
-            if ($LASTEXITCODE -ne 0) {
-              throw "Test failed: $test"
-            }
-          }
+        run: python ".\tools\test_release_preflight_contract.py"
+
+      - name: Test test_source_integrity
+        shell: pwsh
+        run: python ".\tools\test_source_integrity.py"
+
+      - name: Test test_challenge_version_consistency
+        shell: pwsh
+        run: python ".\tools\test_challenge_version_consistency.py"
+
+      - name: Test test_xaml_cs_integrity
+        shell: pwsh
+        run: python ".\tools\test_xaml_cs_integrity.py"
+
+      - name: Test test_ui_features
+        shell: pwsh
+        run: python ".\tools\test_ui_features.py"
+
+      - name: Test test_ui_navigation
+        shell: pwsh
+        run: python ".\tools\test_ui_navigation.py"
+
+      - name: Test test_scan_modes
+        shell: pwsh
+        run: python ".\tools\test_scan_modes.py"
+
+      - name: Test test_scan_progress
+        shell: pwsh
+        run: python ".\tools\test_scan_progress.py"
+
+      - name: Test test_semantic_evidence_large_scale_fix_9_0_38
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_large_scale_fix_9_0_38.py"
+
+      - name: Test test_semantic_evidence_large_scale_fix_9_0_39
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_large_scale_fix_9_0_39.py"
+
+      - name: Test test_semantic_evidence_large_scale_fix_9_0_40
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_large_scale_fix_9_0_40.py"
+
+      - name: Test test_semantic_evidence_arbitration_9_0_42
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_arbitration_9_0_42.py"
+
+      - name: Test test_semantic_evidence_architecture_9_0_43
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_architecture_9_0_43.py"
+
+      - name: Test test_semantic_evidence_dimensional_arbitration_9_0_44
+        shell: pwsh
+        run: python ".\tools\test_semantic_evidence_dimensional_arbitration_9_0_44.py"
 
       - name: Build installer
         shell: cmd
