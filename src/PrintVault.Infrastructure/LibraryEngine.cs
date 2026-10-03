@@ -373,10 +373,13 @@ public sealed class LibraryEngine : ILibraryEngine
                               result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
         var lexicalBasis = result.Basis.Contains("Lexical evidence", StringComparison.OrdinalIgnoreCase);
         var lexicalHits = result.Evidence.Count(e => e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase));
+        var structuralActionable = structuralBasis &&
+                                   result.ClassificationConfidence >= 85 &&
+                                   result.EvidenceQuality >= 75;
         var lexicalActionable = lexicalBasis &&
-                                result.ClassificationConfidence >= 74 &&
-                                result.EvidenceQuality >= 50 &&
-                                (result.ClassificationConfidence >= 82 || lexicalHits >= 1);
+                                result.ClassificationConfidence >= 70 &&
+                                result.EvidenceQuality >= 40 &&
+                                lexicalHits >= 1;
         // Unresolved records are not protected classifications. The whole-library forensic
         // run shows that the dominant unresolved population carries precise, curated lexical
         // cues in the 64-72 confidence range (for example bear, dragon, peterbilt, lamp).
@@ -388,7 +391,7 @@ public sealed class LibraryEngine : ILibraryEngine
                                           result.ClassificationConfidence >= 60 &&
                                           result.EvidenceQuality >= 25 &&
                                           lexicalHits >= 1;
-        if ((!structuralBasis || result.ClassificationConfidence < 90) &&
+        if (!structuralActionable &&
             !lexicalActionable &&
             !unresolvedLexicalActionable) return;
 
