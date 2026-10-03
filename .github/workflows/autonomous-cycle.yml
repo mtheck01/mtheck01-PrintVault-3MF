@@ -237,6 +237,8 @@ jobs:
             return "FAIL"
           }
 
+          $deterministicRepairAttempted = $false
+
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
             if ($attempt -eq 1) {
@@ -270,8 +272,19 @@ jobs:
             $remainingConflicts = [int]$reportData.Conflicts
             $needsRepair = $remainingConflicts -gt 0
 
+            if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=FULL_LIBRARY_REBUILD"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair
+              $repairExit = $LASTEXITCODE
+              if ($repairExit -ne 0) { throw "Deterministic full-library repair failed with exit code $repairExit." }
+              $deterministicRepairAttempted = $true
+              Write-Host "AUTONOMOUS_REPAIR=FULL_LIBRARY_REBUILD_APPLIED"
+              continue
+            }
+
             if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts) {
-              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=CONFLICTS_REMAIN"
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
 
               if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
