@@ -16,6 +16,13 @@ public sealed record SemanticEvidenceFusionResult(
     IReadOnlyList<string> Evidence);
 
 /// <summary>
+/// Deterministic semantic arbitration across three distinct dimensions:
+/// subject identity (what the model depicts), artifact/function (what printable object it is),
+/// and catalog category (where PrintVault organizes that artifact). Subject identity must not
+/// overwrite a stronger artifact classification; a Pikachu HueForge tile is still HueForge,
+/// and an AT-AT keychain is still a Keychain.
+/// </summary>
+/// <summary>
 /// Deterministic, read-only evidence fusion. It does not invent named entities or
 /// write classifications. Instead it combines independent evidence already available
 /// in a ModelRecord with conservative lexical domain cues and context roles. Context
@@ -245,14 +252,45 @@ public sealed class SemanticEvidenceFusionService
             basis = $"Object role evidence: {role.Label}";
             evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits)}");
         }
-        else if (entity is not null)
-        {
-            category = entity.Category; subtype = entity.Subtype; type = InferType(entity.Category, entity.Subtype); family = InferFamily(entity.Category);
-            identity = entity.Confidence;
-            classification = Math.Max(classification, entity.Confidence);
-            basis = "Named entity + classification mapping";
-        }
         else if (strongSourceDerivedAnalyzer)
+        {
+            // Artifact classification outranks subject identity. A file can depict Pikachu
+            // while still being a HueForge tile, or depict an AT-AT while still being a
+            // keychain. The source-derived analyzer describes the printable artifact; the
+            // named entity describes the depicted subject.
+            category = analyzerCategory;
+            type = model.SemanticType;
+            subtype = model.Subtype;
+            family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
+            var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
+            classification = Math.Max(classification, analyzerConfidence);
+            identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 78, 91));
+            if (entity is not null)
+            {
+                evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
+                basis = "Source-derived artifact semantics + named subject identity";
+            }
+            else if (cueHits.Count > 0 && best.Hits.Length > 0)
+            {
+                var lexicalCategory = best.Cue.Category;
+                if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
+                {
+                    basis = "Source-derived analyzer + lexical corroboration";
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                }
+                else
+                {
+                    basis = "Source-derived analyzer arbitration";
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Analyzer arbitration: {analyzerCategory} outranks lexical category {lexicalCategory}");
+                }
+            }
+            else
+            {
+                basis = "Source-derived analyzer semantics";
+            }
+        }
+        else if (entity is not null)
         {
             // Arbitration rule: once the rebuilt analyzer has crossed its semantic threshold
             // and supplied a complete source-derived category/type/subtype, generic lexical
@@ -432,11 +470,18 @@ public sealed class SemanticEvidenceFusionService
         var analyzerConvergenceClearsReview = strongSourceDerivedAnalyzer &&
                                               classification >= 85 && quality >= 75;
         var convergenceClearsReview = aviationConvergence;
-        var strongAlternative = entity is not null ||
-                                strongSourceDerivedAnalyzer ||
+        var semanticChannelsAgree = false;
+        if (entity is not null && !string.IsNullOrWhiteSpace(category))
+        {
+            // Subject identity and artifact category are complementary dimensions. An
+            // entity/category mismatch is not actionable when a stronger artifact channel
+            // (role or source-derived analyzer) established the printable object's category.
+            semanticChannelsAgree = strongSourceDerivedAnalyzer || (entity.Category.Equals(category, StringComparison.OrdinalIgnoreCase));
+        }
+        var strongAlternative = strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
                                 (cueHits.Count > 0 && best.Hits.Length > 0 && classification >= 85);
-        var review = actionableConflict || (strongAlternative && categoriesDiffer);
+        var review = actionableConflict || (strongAlternative && categoriesDiffer && !semanticChannelsAgree);
         if (review)
         {
             evidence.Add("Review recommended: independent evidence conflicts with stored classification");
