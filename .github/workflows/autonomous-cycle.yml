@@ -224,9 +224,9 @@ jobs:
               $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
               $unresolvedFunctionalCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $inferred -eq "Functional" -and $confidence -ge 85 -and $evidence -ge 25
               $unresolvedRoleCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $confidence -ge 85 -and $evidence -ge 25 -and (
-                $basis.Contains("Object role evidence:",[System.StringComparison]::OrdinalIgnoreCase) -or
-                $basis.Contains("Generalized artifact role evidence",[System.StringComparison]::OrdinalIgnoreCase) -or
-                $basis.Contains("Role-aware artifact arbitration:",[System.StringComparison]::OrdinalIgnoreCase)
+                $basis.IndexOf("Object role evidence:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $basis.IndexOf("Generalized artifact role evidence",[System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $basis.IndexOf("Role-aware artifact arbitration:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0
               )
               if ($strongUnresolvedLexical -or $unresolvedFunctionalCandidate -or $unresolvedRoleCandidate -or $highConfidenceResolution) { $count++ }
             }
