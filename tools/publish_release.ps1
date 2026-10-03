@@ -58,9 +58,22 @@ if (-not (Test-Path -LiteralPath $expectedInstaller -PathType Leaf)) { throw "Pa
 Write-Host "LOCAL_PACKAGE_SHA256=$localSha"
 Write-Host "PACKAGE_STRUCTURE=PASS"
 
-$env:GH_TOKEN = $DistributionToken
-$releaseResult = & gh release create "v$Version" $zipPath --repo $distributionRepo --title "PrintVault 3MF v$Version" --target main --notes "Automated PrintVault 3MF release. Source commit: $SourceSha. Package built and validated by the canonical Windows workflow." 2>&1
-if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed: $releaseResult" }
+$releaseBody = @{
+    tag_name = "v$Version"
+    target_commitish = "main"
+    name = "PrintVault 3MF v$Version"
+    body = "Automated PrintVault 3MF release. Source commit: $SourceSha. Package built and validated by the canonical Windows workflow."
+} | ConvertTo-Json -Depth 5
+
+$release = Invoke-RestMethod -Uri "https://api.github.com/repos/$distributionRepo/releases" -Headers $headers -Method Post -Body $releaseBody -ContentType "application/json"
+$uploadUrl = "https://uploads.github.com/repos/$distributionRepo/releases/$($release.id)/assets?name=$zipName"
+$uploadHeaders = @{
+    Authorization = "Bearer $DistributionToken"
+    Accept = "application/vnd.github+json"
+    "X-GitHub-Api-Version" = "2026-03-10"
+    "User-Agent" = "PrintVault-Release-Automation"
+}
+Invoke-WebRequest -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
 Write-Host "RELEASE_PUBLISH=PASS"
 
 $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
