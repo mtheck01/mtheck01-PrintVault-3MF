@@ -155,6 +155,46 @@ public sealed class SemanticEvidenceFusionService
         "wrench", "socket", "screwdriver", "pliers"
     };
 
+    // Generalized artifact-role grammar for the large lexical-conflict population.
+    // A model title often contains a subject noun plus a role suffix (for example
+    // "A-10 stand", "dragon holder", "car display base", or "Pikachu phone mount").
+    // The subject is what the object depicts/references; the role suffix identifies what
+    // the printable artifact actually is. Treat these high-precision role constructions
+    // as Functional before generic subject-domain lexical cues are allowed to classify.
+    // This is intentionally a bounded suffix list, not a free-form "contains X" rule.
+    private static readonly string[] ArtifactRoleSuffixes =
+    {
+        "stand", "holder", "mount", "bracket", "tray", "rack", "organizer",
+        "adapter", "case", "cover", "dock", "cradle", "spacer", "hook",
+        "hanger", "clip", "fixture", "enclosure", "support", "base"
+    };
+
+    private static bool TryGetFunctionalArtifactRole(string text, out string phrase)
+    {
+        phrase = "";
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        foreach (var role in ArtifactRoleSuffixes)
+        {
+            var pattern = $@"(?<![\\p{{L}}\\p{{N}}])(?<subject>[\\p{{L}}\\p{{N}}][\\p{{L}}\\p{{N}}\\s\\-']{{0,59}}?)\\s+(?<role>{Regex.Escape(role)})(?![\\p{{L}}\\p{{N}}])";
+            var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success) continue;
+
+            var subject = match.Groups["subject"].Value.Trim();
+            if (subject.Length == 0) continue;
+
+            // Keep this grammar conservative: require a real subject token and reject
+            // phrases that are effectively just the role word repeated by punctuation.
+            var subjectTokens = subject.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (subjectTokens.Length == 0 || subjectTokens.Length > 6) continue;
+
+            phrase = $"{subject} {role}";
+            return true;
+        }
+
+        return false;
+    }
+
     public SemanticEvidenceFusionResult Fuse(ModelRecord model, MultilingualEntityMatch? entity = null)
     {
         entity ??= new MultilingualEntityService().Recognize(model);
@@ -166,6 +206,7 @@ public sealed class SemanticEvidenceFusionService
         var organizerRoleHits = OrganizerRoleTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var referencedToolHits = ReferencedToolTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var isToolOrganizer = organizerRoleHits.Length > 0;
+        var hasGeneralizedArtifactRole = TryGetFunctionalArtifactRole(text, out var generalizedArtifactRole);
 
         if (entity is not null)
             evidence.Add($"Named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
@@ -251,6 +292,21 @@ public sealed class SemanticEvidenceFusionService
             classification = Math.Max(classification, roleConfidence);
             basis = $"Object role evidence: {role.Label}";
             evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits)}");
+        }
+        else if (hasGeneralizedArtifactRole)
+        {
+            // General role grammar is deliberately below the hand-curated role phrases
+            // but above analyzer/lexical subject classification. This prevents broad words
+            // such as "dragon", "aircraft", "car", or "Pikachu" from winning when the title
+            // explicitly says the printable artifact is a stand, holder, mount, case, etc.
+            category = "Functional";
+            type = "Functional";
+            subtype = "Functional Artifact / Role";
+            family = "Functional";
+            identity = Math.Max(identity, 78);
+            classification = Math.Max(classification, 94);
+            basis = "Generalized artifact role evidence";
+            evidence.Add($"Role-aware artifact arbitration: {generalizedArtifactRole}");
         }
         else if (strongSourceDerivedAnalyzer)
         {
