@@ -82,7 +82,7 @@ if ($asset.Count -eq 0) {
         "X-GitHub-Api-Version" = "2026-03-10"
         "User-Agent" = "PrintVault-Release-Automation"
     }
-    Invoke-WebRequest -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
+    Invoke-RestMethod -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
     Write-Host "RELEASE_ASSET_UPLOAD=PASS"
 } elseif ($asset.Count -eq 1) {
     $existingAssetPath = Join-Path $rootPath "_existing_$zipName"
