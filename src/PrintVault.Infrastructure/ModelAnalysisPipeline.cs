@@ -13,7 +13,7 @@ public sealed class ModelAnalysisPipeline
     private readonly EntityClassificationService entityClassification = new();
     private readonly SemanticEvidenceFusionService semanticFusion = new();
 
-    public ThreeMfAnalysis Analyze(string path, string name)
+    public IntelligenceResult Analyze(string path, string name)
         => analyzer.Analyze(path, name);
 
     public void Apply(ModelRecord model)
