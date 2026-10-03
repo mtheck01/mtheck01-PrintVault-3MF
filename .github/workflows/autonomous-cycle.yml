@@ -261,8 +261,49 @@ jobs:
               Write-Host "VALIDATION=PASS_NO_CHANGE"
               exit 0
             }
-            elseif ($gate -eq "PASS" -or $gate -eq "IMPROVEMENT") {
-              Write-Host "REGRESSION_GATE=$gate"
+            Write-Host "REGRESSION_GATE=$gate"
+
+            # Do not treat a small improvement as the finish line. If the whole-library
+            # scan still contains conflicts, feed the forensic report back into the repair
+            # engineer and require a fresh build/install/full-library verification.
+            $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $remainingConflicts = [int]$reportData.Conflicts
+            $needsRepair = $remainingConflicts -gt 0
+
+            if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=CONFLICTS_REMAIN"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+
+              if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+                throw "OPENAI_API_KEY is required for automatic repair."
+              }
+
+              python ".\tools\autonomous_repair.py" $report
+              if ($LASTEXITCODE -ne 0) { throw "Repair agent failed." }
+
+              $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
+              if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
+              git apply --check $patch
+              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed git apply --check." }
+              git apply $patch
+              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed to apply." }
+
+              if (git diff --name-only | Select-String "^VERSION$") {
+                git checkout -- VERSION
+              }
+
+              Write-Host "AUTONOMOUS_REPAIR=APPLIED"
+              continue
+            }
+
+            if ($gate -eq "BASELINE") {
+              Write-Host "VALIDATION=PASS_NO_CHANGE"
+              exit 0
+            }
+
+            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+              if ($gate -eq "FAIL") { exit 20 }
 
               if ($publish) {
                 git add .
@@ -276,33 +317,10 @@ jobs:
                 if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
                 Write-Host "PROMOTED_VERSION=$version"
               }
-
               exit 0
             }
 
-            Write-Host "REGRESSION_GATE=FAIL"
-            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
-              exit 20
-            }
-
-            if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
-              throw "OPENAI_API_KEY is required for automatic repair."
-            }
-
-            python ".\tools\autonomous_repair.py" $report
-            if ($LASTEXITCODE -ne 0) { throw "Repair agent failed." }
-
-            $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
-            if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
-            git apply --check $patch
-            if ($LASTEXITCODE -ne 0) { throw "Repair patch failed git apply --check." }
-            git apply $patch
-            if ($LASTEXITCODE -ne 0) { throw "Repair patch failed to apply." }
-
-            if (git diff --name-only | Select-String "^VERSION$") {
-              git checkout -- VERSION
-            }
-          }
+            throw "Autonomous cycle reached an unexpected state."
 
           throw "Autonomous cycle exhausted its attempt budget."
 
