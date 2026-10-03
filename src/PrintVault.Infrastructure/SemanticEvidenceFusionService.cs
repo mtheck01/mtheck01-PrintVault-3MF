@@ -165,16 +165,38 @@ public sealed class SemanticEvidenceFusionService
     private static readonly string[] ArtifactRoleSuffixes =
     {
         "stand", "holder", "mount", "bracket", "tray", "rack", "organizer",
-        "adapter", "case", "cover", "dock", "cradle", "spacer", "hook",
-        "hanger", "clip", "fixture", "enclosure", "support", "base"
+        "adapter", "dock", "cradle", "spacer", "hook", "hanger", "clip",
+        "fixture", "enclosure"
     };
+
+    // These suffixes are intentionally ambiguous in filenames. Words such as "base",
+    // "cover", "support", and "case" can be part of a color name, artwork title,
+    // assembly label, or model description. They require an explicit functional
+    // context before they may promote the whole artifact to Functional.
+    private static readonly string[] ContextualArtifactRoleSuffixes =
+    {
+        "case", "cover", "base", "support"
+    };
+
+    private static bool HasContextualArtifactRole(string subject, string role)
+    {
+        var s = $" {subject} ".ToLowerInvariant();
+        return role switch
+        {
+            "case" => Regex.IsMatch(s, @"\b(phone|tool|storage|protective|display|transport|carrying)\s+case\b", RegexOptions.CultureInvariant),
+            "cover" => Regex.IsMatch(s, @"\b(phone|tool|protective|display|printer|machine)\s+cover\b", RegexOptions.CultureInvariant),
+            "base" => Regex.IsMatch(s, @"\b(display|mounting|stand|diorama|model|printer|machine)\s+base\b", RegexOptions.CultureInvariant),
+            "support" => Regex.IsMatch(s, @"\b(support\s+(bracket|stand|mount|rack)|bracket\s+support|stand\s+support)\b", RegexOptions.CultureInvariant),
+            _ => false
+        };
+    }
 
     private static bool TryGetFunctionalArtifactRole(string text, out string phrase)
     {
         phrase = "";
         if (string.IsNullOrWhiteSpace(text)) return false;
 
-        foreach (var role in ArtifactRoleSuffixes)
+        foreach (var role in ArtifactRoleSuffixes.Concat(ContextualArtifactRoleSuffixes))
         {
             var pattern = $@"(?<![\p{{L}}\p{{N}}])(?<subject>[\p{{L}}\p{{N}}][\p{{L}}\p{{N}}\s\-']{{0,59}}?)\s+(?<role>{Regex.Escape(role)})(?![\p{{L}}\p{{N}}])";
             var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -187,6 +209,8 @@ public sealed class SemanticEvidenceFusionService
             // phrases that are effectively just the role word repeated by punctuation.
             var subjectTokens = subject.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (subjectTokens.Length == 0 || subjectTokens.Length > 6) continue;
+            if (ContextualArtifactRoleSuffixes.Contains(role, StringComparer.OrdinalIgnoreCase) &&
+                !HasContextualArtifactRole(subject, role)) continue;
 
             phrase = $"{subject} {role}";
             return true;
