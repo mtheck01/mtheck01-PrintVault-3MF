@@ -89,8 +89,15 @@ if ($asset.Count -eq 0) {
     Invoke-WebRequest -Uri $asset[0].browser_download_url -Headers @{ "User-Agent" = "PrintVault-Release-Verification" } -OutFile $existingAssetPath
     $existingSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $existingAssetPath).Hash.ToUpperInvariant()
     Remove-Item -LiteralPath $existingAssetPath -Force -ErrorAction SilentlyContinue
-    if ($existingSha -ne $localSha) { throw "Existing release asset SHA-256 mismatch. Existing=$existingSha Local=$localSha" }
-    Write-Host "RELEASE_ASSET_REUSED=PASS"
+    if ($existingSha -eq $localSha) {
+        Write-Host "RELEASE_ASSET_REUSED=PASS"
+    } else {
+        Write-Host "RELEASE_ASSET_REPLACEMENT=REQUIRED EXISTING=$existingSha LOCAL=$localSha"
+        Invoke-RestMethod -Uri "https://api.github.com/repos/$distributionRepo/releases/assets/$($asset[0].id)" -Headers $headers -Method Delete | Out-Null
+        $uploadUrl = "https://uploads.github.com/repos/$distributionRepo/releases/$($release.id)/assets?name=$zipName"
+        Invoke-RestMethod -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
+        Write-Host "RELEASE_ASSET_REPLACEMENT=PASS"
+    }
 } else {
     throw "Multiple release assets named $zipName were found."
 }
