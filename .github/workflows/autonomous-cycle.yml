@@ -63,7 +63,8 @@ jobs:
       - name: Run autonomous cycle
         shell: powershell
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.PrintVaultReleaseAutomation }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_REPAIR_MODEL: gpt-5.6-sol
           MAX_ATTEMPTS: ${{ inputs.max_attempts || '3' }}
