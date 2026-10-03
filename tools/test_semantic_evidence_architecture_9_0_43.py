@@ -17,7 +17,9 @@ assert 'strongSourceDerivedAnalyzer' in fusion
 assert 'private readonly SemanticEvidenceFusionService semanticFusion = new();' in engine
 assert 'ApplyHighConfidenceFusion(m);' in engine
 assert 'entityClassification.Apply(m);\n                ApplyHighConfidenceFusion(m);' in engine
-assert 'Generic lexical evidence remains diagnostic' in engine
+assert 'var lexicalActionable = lexicalBasis' in engine
+assert 'result.ClassificationConfidence >= 74' in engine
+assert 'result.EvidenceQuality >= 50' in engine
 assert 'result.ClassificationConfidence < 90' in engine
 
 print("PASS: 9.0.43 deep semantic architecture gate")
