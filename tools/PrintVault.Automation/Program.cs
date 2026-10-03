@@ -54,6 +54,7 @@ try
         var changed = 0;
         var unresolvedLexical = 0;
         var resolutionCandidates = 0;
+        var unresolvedRoleCandidates = 0;
         var skippedProtected = 0;
 
         var backup = repository.BackupDatabase();
@@ -73,6 +74,7 @@ try
             var basis = row.TryGetProperty("Basis", out var basisNode) ? basisNode.GetString() ?? "" : "";
             var evidence = row.TryGetProperty("Evidence", out var evidenceNode) ? evidenceNode.GetString() ?? "" : "";
             var confidence = row.TryGetProperty("ClassificationConfidence", out var confidenceNode) && confidenceNode.TryGetInt32(out var c) ? c : 0;
+            var evidenceQuality = row.TryGetProperty("EvidenceQuality", out var evidenceNode2) && evidenceNode2.TryGetInt32(out var eq) ? eq : 0;
 
             if (string.IsNullOrWhiteSpace(inferred) ||
                 string.Equals(inferred, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
@@ -92,10 +94,17 @@ try
                                           confidence >= 60 &&
                                           evidence.Contains("Lexical cue:", StringComparison.OrdinalIgnoreCase);
 
+            var unresolvedRoleCandidate = storedUnresolved &&
+                                          confidence >= 85 &&
+                                          evidenceQuality >= 25 &&
+                                          (basis.Contains("Object role evidence:", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Generalized artifact role evidence", StringComparison.OrdinalIgnoreCase) ||
+                                           basis.Contains("Role-aware artifact arbitration:", StringComparison.OrdinalIgnoreCase));
+
             var highConfidenceResolution = string.Equals(disposition, "RESOLUTION_CANDIDATE", StringComparison.OrdinalIgnoreCase) &&
                                             confidence >= 85;
 
-            if (!strongUnresolvedLexical && !highConfidenceResolution)
+            if (!strongUnresolvedLexical && !unresolvedRoleCandidate && !highConfidenceResolution)
                 continue;
 
             if (string.Equals(model.Category, inferred, StringComparison.OrdinalIgnoreCase))
@@ -104,6 +113,7 @@ try
             model.Category = inferred;
             changed++;
             if (strongUnresolvedLexical) unresolvedLexical++;
+            if (unresolvedRoleCandidate) unresolvedRoleCandidates++;
             if (highConfidenceResolution) resolutionCandidates++;
         }
 
@@ -112,6 +122,7 @@ try
 
         Console.WriteLine($"REPAIR_RECLASSIFIED={changed}");
         Console.WriteLine($"REPAIR_UNRESOLVED_LEXICAL={unresolvedLexical}");
+        Console.WriteLine($"REPAIR_UNRESOLVED_ROLE_CANDIDATES={unresolvedRoleCandidates}");
         Console.WriteLine($"REPAIR_RESOLUTION_CANDIDATES={resolutionCandidates}");
         Console.WriteLine($"REPAIR_SKIPPED_PROTECTED={skippedProtected}");
         Console.WriteLine($"REPAIR_CATALOG={models.Count}");
