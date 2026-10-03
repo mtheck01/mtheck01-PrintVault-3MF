@@ -30,9 +30,26 @@ public sealed class EntityClassificationService
 
         var previousReason = model.IntelligenceReason ?? "";
         var entityEvidence = $"Named entity: {entity.EntityName} ({entity.Domain}); matched entity phrase; entity confidence: {entity.Confidence}%";
-        model.Category = entity.Category;
-        ApplySemanticDomain(model, entity);
-        model.Subtype = entity.Subtype;
+
+        // Entity recognition answers "what is depicted?" It does not, by itself, answer
+        // "what kind of printable artifact is this?" Preserve an already-established
+        // built-in artifact category such as HueForge, Keychains, Soap Holders, or
+        // Functional. SemanticEvidenceFusionService performs the final dimensional
+        // arbitration when the artifact is still Uncategorized.
+        var categoryWasUnresolved = string.IsNullOrWhiteSpace(model.Category) ||
+                                    string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase);
+        if (categoryWasUnresolved)
+        {
+            model.Category = entity.Category;
+            ApplySemanticDomain(model, entity);
+            model.Subtype = entity.Subtype;
+        }
+        else
+        {
+            model.IntelligenceReason = string.IsNullOrWhiteSpace(previousReason)
+                ? entityEvidence
+                : $"{previousReason}; {entityEvidence}";
+        }
         model.IntelligenceScore = Math.Max(model.IntelligenceScore, entity.Confidence / 100d);
         model.IntelligenceReason = string.IsNullOrWhiteSpace(previousReason)
             ? entityEvidence
