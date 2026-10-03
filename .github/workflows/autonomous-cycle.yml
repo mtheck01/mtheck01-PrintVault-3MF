@@ -214,14 +214,16 @@ jobs:
             foreach ($row in $r.rows) {
               $stored = [string]$row.StoredCategory
               $inferred = [string]$row.InferredCategory
-              if ([string]::IsNullOrWhiteSpace($inferred) -or $inferred -in @("Uncategorized","Unknown") -or $stored -notin $builtIn) { continue }
+              if ([string]::IsNullOrWhiteSpace($inferred) -or $inferred -in @("Uncategorized","Unknown")) { continue }
               $confidence = [int]$row.ClassificationConfidence
               $evidence = [int]$row.EvidenceQuality
               $basis = [string]$row.Basis
               $evidenceText = [string]$row.Evidence
               $disposition = [string]$row.Disposition
+              $storedIsBuiltIn = $stored -in $builtIn
               $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.Contains("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase)
               $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
+              if (-not $storedIsBuiltIn -and -not $highConfidenceResolution) { continue }
               $unresolvedFunctionalCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $inferred -eq "Functional" -and $confidence -ge 85 -and $evidence -ge 25
               $unresolvedRoleCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $confidence -ge 85 -and $evidence -ge 25 -and (
                 $basis.IndexOf("Object role evidence:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
