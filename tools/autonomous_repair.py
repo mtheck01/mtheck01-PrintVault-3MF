@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,15 +55,29 @@ payload = {
         {"role": "user", "content": prompt},
     ],
 }
+
+print(f"REPAIR_MODEL={MODEL}")
+print("REPAIR_API=RESPONSES")
+print("REPAIR_REQUEST=START")
 req = Request(
     "https://api.openai.com/v1/responses",
     data=json.dumps(payload).encode("utf-8"),
     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     method="POST",
 )
-with urlopen(req, timeout=300) as response:
-    data = json.load(response)
+try:
+    with urlopen(req, timeout=300) as response:
+        data = json.load(response)
+except HTTPError as exc:
+    body = exc.read().decode("utf-8", errors="replace")
+    print(f"REPAIR_API_HTTP_ERROR={exc.code}", file=sys.stderr)
+    print(body[:12000], file=sys.stderr)
+    raise SystemExit(f"OpenAI Responses API returned HTTP {exc.code}.")
+except URLError as exc:
+    print(f"REPAIR_API_NETWORK_ERROR={exc}", file=sys.stderr)
+    raise SystemExit("OpenAI Responses API network request failed.")
 
+print("REPAIR_REQUEST=COMPLETE")
 text = data.get("output_text")
 if not text:
     chunks = []
@@ -75,7 +90,12 @@ if not text:
 if not text:
     raise SystemExit("Repair model returned no output.")
 
-result = json.loads(text)
+try:
+    result = json.loads(text)
+except json.JSONDecodeError as exc:
+    (ROOT / "build_logs" / "autonomous-repair-raw.txt").write_text(text, encoding="utf-8")
+    raise SystemExit(f"Repair model did not return valid JSON: {exc}")
+
 patch = result.get("patch", "")
 if not patch.strip():
     raise SystemExit("Repair model returned an empty patch.")
