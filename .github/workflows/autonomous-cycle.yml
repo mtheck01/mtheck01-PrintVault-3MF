@@ -321,6 +321,7 @@ jobs:
             }
 
             throw "Autonomous cycle reached an unexpected state."
+          }
 
           throw "Autonomous cycle exhausted its attempt budget."
 
