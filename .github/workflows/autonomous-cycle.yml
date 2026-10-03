@@ -151,7 +151,13 @@ jobs:
           function Invoke-WholeLibrary {
             $reportDir = Join-Path $env:APPDATA "PrintVault\reports"
             New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
-            dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -- rootcause $reportDir $expectedCatalog
+            dotnet restore ".\tools\PrintVault.Automation\PrintVault.Automation.csproj"
+            if ($LASTEXITCODE -ne 0) { throw "Whole-library automation restore failed with exit code $LASTEXITCODE." }
+
+            dotnet build ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { throw "Whole-library automation build failed with exit code $LASTEXITCODE." }
+
+            dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- rootcause $reportDir $expectedCatalog
             if ($LASTEXITCODE -ne 0) { throw "Whole-library runner failed with exit code $LASTEXITCODE." }
 
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
