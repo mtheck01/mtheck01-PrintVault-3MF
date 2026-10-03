@@ -74,14 +74,14 @@ Write-Host "LOCAL_PACKAGE_SHA256=$localSha"
 Write-Host "PACKAGE_STRUCTURE=PASS"
 
 $asset = @($release.assets | Where-Object { $_.name -eq $zipName })
+$uploadHeaders = @{
+    Authorization = "Bearer $DistributionToken"
+    Accept = "application/vnd.github+json"
+    "X-GitHub-Api-Version" = "2026-03-10"
+    "User-Agent" = "PrintVault-Release-Automation"
+}
 if ($asset.Count -eq 0) {
     $uploadUrl = "https://uploads.github.com/repos/$distributionRepo/releases/$($release.id)/assets?name=$zipName"
-    $uploadHeaders = @{
-        Authorization = "Bearer $DistributionToken"
-        Accept = "application/vnd.github+json"
-        "X-GitHub-Api-Version" = "2026-03-10"
-        "User-Agent" = "PrintVault-Release-Automation"
-    }
     Invoke-RestMethod -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
     Write-Host "RELEASE_ASSET_UPLOAD=PASS"
 } elseif ($asset.Count -eq 1) {
