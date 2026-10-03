@@ -58,6 +58,9 @@ try
         if (persisted != expectedCatalog) return 16;
 
         Console.WriteLine("REPAIR=PASS");
+        return 0;
+    }
+
     Console.WriteLine($"EXPECTED_CATALOG={expectedCatalog}");
 
     var forensic = new WholeLibraryRootCauseAnalysisService(repository);
