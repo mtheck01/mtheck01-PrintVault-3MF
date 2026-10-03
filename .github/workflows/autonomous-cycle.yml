@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "17 * * * *"
+    # Poll frequently enough to pick up API-created commits that do not emit push workflow events.
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       max_attempts:
