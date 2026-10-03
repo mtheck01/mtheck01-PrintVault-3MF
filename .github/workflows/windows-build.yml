@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: printvault-production-release
@@ -117,6 +118,10 @@ jobs:
         shell: pwsh
         run: python ".\tools\test_semantic_evidence_dimensional_arbitration_9_0_44.py"
 
+      - name: Test test_semantic_evidence_artifact_role_precision_9_0_45
+        shell: pwsh
+        run: python ".\\tools\\test_semantic_evidence_artifact_role_precision_9_0_45.py"
+
       - name: Build installer
         shell: cmd
         env:
@@ -187,13 +192,21 @@ jobs:
             throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
           }
 
-      - name: Publish verified production release
-        if: steps.release_gate.outputs.should_release == 'true'
+      - name: Automatic autonomous validation trigger
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message != '' && !startsWith(github.event.head_commit.message, 'autonomous validated patch')
         shell: pwsh
         env:
-          RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "${{ steps.release_gate.outputs.version }}" -SourceSha "${{ github.sha }}"
+          $ErrorActionPreference = "Stop"
+          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/workflows/autonomous-cycle.yml/dispatches"
+          $body = @{ ref = "main"; inputs = @{ max_attempts = "3"; auto_repair = "true"; publish_on_pass = "true" } } | ConvertTo-Json -Depth 4
+          Invoke-RestMethod -Method Post -Uri $uri -Headers @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2026-03-10"
+          } -ContentType "application/json" -Body $body
+          Write-Host "AUTONOMOUS_CYCLE_TRIGGERED=TRUE"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
