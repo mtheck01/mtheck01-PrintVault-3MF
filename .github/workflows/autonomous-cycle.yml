@@ -314,7 +314,7 @@ jobs:
               continue
             }
 
-            if ($gate -eq "BASELINE" -and -not $needsRepair) {
+            if ($gate -eq "PASS" -and -not $needsRepair) {
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
               exit 0
             }
