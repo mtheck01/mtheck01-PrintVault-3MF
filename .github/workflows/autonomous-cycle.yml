@@ -137,7 +137,11 @@ jobs:
           function Install-And-Open($candidate) {
             Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
-            $p = Start-Process -FilePath $candidate.Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait -PassThru
+            $p = Start-Process -FilePath $candidate.Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -PassThru
+            if (-not $p.WaitForExit(120000)) {
+              try { $p.Kill($true) } catch {}
+              throw "Installer timed out after 120 seconds."
+            }
             if ($p.ExitCode -ne 0) { throw "Installer exited with code $($p.ExitCode)." }
             $installed = "C:\Program Files\PrintVault 3MF\PrintVault.exe"
             if (-not (Test-Path $installed)) { throw "Installed executable missing: $installed" }
