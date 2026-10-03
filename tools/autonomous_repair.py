@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -38,8 +39,9 @@ Repair only a demonstrated semantic regression. Do not reset/delete the library.
 Do not weaken tests, lower thresholds merely to make counts look better, or change
 stored classifications directly. Preserve the dimensional architecture:
 subject identity, artifact/function, and catalog category are separate.
-Return ONLY JSON with keys summary and patch. patch must be a unified diff that
-applies with git apply. Keep the patch minimal and production-safe. Add or update
+Return ONLY JSON with keys summary and patch. patch must be a standard unified diff
+starting with "diff --git a/... b/..." and must apply cleanly with git apply.
+Do not use Markdown fences, "*** Begin Patch", or "*** End Patch". Keep the patch minimal and production-safe. Add or update
 a regression test when appropriate. Do not modify VERSION; the orchestrator owns it.
 
 Current whole-library report:
@@ -100,9 +102,31 @@ patch = result.get("patch", "")
 if not patch.strip():
     raise SystemExit("Repair model returned an empty patch.")
 
+# Normalize common presentation wrappers, then validate before returning the patch.
+if patch.strip().startswith("```"):
+    lines = patch.strip().splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    patch = "\n".join(lines) + "\n"
+if patch.lstrip().startswith("*** Begin Patch"):
+    lines = patch.splitlines()
+    if lines and lines[0].strip() == "*** Begin Patch":
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "*** End Patch":
+        lines = lines[:-1]
+    patch = "\n".join(lines) + "\n"
+
 patch_path = ROOT / "build_logs" / "autonomous-repair.patch"
 patch_path.parent.mkdir(parents=True, exist_ok=True)
 patch_path.write_text(patch, encoding="utf-8")
+check = subprocess.run(["git", "apply", "--check", str(patch_path)], cwd=ROOT, text=True, capture_output=True)
+patch_error = (check.stdout + check.stderr).strip()
+if check.returncode != 0:
+    (ROOT / "build_logs" / "autonomous-repair-invalid.patch").write_text(patch, encoding="utf-8")
+    (ROOT / "build_logs" / "autonomous-repair-validation-error.txt").write_text(patch_error, encoding="utf-8")
+    raise SystemExit("Repair model returned a patch that fails git apply --check: " + (patch_error or "unknown patch validation error"))
 (ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
     json.dumps({"model": MODEL, "summary": result.get("summary", "")}, indent=2),
     encoding="utf-8",
