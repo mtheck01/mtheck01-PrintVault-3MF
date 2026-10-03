@@ -377,7 +377,20 @@ public sealed class LibraryEngine : ILibraryEngine
                                 result.ClassificationConfidence >= 74 &&
                                 result.EvidenceQuality >= 50 &&
                                 (result.ClassificationConfidence >= 82 || lexicalHits >= 1);
-        if ((!structuralBasis || result.ClassificationConfidence < 90) && !lexicalActionable) return;
+        // Unresolved records are not protected classifications. The whole-library forensic
+        // run shows that the dominant unresolved population carries precise, curated lexical
+        // cues in the 64-72 confidence range (for example bear, dragon, peterbilt, lamp).
+        // Refusing those signals leaves hundreds of records permanently Uncategorized even
+        // though the fusion engine has already established a concrete built-in category.
+        // Existing classified records retain the stricter 74/50 gate above.
+        var unresolvedLexicalActionable = unresolved &&
+                                          lexicalBasis &&
+                                          result.ClassificationConfidence >= 60 &&
+                                          result.EvidenceQuality >= 25 &&
+                                          lexicalHits >= 1;
+        if ((!structuralBasis || result.ClassificationConfidence < 90) &&
+            !lexicalActionable &&
+            !unresolvedLexicalActionable) return;
 
         model.Category = result.Category;
         model.Family = result.Family;
