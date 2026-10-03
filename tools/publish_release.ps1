@@ -29,11 +29,26 @@ Write-Host "Version: $Version"
 Write-Host "Source SHA: $SourceSha"
 
 $releaseApi = "https://api.github.com/repos/$distributionRepo/releases/tags/v$Version"
+$release = $null
 try {
-    $existing = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
-    throw "Release v$Version already exists in $distributionRepo (id=$($existing.id)). Refusing to overwrite."
+    $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
 } catch {
-    if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+    $response = $_.Exception.Response
+    $status = if ($null -ne $response) { [int]$response.StatusCode } else { 0 }
+    if ($status -ne 404) { throw }
+}
+
+if ($null -eq $release) {
+    $releaseBody = @{
+        tag_name = "v$Version"
+        target_commitish = "main"
+        name = "PrintVault 3MF v$Version"
+        body = "Automated PrintVault 3MF release. Source commit: $SourceSha. Package built and validated by the canonical Windows workflow."
+    } | ConvertTo-Json -Depth 5
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$distributionRepo/releases" -Headers $headers -Method Post -Body $releaseBody -ContentType "application/json"
+    Write-Host "RELEASE_CREATED=PASS"
+} else {
+    Write-Host "RELEASE_EXISTS=PASS ID=$($release.id)"
 }
 
 $manifestApi = "https://api.github.com/repos/$distributionRepo/contents/manifest.json"
@@ -58,23 +73,27 @@ if (-not (Test-Path -LiteralPath $expectedInstaller -PathType Leaf)) { throw "Pa
 Write-Host "LOCAL_PACKAGE_SHA256=$localSha"
 Write-Host "PACKAGE_STRUCTURE=PASS"
 
-$releaseBody = @{
-    tag_name = "v$Version"
-    target_commitish = "main"
-    name = "PrintVault 3MF v$Version"
-    body = "Automated PrintVault 3MF release. Source commit: $SourceSha. Package built and validated by the canonical Windows workflow."
-} | ConvertTo-Json -Depth 5
-
-$release = Invoke-RestMethod -Uri "https://api.github.com/repos/$distributionRepo/releases" -Headers $headers -Method Post -Body $releaseBody -ContentType "application/json"
-$uploadUrl = "https://uploads.github.com/repos/$distributionRepo/releases/$($release.id)/assets?name=$zipName"
-$uploadHeaders = @{
-    Authorization = "Bearer $DistributionToken"
-    Accept = "application/vnd.github+json"
-    "X-GitHub-Api-Version" = "2026-03-10"
-    "User-Agent" = "PrintVault-Release-Automation"
+$asset = @($release.assets | Where-Object { $_.name -eq $zipName })
+if ($asset.Count -eq 0) {
+    $uploadUrl = "https://uploads.github.com/repos/$distributionRepo/releases/$($release.id)/assets?name=$zipName"
+    $uploadHeaders = @{
+        Authorization = "Bearer $DistributionToken"
+        Accept = "application/vnd.github+json"
+        "X-GitHub-Api-Version" = "2026-03-10"
+        "User-Agent" = "PrintVault-Release-Automation"
+    }
+    Invoke-WebRequest -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
+    Write-Host "RELEASE_ASSET_UPLOAD=PASS"
+} elseif ($asset.Count -eq 1) {
+    $existingAssetPath = Join-Path $rootPath "_existing_$zipName"
+    Invoke-WebRequest -Uri $asset[0].browser_download_url -Headers @{ "User-Agent" = "PrintVault-Release-Verification" } -OutFile $existingAssetPath
+    $existingSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $existingAssetPath).Hash.ToUpperInvariant()
+    Remove-Item -LiteralPath $existingAssetPath -Force -ErrorAction SilentlyContinue
+    if ($existingSha -ne $localSha) { throw "Existing release asset SHA-256 mismatch. Existing=$existingSha Local=$localSha" }
+    Write-Host "RELEASE_ASSET_REUSED=PASS"
+} else {
+    throw "Multiple release assets named $zipName were found."
 }
-Invoke-WebRequest -Uri $uploadUrl -Headers $uploadHeaders -Method Post -InFile $zipPath -ContentType "application/zip" | Out-Null
-Write-Host "RELEASE_PUBLISH=PASS"
 
 $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
 $asset = @($release.assets | Where-Object { $_.name -eq $zipName })
