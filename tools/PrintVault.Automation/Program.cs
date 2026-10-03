@@ -1,3 +1,4 @@
+using PrintVault.Core;
 using PrintVault.Infrastructure;
 
 if (args.Length == 0 || !string.Equals(args[0], "rootcause", StringComparison.OrdinalIgnoreCase) &&
