@@ -212,6 +212,12 @@ public sealed class SemanticEvidenceFusionService
             if (ContextualArtifactRoleSuffixes.Contains(role, StringComparer.OrdinalIgnoreCase) &&
                 !HasContextualArtifactRole(subject, role)) continue;
 
+            // HueForge titles frequently contain component words such as "spacer" or
+            // "clip" while the printable artifact remains the HueForge frame/tile.
+            // Explicit role phrases still win above; generalized component suffixes do not.
+            if (text.Contains("hueforge", StringComparison.OrdinalIgnoreCase) &&
+                role is "spacer" or "clip") continue;
+
             phrase = $"{subject} {role}";
             return true;
         }
