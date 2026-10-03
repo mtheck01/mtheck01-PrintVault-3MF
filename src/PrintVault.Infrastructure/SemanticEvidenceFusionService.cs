@@ -176,7 +176,7 @@ public sealed class SemanticEvidenceFusionService
 
         foreach (var role in ArtifactRoleSuffixes)
         {
-            var pattern = $@"(?<![\\p{{L}}\\p{{N}}])(?<subject>[\\p{{L}}\\p{{N}}][\\p{{L}}\\p{{N}}\\s\\-']{{0,59}}?)\\s+(?<role>{Regex.Escape(role)})(?![\\p{{L}}\\p{{N}}])";
+            var pattern = $@"(?<![\p{{L}}\p{{N}}])(?<subject>[\p{{L}}\p{{N}}][\p{{L}}\p{{N}}\s\-']{{0,59}}?)\s+(?<role>{Regex.Escape(role)})(?![\p{{L}}\p{{N}}])";
             var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (!match.Success) continue;
 
