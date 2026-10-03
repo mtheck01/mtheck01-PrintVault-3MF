@@ -151,26 +151,46 @@ jobs:
           function Invoke-WholeLibrary {
             $reportDir = Join-Path $env:APPDATA "PrintVault\reports"
             New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
-            dotnet restore ".\tools\PrintVault.Automation\PrintVault.Automation.csproj"
-            if ($LASTEXITCODE -ne 0) { throw "Whole-library automation restore failed with exit code $LASTEXITCODE." }
+            $artifactDir = Join-Path $PWD "build_logs\reports"
+            New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
-            dotnet build ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-restore
-            if ($LASTEXITCODE -ne 0) { throw "Whole-library automation build failed with exit code $LASTEXITCODE." }
+            $restoreLog = Join-Path $PWD "build_logs\automation-restore.log"
+            $buildLog = Join-Path $PWD "build_logs\automation-build.log"
+            $runLog = Join-Path $PWD "build_logs\automation-run.log"
 
-            dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- rootcause $reportDir $expectedCatalog
-            if ($LASTEXITCODE -ne 0) { throw "Whole-library runner failed with exit code $LASTEXITCODE." }
+            Write-Host "WHOLE_LIBRARY=RESTORE"
+            & dotnet restore ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" *> $restoreLog
+            $restoreExit = $LASTEXITCODE
+            Get-Content $restoreLog | ForEach-Object { Write-Host $_ }
+            if ($restoreExit -ne 0) { throw "Whole-library automation restore failed with exit code $restoreExit." }
+
+            Write-Host "WHOLE_LIBRARY=BUILD"
+            & dotnet build ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-restore *> $buildLog
+            $buildExit = $LASTEXITCODE
+            Get-Content $buildLog | ForEach-Object { Write-Host $_ }
+            if ($buildExit -ne 0) { throw "Whole-library automation build failed with exit code $buildExit." }
+
+            Write-Host "WHOLE_LIBRARY=RUN"
+            & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- rootcause $reportDir $expectedCatalog *> $runLog
+            $runExit = $LASTEXITCODE
+            Get-Content $runLog | ForEach-Object { Write-Host $_ }
+            if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
 
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
               Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-            if (-not $json) { throw "No whole-library JSON report found." }
-            $artifactDir = Join-Path $PWD "build_logs\reports"
-            New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-            $base = [System.IO.Path]::GetFileNameWithoutExtension($json.Name)
-            Get-ChildItem $reportDir -Filter "$base.*" | Copy-Item -Destination $artifactDir -Force
+            if (-not $json) { throw "No whole-library JSON report found in $reportDir." }
+
+            Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.*" |
+              Copy-Item -Destination $artifactDir -Force
+
+            Write-Host "WHOLE_LIBRARY_REPORT=$($json.FullName)"
             return $json.FullName
           }
 
           function Test-RegressionGate($reportPath) {
+            if ([string]::IsNullOrWhiteSpace($reportPath)) { throw "Regression gate received an empty report path." }
+            if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
+
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
             if ($r.Failed -ne 0) { return $false }
             if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return $false }
