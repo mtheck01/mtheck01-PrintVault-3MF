@@ -41,7 +41,7 @@ jobs:
           persist-credentials: true
 
       - name: Validate runner
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "dotnet is required." }
@@ -51,7 +51,7 @@ jobs:
           python --version
 
       - name: Run autonomous cycle
-        shell: pwsh
+        shell: powershell
         env:
           RELEASE_TOKEN: ${{ secrets.PRINTVAULT_RELEASE_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
