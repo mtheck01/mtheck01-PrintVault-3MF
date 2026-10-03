@@ -1,0 +1,17 @@
+{
+  "version": "9.0.44",
+  "catalog": 1758,
+  "processed": 1758,
+  "failures": 0,
+  "conflicts": 448,
+  "causes": {
+    "LEXICAL_CLASSIFIER_DISAGREEMENT": 356,
+    "INSUFFICIENT_INDEPENDENT_EVIDENCE": 56,
+    "TAXONOMY_OR_CLASSIFIER_DISAGREEMENT": 34,
+    "ENTITY_EVIDENCE_OVERRIDES_STORED": 2
+  },
+  "dispositions": {
+    "REVIEW_INSUFFICIENT_EVIDENCE": 406,
+    "RESOLUTION_CANDIDATE": 42
+  }
+}
