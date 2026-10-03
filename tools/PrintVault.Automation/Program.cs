@@ -94,6 +94,10 @@ try
                                           confidence >= 60 &&
                                           evidence.Contains("Lexical cue:", StringComparison.OrdinalIgnoreCase);
 
+            var unresolvedFunctionalCandidate = storedUnresolved &&
+                                          string.Equals(inferred, "Functional", StringComparison.OrdinalIgnoreCase) &&
+                                          confidence >= 85 &&
+                                          evidenceQuality >= 25;
             var unresolvedRoleCandidate = storedUnresolved &&
                                           confidence >= 85 &&
                                           evidenceQuality >= 25 &&
@@ -104,7 +108,7 @@ try
             var highConfidenceResolution = string.Equals(disposition, "RESOLUTION_CANDIDATE", StringComparison.OrdinalIgnoreCase) &&
                                             confidence >= 85;
 
-            if (!strongUnresolvedLexical && !unresolvedRoleCandidate && !highConfidenceResolution)
+            if (!strongUnresolvedLexical && !unresolvedFunctionalCandidate && !unresolvedRoleCandidate && !highConfidenceResolution)
                 continue;
 
             if (string.Equals(model.Category, inferred, StringComparison.OrdinalIgnoreCase))
