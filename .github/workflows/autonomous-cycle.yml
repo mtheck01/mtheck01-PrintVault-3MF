@@ -258,20 +258,24 @@ jobs:
               Close-PrintVault $app
             }
 
+            $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $remainingConflicts = [int]$reportData.Conflicts
+            $needsRepair = $remainingConflicts -gt 0
+
+            # A baseline match is NOT a successful endpoint when conflicts remain.
+            # The forensic command is read-only; the actual production fix is the
+            # rebuild/writeback pass. Previously this gate exited on a baseline match
+            # before deterministic repair could ever run, leaving the library at
+            # exactly 424 conflicts indefinitely.
             $gate = Test-RegressionGate $report
-            if ($gate -eq "BASELINE") {
-              Write-Host "REGRESSION_GATE=BASELINE_MATCH"
-              Write-Host "VALIDATION=PASS_NO_CHANGE"
-              exit 0
-            }
             Write-Host "REGRESSION_GATE=$gate"
+            if ($gate -eq "BASELINE" -and $needsRepair) {
+              Write-Host "BASELINE_WITH_CONFLICTS=CONTINUE_TO_REPAIR"
+            }
 
             # Do not treat a small improvement as the finish line. If the whole-library
             # scan still contains conflicts, feed the forensic report back into the repair
             # engineer and require a fresh build/install/full-library verification.
-            $reportData = Get-Content $report -Raw | ConvertFrom-Json
-            $remainingConflicts = [int]$reportData.Conflicts
-            $needsRepair = $remainingConflicts -gt 0
 
             if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=FULL_LIBRARY_REBUILD"
@@ -310,8 +314,8 @@ jobs:
               continue
             }
 
-            if ($gate -eq "BASELINE") {
-              Write-Host "VALIDATION=PASS_NO_CHANGE"
+            if ($gate -eq "BASELINE" -and -not $needsRepair) {
+              Write-Host "VALIDATION=PASS_NO_CONFLICTS"
               exit 0
             }
 
