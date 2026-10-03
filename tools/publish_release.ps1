@@ -56,7 +56,7 @@ $current = Invoke-RestMethod -Uri "${manifestApi}?ref=main" -Headers $headers -M
 $manifestText = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($current.content -replace '\s','')))
 $currentManifest = $manifestText | ConvertFrom-Json
 if ($currentManifest.version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "Existing manifest version is invalid: $($currentManifest.version)" }
-if ([version]$currentManifest.version -ge [version]$Version) { throw "Manifest promotion rejected. Existing=$($currentManifest.version), Candidate=$Version" }
+if ([version]$currentManifest.version -gt [version]$Version) { throw "Manifest promotion rejected. Existing=$($currentManifest.version), Candidate=$Version" }
 
 Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
