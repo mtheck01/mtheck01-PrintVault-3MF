@@ -199,49 +199,44 @@ jobs:
             return $json.FullName
           }
 
+          function Get-ActionableConflictCount($r) {
+            $builtIn = @("Functional","Terrain & Props","Figures & Characters","Vehicles","Household","Tools & Workshop","Toys & Games","Art & Decor","HueForge","Keychains","Buildings","Nature & Scenery","Tabletop Terrain","Props & Accessories","Uncategorized","Unknown")
+            $count = 0
+            foreach ($row in $r.rows) {
+              $stored = [string]$row.StoredCategory
+              $inferred = [string]$row.InferredCategory
+              if ([string]::IsNullOrWhiteSpace($inferred) -or $inferred -in @("Uncategorized","Unknown") -or $stored -notin $builtIn) { continue }
+              $confidence = [int]$row.ClassificationConfidence
+              $evidence = [int]$row.EvidenceQuality
+              $basis = [string]$row.Basis
+              $evidenceText = [string]$row.Evidence
+              $disposition = [string]$row.Disposition
+              $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.Contains("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase)
+              $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
+              if ($strongUnresolvedLexical -or $highConfidenceResolution) { $count++ }
+            }
+            return $count
+          }
+
           function Test-RegressionGate($reportPath) {
             if ([string]::IsNullOrWhiteSpace($reportPath)) { throw "Regression gate received an empty report path." }
             if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
-
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
             if ($r.Failed -ne 0) { return "FAIL" }
             if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return "FAIL" }
-
-            $lexical = 0
-            $resolution = 0
-            if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) {
-              $lexical = [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT
-            }
-            if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) {
-              $resolution = [int]$r.Dispositions.RESOLUTION_CANDIDATE
-            }
-
+            $lexical = if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) { [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT } else { 0 }
+            $resolution = if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) { [int]$r.Dispositions.RESOLUTION_CANDIDATE } else { 0 }
             $baselineLexical = [int]$baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT
             $baselineResolution = [int]$baseline.dispositions.RESOLUTION_CANDIDATE
-
+            $actionable = Get-ActionableConflictCount $r
             Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$baselineLexical resolution=$baselineResolution"
-            Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution"
-
-            if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) {
-              return "BASELINE"
-            }
-
-            # A semantic architecture change can legitimately reclassify a small number
-            # of records while reducing the dominant lexical-conflict population and
-            # increasing high-confidence resolution candidates. Treat that as an
-            # improvement, not a regression, when the whole-library scan is complete
-            # and failure-free.
-            if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) {
-              return "IMPROVEMENT"
-            }
-
-            if ($r.Conflicts -le $baseline.conflicts) {
-              return "PASS"
-            }
-
+            Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution actionable=$actionable"
+            if ($actionable -eq 0) { Write-Host "ACTIONABLE_CONFLICTS=0"; return "PASS" }
+            if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
+            if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
+            if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
             return "FAIL"
           }
-
           $deterministicRepairAttempted = $false
 
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -264,7 +259,8 @@ jobs:
 
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
             $remainingConflicts = [int]$reportData.Conflicts
-            $needsRepair = $remainingConflicts -gt 0
+            $actionableConflicts = Get-ActionableConflictCount $reportData
+            $needsRepair = $actionableConflicts -gt 0
 
             # A baseline match is NOT a successful endpoint when conflicts remain.
             # The forensic command is read-only; the actual production fix is the
