@@ -14,7 +14,7 @@ on:
       max_attempts:
         description: "Maximum build/test/repair attempts"
         required: true
-        default: "3"
+        default: "5"
         type: choice
         options: ["1", "2", "3", "4", "5"]
       auto_repair:
@@ -41,7 +41,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64, printvault-validation]
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -277,7 +277,7 @@ jobs:
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
             $remainingConflicts = [int]$reportData.Conflicts
             $actionableConflicts = Get-ActionableConflictCount $reportData
-            $needsRepair = $actionableConflicts -gt 0
+            $needsRepair = $remainingConflicts -gt 0
 
             # A baseline match is NOT a successful endpoint when conflicts remain.
             # The forensic command is read-only; the actual production fix is the
@@ -338,29 +338,48 @@ jobs:
               Write-Host "PROMOTION_GUARD_CURRENT_SHA=$currentMainSha"
               if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
-              exit 0
-            }
-
-            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
-              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
-              if ($gate -eq "FAIL") { exit 20 }
 
               if ($publish) {
-                git fetch origin main --prune
-                $currentMainSha = (git rev-parse origin/main).Trim()
-                if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation. Refusing stale promotion." }
                 git add .
-                git commit -m "${version}: autonomous validated patch"
+                if (git diff --cached --quiet) {
+                  Write-Host "PUBLISH_SOURCE=NO_NEW_COMMIT"
+                }
+                else {
+                  git commit -m "${version}: autonomous validated patch"
+                  if ($LASTEXITCODE -ne 0) { throw "Validated commit failed." }
+                }
+                $sourceSha = (git rev-parse HEAD).Trim()
                 git push origin "HEAD:refs/heads/$branch"
+                if ($LASTEXITCODE -ne 0) { throw "Candidate branch push failed with exit code $LASTEXITCODE." }
 
-                powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$(git rev-parse HEAD)"
+                powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
                 if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
 
                 git push origin "HEAD:refs/heads/main"
                 if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
                 Write-Host "PROMOTED_VERSION=$version"
               }
+              else {
+                Write-Host "PUBLISH=DISABLED"
+              }
               exit 0
+            }
+
+            # Never publish a candidate while the whole-library scan still reports
+            # any conflicts. A low/zero ACTIONABLE count is not a clean library.
+            if ($remainingConflicts -gt 0) {
+              Write-Host "VALIDATION=CONFLICTS_REMAIN"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+                Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+                throw "Validation failed: $remainingConflicts whole-library conflicts remain after $attempt attempt(s). No release will be published."
+              }
+              continue
+            }
+
+            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+              throw "Validation failed: regression gate did not pass cleanly. No release will be published."
             }
 
             throw "Autonomous cycle reached an unexpected state."
