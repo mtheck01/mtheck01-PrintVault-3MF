@@ -261,6 +261,77 @@ public sealed class LibraryEngine : ILibraryEngine
         return new LibraryRebuildResult(models.Count, reclassified, preservedCustom, failed, files.Length);
     }
 
+    public async Task<(int Models, int Reclassified, int Failed)> ReconcileCategoriesAsync(
+        CancellationToken token = default, IProgress<(int processed, int total, int reclassified, int failed)>? progress = null)
+    {
+        var models = repo.GetAll();
+        var reclassified = 0;
+        var failed = 0;
+        var processed = 0;
+
+        // Category repair is deliberately classification-only. It must not re-hash 1,758
+        // files or regenerate thumbnails; those enrichment operations are unrelated to
+        // category reconciliation and were making the autonomous repair stage unnecessarily
+        // long and cancellable.
+        await Parallel.ForEachAsync(models, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 12),
+            CancellationToken = token
+        }, (model, ct) =>
+        {
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                var before = model.Category;
+                var a = analyzer.Analyze(model.Path, model.Name);
+                if (!model.CategoryOverride && IsBuiltInOrUnresolved(before))
+                {
+                    model.IntelligenceScore = a.Confidence;
+                    model.Family = a.Family;
+                    model.ObjectCount = a.ObjectCount;
+                    model.Dimensions = a.Dimensions;
+                    model.Slicer = a.Slicer;
+                    model.Materials = a.Materials;
+                    model.PrintReady = a.PrintReady;
+                    model.SemanticType = a.SemanticType;
+                    model.Subtype = a.Subtype;
+                    model.SuggestedTags = a.SuggestedTags;
+                    model.IntelligenceReason = a.Reason;
+                    model.RiskFlags = a.RiskFlags;
+                    if (!model.PrintMethodOverride)
+                    {
+                        model.PrintMethod = a.PrintMethod;
+                        model.PrintMethodConfidence = a.PrintMethodConfidence;
+                        model.PrintMethodEvidence = a.PrintMethodEvidence;
+                    }
+
+                    entityClassification.Apply(model);
+                    ApplyHighConfidenceFusion(model);
+
+                    if (!string.Equals(before, model.Category, StringComparison.OrdinalIgnoreCase))
+                        Interlocked.Increment(ref reclassified);
+                }
+
+                return ValueTask.CompletedTask;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { Interlocked.Increment(ref failed); return ValueTask.CompletedTask; }
+            finally
+            {
+                var done = Interlocked.Increment(ref processed);
+                progress?.Report((done, models.Count, Volatile.Read(ref reclassified), Volatile.Read(ref failed)));
+            }
+        });
+
+        token.ThrowIfCancellationRequested();
+        repo.SaveAll(models, new HashSet<string>(models.Select(m => m.Path), StringComparer.OrdinalIgnoreCase));
+        var persisted = repo.GetAll().Count;
+        if (persisted != models.Count)
+            throw new InvalidOperationException($"Category reconciliation lost records: expected {models.Count:N0}, persisted {persisted:N0}.");
+
+        return (models.Count, reclassified, failed);
+    }
+
     public Task<IntelligenceResult> AnalyzeAsync(ModelRecord model, CancellationToken token = default)
         => Task.Run(() => analyzer.Analyze(model.Path, model.Name), token);
 
@@ -291,15 +362,22 @@ public sealed class LibraryEngine : ILibraryEngine
         if (string.IsNullOrWhiteSpace(result.Category) ||
             string.Equals(result.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase)) return;
 
-        // Only promote evidence channels that are strong enough to make an automatic
-        // production classification decision. Generic lexical evidence remains diagnostic;
-        // it cannot rewrite the library by itself.
-        var strongBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
-                          result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
-                          result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
-                          result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
-                          result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
-        if (!strongBasis || result.ClassificationConfidence < 90) return;
+        // Production repair must be able to resolve strong lexical evidence; otherwise
+        // the forensic engine can identify hundreds of deterministic disagreements while
+        // the repair path refuses to move them. Keep manual/custom categories protected,
+        // but allow high-quality lexical convergence to rewrite built-in classifications.
+        var structuralBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
+        var lexicalBasis = result.Basis.Contains("Lexical evidence", StringComparison.OrdinalIgnoreCase);
+        var lexicalHits = result.Evidence.Count(e => e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase));
+        var lexicalActionable = lexicalBasis &&
+                                result.ClassificationConfidence >= 74 &&
+                                result.EvidenceQuality >= 50 &&
+                                (result.ClassificationConfidence >= 82 || lexicalHits >= 1);
+        if ((!structuralBasis || result.ClassificationConfidence < 90) && !lexicalActionable) return;
 
         model.Category = result.Category;
         model.Family = result.Family;
@@ -311,6 +389,11 @@ public sealed class LibraryEngine : ILibraryEngine
             ? fusionEvidence.TrimEnd('"')
             : $"{model.IntelligenceReason}; {fusionEvidence.TrimEnd('"')}";
     }
+
+    private static bool IsBuiltInOrUnresolved(string? category)
+        => string.IsNullOrWhiteSpace(category) ||
+           string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+           BuiltInCategories.All.Contains(category.Trim(), StringComparer.OrdinalIgnoreCase);
 
     private static bool IsCustomCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) &&
