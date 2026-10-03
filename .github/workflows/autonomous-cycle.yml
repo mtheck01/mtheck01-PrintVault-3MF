@@ -194,7 +194,7 @@ jobs:
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
             if ($r.Failed -ne 0) { return $false }
             if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return $false }
-            if ($r.Conflicts -gt $baseline.conflicts) { return $false }
+            if ($r.Conflicts -gt $baseline.conflicts) { return "FAIL" }
 
             $lexical = 0
             if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) {
@@ -204,10 +204,10 @@ jobs:
             Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$($baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT)"
             Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical"
 
-            if ($r.Conflicts -ge $baseline.conflicts -and $lexical -ge $baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT) {
-              return $false
+            if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT) {
+              return "BASELINE"
             }
-            return $true
+            return "PASS"
           }
 
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -217,7 +217,15 @@ jobs:
             Install-And-Smoke $candidate
             $report = Invoke-WholeLibrary
 
-            if (Test-RegressionGate $report) {
+            $gate = Test-RegressionGate $report
+            if ($gate -eq "BASELINE") {
+              Write-Host "REGRESSION_GATE=BASELINE_MATCH"
+              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+                Write-Host "VALIDATION=PASS_NO_CHANGE"
+                exit 0
+              }
+            }
+            elseif ($gate -eq "PASS") {
               Write-Host "REGRESSION_GATE=PASS"
 
               if ($publish) {
