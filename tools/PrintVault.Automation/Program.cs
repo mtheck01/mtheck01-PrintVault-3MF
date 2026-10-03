@@ -48,13 +48,7 @@ try
         Console.WriteLine($"REPAIR_INPUT_CATALOG={models.Count}");
 
         var engine = new LibraryEngine();
-        var result = engine.RebuildAsync(
-            roots,
-            progress: new Progress<ScanProgress>(p =>
-            {
-                if (p.Processed == p.Total || p.Processed % 100 == 0)
-                    Console.WriteLine($"REPAIR_PROGRESS={p.Processed}/{p.Total} PHASE={p.Phase}");
-            })).GetAwaiter().GetResult();
+        var result = engine.RebuildAsync(roots).GetAwaiter().GetResult();
 
         Console.WriteLine($"REPAIR_CATALOG={result.Models}");
         Console.WriteLine($"REPAIR_RECLASSIFIED={result.Reclassified}");
