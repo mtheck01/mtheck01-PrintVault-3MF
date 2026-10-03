@@ -13,52 +13,16 @@ public sealed class ModelAnalysisPipeline
     private readonly EntityClassificationService entityClassification = new();
     private readonly SemanticEvidenceFusionService semanticFusion = new();
 
-    public void AnalyzeAndApply(ModelRecord model)
+    public ThreeMfAnalysis Analyze(string path, string name)
+        => analyzer.Analyze(path, name);
+
+    public void Apply(ModelRecord model)
     {
-        var a = analyzer.Analyze(model.Path, model.Name);
 
-        model.Category = a.Category;
-        model.IntelligenceScore = a.Confidence;
-        if (!model.PrintMethodOverride)
-        {
-            model.PrintMethod = a.PrintMethod;
-            model.PrintMethodConfidence = a.PrintMethodConfidence;
-            model.PrintMethodEvidence = a.PrintMethodEvidence;
-        }
-
-        model.SpecialType = a.SpecialType;
-        model.Family = a.Family;
-        model.ObjectCount = a.ObjectCount;
-        model.Dimensions = a.Dimensions;
-        model.Slicer = a.Slicer;
-        model.Materials = a.Materials;
-        model.PrintReady = a.PrintReady;
-        model.SemanticType = a.SemanticType;
-        model.Subtype = a.Subtype;
-        model.SuggestedTags = a.SuggestedTags;
-        model.IntelligenceReason = a.Reason;
-        model.RiskFlags = a.RiskFlags;
-
+        // Analyzer fields are populated by the caller so custom-category preservation remains explicit.
+        if (string.IsNullOrWhiteSpace(model.Category)) model.Category = "Uncategorized";
         entityClassification.Apply(model);
         ApplyFusion(model);
-    }
-
-    public void Reconcile(ModelRecord model)
-    {
-        if (model.CategoryOverride || !IsBuiltInOrUnresolved(model.Category))
-            return;
-
-        AnalyzeAndApplyPreservingCategory(model);
-    }
-
-    private void AnalyzeAndApplyPreservingCategory(ModelRecord model)
-    {
-        var before = model.Category;
-        AnalyzeAndApply(model);
-
-        // Reconciliation may reclassify built-in/unresolved categories, but never a custom
-        // category. CategoryOverride is handled by the caller before this method.
-        _ = before;
     }
 
     private void ApplyFusion(ModelRecord model)
