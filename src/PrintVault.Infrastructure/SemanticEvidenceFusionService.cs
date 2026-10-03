@@ -544,9 +544,20 @@ public sealed class SemanticEvidenceFusionService
         var storedCategory = model.Category?.Trim() ?? "";
         var hasStoredCategory = !string.IsNullOrWhiteSpace(storedCategory);
         var hasInferredCategory = !string.IsNullOrWhiteSpace(category);
+
+        // "Uncategorized" is an absence of a prior classification, not a competing
+        // classification. Treating it as a conflict inflated the whole-library conflict
+        // population whenever the classifier successfully found a category (for example
+        // Bear -> Figures & Characters or Peterbilt -> Vehicles). It is therefore eligible
+        // for a resolution candidate when evidence is strong, but it must not be reported
+        // as a semantic contradiction.
+        var storedCategoryIsUnresolved = !hasStoredCategory ||
+                                         string.Equals(storedCategory, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(storedCategory, "Unknown", StringComparison.OrdinalIgnoreCase);
         var categoriesDiffer = hasStoredCategory && hasInferredCategory &&
                                !string.Equals(storedCategory, category, StringComparison.OrdinalIgnoreCase);
         var actionableConflict = categoriesDiffer &&
+                                 !storedCategoryIsUnresolved &&
                                  !string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase);
         // Retain the bounded convergence diagnostics used by the historical regression
         // suite, but do not let them independently convert an unresolved record into a
