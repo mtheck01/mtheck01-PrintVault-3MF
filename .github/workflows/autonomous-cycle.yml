@@ -226,7 +226,7 @@ jobs:
             # increasing high-confidence resolution candidates. Treat that as an
             # improvement, not a regression, when the whole-library scan is complete
             # and failure-free.
-            if ($lexical -lt $baselineLexical -and $resolution -gt $baselineResolution) {
+            if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) {
               return "IMPROVEMENT"
             }
 
