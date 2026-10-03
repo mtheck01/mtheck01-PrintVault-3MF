@@ -3,7 +3,8 @@ param(
     [string]$RegistrationToken,
     [string]$RepositoryUrl = "https://github.com/mtheck01/mtheck01-PrintVault-3MF",
     [string]$RunnerName = "PrintVault-Validation",
-    [string]$RunnerDirectory = "C:\actions-runner"
+    [string]$RunnerDirectory = "C:\actions-runner",
+    [switch]$InstallService
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,9 +32,13 @@ $arguments = @(
     "--token", $RegistrationToken,
     "--name", $RunnerName,
     "--labels", "printvault-validation",
-    "--work", "_work",
-    "--runasservice"
+    "--work", "_work"
 )
+if ($InstallService) {
+    Write-Host "The runner will be installed as a Windows service after registration."
+    Write-Host "IMPORTANT: configure the service to run as the Windows account that owns the PrintVault library."
+    $arguments += "--runasservice"
+}
 & (Join-Path $RunnerDirectory "config.cmd") @arguments
 
 if ($LASTEXITCODE -ne 0) {
@@ -44,3 +49,5 @@ Write-Host "PrintVault validation runner installed."
 Write-Host "Runner name: $RunnerName"
 Write-Host "Label: printvault-validation"
 Write-Host "Directory: $RunnerDirectory"
+Write-Host "InstallService: $InstallService"
+if ($InstallService) { Write-Host "Verify the Windows service Log On account before the first autonomous run." }
