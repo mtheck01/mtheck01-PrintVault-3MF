@@ -359,7 +359,15 @@ jobs:
             # ingest the populated test folder before forensic analysis, then make the
             # resulting catalog size the expected count for this run.
             $testLibraryRoot = Find-TestLibraryRoot
-            $scanOutput = @(& dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- scan $testLibraryRoot Deep 2>&1)
+            # Build the automation runner explicitly before invoking the scan command.
+            # build_windows.bat builds the product, but it does not guarantee that
+            # PrintVault.Automation.exe exists in tools/PrintVault.Automation/bin/Release.
+            $automationProject = ".\tools\PrintVault.Automation\PrintVault.Automation.csproj"
+            & dotnet restore $automationProject
+            if ($LASTEXITCODE -ne 0) { throw "Test-library automation restore failed with exit code $LASTEXITCODE." }
+            & dotnet build $automationProject -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { throw "Test-library automation build failed with exit code $LASTEXITCODE." }
+            $scanOutput = @(& dotnet run --project $automationProject -c Release --no-build -- scan $testLibraryRoot Deep 2>&1)
             $scanExit = $LASTEXITCODE
             $scanOutput | ForEach-Object { Write-Host $_ }
             if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
