@@ -175,7 +175,9 @@ jobs:
             $argumentString = ($arguments | ForEach-Object {
               $arg = [string]$_
               if ($arg -match '\\s') {
-                '"' + $arg.Replace('"','\\\"') + '"'
+                # Windows command-line parsing requires one backslash before an
+                # embedded quote; the outer quotes preserve the full argument.
+                '"' + $arg.Replace('"','\"') + '"'
               } else {
                 $arg
               }
