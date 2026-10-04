@@ -20,7 +20,7 @@ checks = [
     ("lexical evidence remains non-promoting against strong artifact evidence", "Lexical cue retained as non-promoting evidence" in fusion),
     ("production rebuild uses modular intelligence pipeline", "intelligencePipeline.Apply(m);" in engine),
     ("production pipeline performs dimensional arbitration", "var result = fusion.Fuse(model, entity);" in (ROOT / "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs").read_text(encoding="utf-8")),
-    ("production pipeline writes fused artifact classification", "model.Category = result.Category;" in (ROOT / "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs").read_text(encoding="utf-8")),
+    ("production arbitration stage writes fused artifact classification", "model.Category = result.Category;" in (ROOT / "src/PrintVault.Infrastructure/Intelligence/EvidenceArbitrationStage.cs").read_text(encoding="utf-8")),
 ]
 
 failed = [name for name, ok in checks if not ok]
