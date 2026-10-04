@@ -33,8 +33,8 @@ print("PASS: autonomous cycle contract and promotion safety gate")
 
 # The validation runner must use only the isolated test library and must never
 # fall back to the production D: library or an arbitrary environment path.
-assert 'D:\\\\3d print files test' in workflow, "Missing isolated test-library root"
-assert 'D:\\\\3d print files' in workflow, "Missing production-library safety guard"
+assert r'D:\3d print files test' in workflow, "Missing isolated test-library root"
+assert r'D:\3d print files' in workflow, "Missing production-library safety guard"
 assert 'Refusing to scan unapproved test-library path' in workflow
 assert 'PRODUCTION_LIBRARY_SCAN=DISABLED' in workflow
 assert 'DRIVE_ROOT_SCAN=DISABLED' in workflow
