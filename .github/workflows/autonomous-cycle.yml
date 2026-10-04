@@ -115,7 +115,7 @@ jobs:
                 tag_name = $tag
                 target_commitish = $sourceSha
                 name = "PrintVault 3MF v$version"
-                body = "Automated validated release. Source commit: $sourceSha. Whole-library validation: 1,758 processed, 0 conflicts, 0 failures."
+                body = "Automated validated release. Source commit: $sourceSha. Whole-library validation: $expectedCatalog processed, 0 conflicts, 0 failures."
                 draft = $false
                 prerelease = $false
               } | ConvertTo-Json -Depth 5
@@ -146,6 +146,37 @@ jobs:
 
           function Get-Version {
             return (Get-Content ".\VERSION" -Raw).Trim()
+          }
+
+          function Find-TestLibraryRoot {
+            $candidates = @(
+              $env:PRINTVAULT_TEST_LIBRARY_ROOT,
+              "D:\3d print files test",
+              "D:\3d print files\test"
+            ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+            foreach ($candidate in $candidates) {
+              if (Test-Path -LiteralPath $candidate -PathType Container) {
+                $count = @(Get-ChildItem -LiteralPath $candidate -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue).Count
+                if ($count -gt 0) {
+                  Write-Host "TEST_LIBRARY_ROOT=$candidate"
+                  Write-Host "TEST_LIBRARY_FILES=$count"
+                  return (Resolve-Path -LiteralPath $candidate).Path
+                }
+              }
+            }
+
+            $discovered = @(Get-ChildItem -LiteralPath "D:\" -Directory -Filter "3d print files test" -Recurse -Depth 3 -ErrorAction SilentlyContinue)
+            foreach ($candidate in $discovered) {
+              $count = @(Get-ChildItem -LiteralPath $candidate.FullName -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue).Count
+              if ($count -gt 0) {
+                Write-Host "TEST_LIBRARY_ROOT=$($candidate.FullName)"
+                Write-Host "TEST_LIBRARY_FILES=$count"
+                return $candidate.FullName
+              }
+            }
+
+            throw "No populated PrintVault test library folder was found. Set PRINTVAULT_TEST_LIBRARY_ROOT or use D:\3d print files test."
           }
 
           function Bump-PatchVersion {
@@ -294,7 +325,8 @@ jobs:
             if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
             if ($r.Failed -ne 0) { return "FAIL" }
-            if ($r.Catalog -ne $baseline.catalog -or $r.Processed -ne $baseline.processed) { return "FAIL" }
+            if ($null -eq $expectedCatalog) { return "FAIL" }
+            if ($r.Catalog -ne $expectedCatalog -or $r.Processed -ne $expectedCatalog) { return "FAIL" }
             $lexical = if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) { [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT } else { 0 }
             $resolution = if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) { [int]$r.Dispositions.RESOLUTION_CANDIDATE } else { 0 }
             $baselineLexical = [int]$baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT
@@ -321,12 +353,26 @@ jobs:
             }
             $candidate = Invoke-CandidateBuild
             $app = Install-And-Open $candidate
-            try {
-              $report = Invoke-WholeLibrary
+            Close-PrintVault $app
+
+            # The database is not the source of truth for new test files. Explicitly
+            # ingest the populated test folder before forensic analysis, then make the
+            # resulting catalog size the expected count for this run.
+            $testLibraryRoot = Find-TestLibraryRoot
+            $scanOutput = @(& dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- scan $testLibraryRoot Deep 2>&1)
+            $scanExit = $LASTEXITCODE
+            $scanOutput | ForEach-Object { Write-Host $_ }
+            if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
+
+            $scanCatalogLine = $scanOutput | Where-Object { $_ -match '^SCAN_DISCOVERED=' } | Select-Object -Last 1
+            if (-not $scanCatalogLine) { throw "Test-library ingestion did not report SCAN_DISCOVERED." }
+            $expectedCatalog = [int](($scanCatalogLine -split '=',2)[1])
+            if ($expectedCatalog -lt $baseline.catalog) {
+              throw "Test-library catalog regressed below baseline. Expected at least $($baseline.catalog), found $expectedCatalog."
             }
-            finally {
-              Close-PrintVault $app
-            }
+            Write-Host "EXPECTED_CATALOG_AFTER_TEST_INGEST=$expectedCatalog"
+
+            $report = Invoke-WholeLibrary
 
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
             $remainingConflicts = [int]$reportData.Conflicts
