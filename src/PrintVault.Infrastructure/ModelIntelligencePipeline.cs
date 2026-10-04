@@ -68,3 +68,5 @@ public sealed class ModelIntelligencePipeline
         OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
         TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence
     };
+
+}
