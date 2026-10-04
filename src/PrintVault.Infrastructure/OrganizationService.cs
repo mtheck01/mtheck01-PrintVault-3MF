@@ -43,6 +43,37 @@ public sealed class OrganizationService
         return result;
     }
 
+    public int OrganizeClassifiedFiles()
+    {
+        if (!Directory.Exists(root)) throw new InvalidOperationException("Library root not found.");
+        var moved = 0;
+        foreach (var model in repo.GetAll().ToList())
+        {
+            if (string.IsNullOrWhiteSpace(model.Path) || !File.Exists(model.Path)) continue;
+            if (string.IsNullOrWhiteSpace(model.Category) ||
+                string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var source = Path.GetFullPath(model.Path);
+            if (!source.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            var category = NormalizeCategory(model.Category);
+            var targetDir = Path.Combine(root, category);
+            Directory.CreateDirectory(targetDir);
+            var target = Path.Combine(targetDir, Path.GetFileName(source));
+            if (string.Equals(source, Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase)) continue;
+            if (File.Exists(target)) target = Unique(target);
+
+            File.Move(source, target);
+            model.Path = target;
+            model.Name = Path.GetFileName(target);
+            model.ModifiedUtc = File.GetLastWriteTimeUtc(target);
+            repo.RenamePath(source, target, model);
+            repo.Upsert(model);
+            moved++;
+        }
+        return moved;
+    }
+
     public MoveResult? UndoLast()
     {
         lock (undo)
