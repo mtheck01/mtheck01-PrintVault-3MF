@@ -17,7 +17,7 @@ assert 'strongSourceDerivedAnalyzer' in fusion
 # not merely the forensic report. This was the key architectural gap exposed by 9.0.42.
 assert 'private readonly ModelIntelligencePipeline intelligencePipeline = new();' in engine
 assert 'intelligencePipeline.Apply(m);' in engine
-assert 'entityClassification.Apply(m);' in pipeline
+assert 'entityClassification.Apply(model);' in pipeline
 assert 'fusion.Fuse(model, entity);' in pipeline
 assert 'var lexicalActionable = lexicalBasis' in engine
 assert 'result.ClassificationConfidence >= 70' in engine
