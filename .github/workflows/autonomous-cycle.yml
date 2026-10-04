@@ -149,36 +149,54 @@ jobs:
           }
 
           function Find-TestLibraryRoot {
-            $candidates = @(
+            # Prefer an explicit test-library root, then conventional test folders.
+            # If the runner uses a different folder name, discover directories whose
+            # names clearly identify them as the PrintVault test library. Log every
+            # candidate so a stale/incorrect root cannot silently pass as the test set.
+            $candidates = New-Object System.Collections.Generic.List[string]
+            foreach ($candidate in @(
               $env:PRINTVAULT_TEST_LIBRARY_ROOT,
               "D:\3d print files test",
-              "D:\3d print files\test"
-            ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+              "D:\3d print files\test",
+              "D:\3d print files\Test"
+            )) {
+              if (-not [string]::IsNullOrWhiteSpace($candidate) -and -not $candidates.Contains($candidate)) {
+                $candidates.Add($candidate)
+              }
+            }
 
-            foreach ($candidate in $candidates) {
+            $discovered = @(Get-ChildItem -LiteralPath "D:\" -Directory -Recurse -Depth 4 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match "(?i)(3d[ _-]?print.*test|test.*3d[ _-]?print|print.*vault.*test)" })
+            foreach ($candidate in $discovered) {
+              if (-not $candidates.Contains($candidate.FullName)) { $candidates.Add($candidate.FullName) }
+            }
+
+            $ranked = foreach ($candidate in $candidates) {
               if (Test-Path -LiteralPath $candidate -PathType Container) {
-                $count = @(Get-ChildItem -LiteralPath $candidate -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue).Count
-                if ($count -gt 0) {
-                  Write-Host "TEST_LIBRARY_ROOT=$candidate"
-                  Write-Host "TEST_LIBRARY_FILES=$count"
-                  return (Resolve-Path -LiteralPath $candidate).Path
+                $files = @(Get-ChildItem -LiteralPath $candidate -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue)
+                if ($files.Count -gt 0) {
+                  [pscustomobject]@{
+                    Path = (Resolve-Path -LiteralPath $candidate).Path
+                    Count = $files.Count
+                    Newest = ($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
+                  }
                 }
               }
             }
 
-            $discovered = @(Get-ChildItem -LiteralPath "D:\" -Directory -Filter "3d print files test" -Recurse -Depth 3 -ErrorAction SilentlyContinue)
-            foreach ($candidate in $discovered) {
-              $count = @(Get-ChildItem -LiteralPath $candidate.FullName -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue).Count
-              if ($count -gt 0) {
-                Write-Host "TEST_LIBRARY_ROOT=$($candidate.FullName)"
-                Write-Host "TEST_LIBRARY_FILES=$count"
-                return $candidate.FullName
-              }
+            foreach ($item in ($ranked | Sort-Object Count -Descending)) {
+              Write-Host "TEST_LIBRARY_CANDIDATE=$($item.Path) COUNT=$($item.Count) NEWEST=$($item.Newest.ToString('o'))"
             }
 
-            throw "No populated PrintVault test library folder was found. Set PRINTVAULT_TEST_LIBRARY_ROOT or use D:\3d print files test."
-          }
+            $selected = $ranked | Sort-Object Count -Descending | Select-Object -First 1
+            if ($null -ne $selected) {
+              Write-Host "TEST_LIBRARY_ROOT=$($selected.Path)"
+              Write-Host "TEST_LIBRARY_FILES=$($selected.Count)"
+              return $selected.Path
+            }
 
+            throw "No populated PrintVault test library folder was found. Set PRINTVAULT_TEST_LIBRARY_ROOT or use a directory named like '3d print files test'."
+          }
           function Bump-PatchVersion {
             $v = [version](Get-Version)
             $next = "$($v.Major).$($v.Minor).$($v.Build + 1)"
