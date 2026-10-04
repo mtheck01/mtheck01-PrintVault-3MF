@@ -149,11 +149,7 @@ jobs:
           }
 
           function Find-TestLibraryRoot {
-            # HARD SAFETY: never enumerate D:\\ itself or the parent library directory.
             Write-Host "DRIVE_SCAN=D_DISABLED"
-            # Never recursively crawl the entire D: drive: that can hang a self-hosted
-            # Windows runner on large/networked trees. Use explicit known roots first,
-            # then only inspect immediate children of D:\3d print files.
             $candidates = New-Object System.Collections.Generic.List[string]
             foreach ($candidate in @(
               $env:PRINTVAULT_TEST_LIBRARY_ROOT,
@@ -177,8 +173,20 @@ jobs:
 
             $ranked = foreach ($candidate in $candidates) {
               if (Test-Path -LiteralPath $candidate -PathType Container) {
-                $candidateFull = (Resolve-Path -LiteralPath $candidate).Path.TrimEnd('\\')
-                if ($candidateFull -match '^[A-Za-z]:
+                $candidateFull = (Resolve-Path -LiteralPath $candidate).Path.TrimEnd("\")
+                if ($candidateFull -match "^[A-Za-z]:$") { throw "Refusing to scan drive root: $candidateFull" }
+                if ($candidateFull -eq "D:\3d print files") { throw "Refusing to scan parent library directory: $candidateFull" }
+
+                $files = @(Get-ChildItem -LiteralPath $candidateFull -Filter "*.3mf" -File -Recurse -ErrorAction Stop)
+                if ($files.Count -gt 0) {
+                  [pscustomobject]@{
+                    Path = $candidateFull
+                    Count = $files.Count
+                    Newest = ($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
+                  }
+                }
+              }
+            }
 
             foreach ($item in ($ranked | Sort-Object Count -Descending)) {
               Write-Host "TEST_LIBRARY_CANDIDATE=$($item.Path) COUNT=$($item.Count) NEWEST=$($item.Newest.ToString('o'))"
