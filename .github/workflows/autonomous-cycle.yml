@@ -280,8 +280,16 @@ jobs:
             powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
             python ".\tools\static_audit.py"
             Invoke-SourceTests
-            cmd /c build_windows.bat
-            if ($LASTEXITCODE -ne 0) { throw "build_windows.bat failed." }
+            $candidateBuildLog = Join-Path $PWD "build_logs\\candidate-build.log"
+            New-Item -ItemType Directory -Force -Path (Split-Path $candidateBuildLog) | Out-Null
+            Write-Host "CANDIDATE_BUILD_LOG=$candidateBuildLog"
+            cmd /c "build_windows.bat" > $candidateBuildLog 2>&1
+            $buildExit = $LASTEXITCODE
+            if (Test-Path $candidateBuildLog) {
+              Get-Content $candidateBuildLog | ForEach-Object { Write-Host $_ }
+            }
+            Write-Host "CANDIDATE_BUILD_EXIT=$buildExit"
+            if ($buildExit -ne 0) { throw "build_windows.bat failed with exit code $buildExit. See build_logs\\candidate-build.log." }
 
             $version = Get-Version
             $installer = Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")
