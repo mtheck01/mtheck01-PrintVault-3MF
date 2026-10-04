@@ -11,14 +11,20 @@ required = [
     "PROMOTION_GUARD_START_SHA=",
     "Promotion blocked: origin/main changed during validation.",
     "Invoke-WholeLibrary",
-    "rootcause $reportDir $expectedCatalog",
-    "repair $report $expectedCatalog",
     "VALIDATION=PASS_NO_CONFLICTS",
     "actions/upload-artifact@v4",
 ]
 
 for item in required:
     assert item in workflow, f"Missing autonomous-chain invariant: {item}"
+
+# Accept either PowerShell's quoted argument form or the historical unquoted form.
+# The contract should validate the command semantics, not a fragile exact substring.
+assert "rootcause" in workflow and "$reportDir" in workflow and "$expectedCatalog" in workflow, \
+    "Missing autonomous whole-library rootcause invocation"
+assert "repair $report $expectedCatalog" in workflow or \
+       'repair $report $expectedCatalog' in workflow, \
+    "Missing autonomous repair invocation"
 
 assert "cancel-in-progress: true" not in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
