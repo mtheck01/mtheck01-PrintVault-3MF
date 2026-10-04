@@ -38,3 +38,12 @@ assert r'D:\3d print files' in workflow, "Missing production-library safety guar
 assert 'Refusing to scan unapproved test-library path' in workflow
 assert 'PRODUCTION_LIBRARY_SCAN=DISABLED' in workflow
 assert 'DRIVE_ROOT_SCAN=DISABLED' in workflow
+
+
+# Spaced test-library paths must not cross the autonomous process boundary as
+# positional command-line arguments. The scanner receives the exact path via
+# PRINTVAULT_TEST_LIBRARY_ROOT instead.
+assert '$env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot' in workflow,     "Autonomous cycle must export the isolated test root"
+assert 'Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT")' in     (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8"),     "Automation scanner must consume PRINTVAULT_TEST_LIBRARY_ROOT"
+assert 'scan", "", "Deep"' in workflow,     "Autonomous scan must not pass the spaced test root as a positional argument"
+assert 'organize", "")' in workflow,     "Autonomous organize must not pass the spaced test root as a positional argument"
