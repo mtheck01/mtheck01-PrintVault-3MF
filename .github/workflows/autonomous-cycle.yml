@@ -31,6 +31,11 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  # Required by the autonomous-chain contract; do not cancel an active validation cycle.
+  group: printvault-autonomous-cycle
+  cancel-in-progress: false
+
 jobs:
   cycle:
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
