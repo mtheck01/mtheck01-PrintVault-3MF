@@ -4,12 +4,13 @@ namespace PrintVault.Infrastructure;
 
 internal sealed class LanguageNormalizationStage : IModelIntelligenceStage
 {
-    private readonly MultilingualMetadataService service = new();
+    private readonly LanguageIntelligenceService service = new();
     public string Name => "LANGUAGE";
 
     public void Execute(ModelIntelligenceContext context)
     {
         service.Apply(context.Model);
-        context.StageEvidence.Add($"LANGUAGE:{context.Model.OriginalLanguage}:{context.Model.TranslationConfidence}");
+        context.StageEvidence.Add(
+            $"LANGUAGE:{context.Model.OriginalLanguage}:{context.Model.TranslationConfidence}:{(string.IsNullOrWhiteSpace(context.Model.TranslatedTitle) ? "EMPTY" : "READY")}");
     }
 }
