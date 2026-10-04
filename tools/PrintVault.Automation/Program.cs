@@ -25,6 +25,12 @@ var expectedCatalog = args.Length > 2 && int.TryParse(args[2], out var parsed)
     ? parsed
     : 1758;
 
+bool IsLegacyCategory(string? category) => category?.Trim() switch
+{
+    "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" => true,
+    _ => false
+};
+
 bool IsBuiltInOrUnresolved(string? category) =>
     string.IsNullOrWhiteSpace(category) ||
     string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
@@ -159,7 +165,7 @@ try
             // unprotected record has a strong built-in inference, migrate it deterministically
             // instead of spending an AI repair call on a known taxonomy migration problem.
             // Manual CategoryOverride records remain protected above.
-            var legacyCategoryMigration = !IsBuiltInOrUnresolved(model.Category) &&
+            var legacyCategoryMigration = (IsLegacyCategory(model.Category) || !IsBuiltInOrUnresolved(model.Category)) &&
                                           BuiltInCategories.All.Contains(inferred.Trim(), StringComparer.OrdinalIgnoreCase) &&
                                           confidence >= 60 &&
                                           evidenceQuality >= 25 &&
