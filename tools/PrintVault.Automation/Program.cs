@@ -9,13 +9,28 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
+    Console.Error.WriteLine("       Autonomous runs may supply PRINTVAULT_TEST_LIBRARY_ROOT instead of libraryRoot.");
     Console.Error.WriteLine("   or: PrintVault.Automation repair");
     Console.Error.WriteLine("   or: PrintVault.Automation organize [libraryRoot]");
     return 2;
 }
 
 var command = args[0];
-var scanRoot = args.Length > 1 && string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(args[1]) ? Path.GetFullPath(args[1]) : "";
+
+var configuredTestRoot = Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT");
+var scanRoot = string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase)
+    ? (!string.IsNullOrWhiteSpace(configuredTestRoot)
+        ? Path.GetFullPath(configuredTestRoot)
+        : args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
+            ? Path.GetFullPath(args[1])
+            : "")
+    : string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase)
+        ? (!string.IsNullOrWhiteSpace(configuredTestRoot)
+            ? Path.GetFullPath(configuredTestRoot)
+            : args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
+                ? Path.GetFullPath(args[1])
+                : "")
+        : "";
 var scanMode = args.Length > 2 && string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase) && Enum.TryParse<ScanMode>(args[2], true, out var parsedMode) ? parsedMode : ScanMode.Deep;
 var outputDirectory = args.Length > 1 && !string.Equals(command, "repair", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(args[1])
     ? Path.GetFullPath(args[1])
@@ -44,6 +59,8 @@ try
 
     if (string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase))
     {
+        Console.WriteLine($"SCAN_ROOT_SOURCE={(string.IsNullOrWhiteSpace(configuredTestRoot) ? "ARGUMENT" : "ENVIRONMENT")}");
+
         if (string.IsNullOrWhiteSpace(scanRoot) || !Directory.Exists(scanRoot))
         {
             Console.Error.WriteLine($"SCAN_ABORTED=LIBRARY_ROOT_NOT_FOUND:{scanRoot}");
@@ -71,6 +88,8 @@ try
     }
     if (string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase))
     {
+        Console.WriteLine($"ORGANIZE_ROOT_SOURCE={(string.IsNullOrWhiteSpace(configuredTestRoot) ? "ARGUMENT" : "ENVIRONMENT")}");
+
         if (string.IsNullOrWhiteSpace(scanRoot) || !Directory.Exists(scanRoot))
         {
             Console.Error.WriteLine($"ORGANIZE_ABORTED=LIBRARY_ROOT_NOT_FOUND:{scanRoot}");
