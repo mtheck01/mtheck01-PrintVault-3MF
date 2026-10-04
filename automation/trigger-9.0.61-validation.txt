@@ -1,1 +1,3 @@
-Trigger a repository-generated PR merge event so the autonomous validation workflow executes on the 9.0.61 main lineage.
+Trigger autonomous validation for the newly added language/intelligence models.
+Run build -> install -> launch -> whole-library diagnostics -> repair/retest as configured.
+Requested: 2026-10-04T12:00:00-04:00
