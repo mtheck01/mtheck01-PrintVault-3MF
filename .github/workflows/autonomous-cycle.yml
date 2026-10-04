@@ -49,6 +49,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+          clean: true
 
       - name: Validate runner
         shell: powershell
@@ -160,6 +161,7 @@ jobs:
               ProcessId = $PID
             }
             $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-status.json")
+            Write-Host "CYCLE_RUN_ID=$env:GITHUB_RUN_ID"
             Write-Host "CYCLE_STAGE=$stage DETAIL=$detail"
           }
 
@@ -195,24 +197,24 @@ jobs:
             # isolated test library. Never discover or scan the production library.
             Write-Host "PRODUCTION_LIBRARY_SCAN=DISABLED"
             Write-Host "DRIVE_ROOT_SCAN=DISABLED"
-            $testRoot = "D:\\3d print files test"
+            $testRoot = "D:\3d print files test"
             $resolvedConfigured = if (-not [string]::IsNullOrWhiteSpace($env:PRINTVAULT_TEST_LIBRARY_ROOT)) {
-              $env:PRINTVAULT_TEST_LIBRARY_ROOT.TrimEnd("\\")
+              $env:PRINTVAULT_TEST_LIBRARY_ROOT.TrimEnd("\")
             } else {
               $testRoot
             }
 
-            $normalized = $resolvedConfigured.TrimEnd("\\")
+            $normalized = $resolvedConfigured.TrimEnd("\")
             if ($normalized -ne $testRoot) {
               throw "Refusing to scan unapproved test-library path: $normalized. Expected exactly: $testRoot"
             }
-            if ($normalized -match "^(?i)D:\\3d(\\|$)") {
+            if ($normalized -match "^(?i)D:\3d(\|$)") {
               throw "Refusing to scan production D:\\3d library path: $normalized"
             }
-            if ($normalized -match "^(?i)[A-Za-z]:\\?$") {
+            if ($normalized -match "^(?i)[A-Za-z]:\?$") {
               throw "Refusing to scan a drive root: $normalized"
             }
-            if ($normalized -eq "D:\\3d print files") {
+            if ($normalized -eq "D:\3d print files") {
               throw "Refusing to scan production library directory: $normalized"
             }
             if (-not (Test-Path -LiteralPath $normalized -PathType Container)) {
@@ -224,7 +226,7 @@ jobs:
               throw "Dedicated PrintVault test library folder contains no .3mf files: $normalized"
             }
 
-            $resolved = (Resolve-Path -LiteralPath $normalized).Path.TrimEnd("\\")
+            $resolved = (Resolve-Path -LiteralPath $normalized).Path.TrimEnd("\")
             Write-Host "TEST_LIBRARY_ROOT=$resolved"
             Write-Host "TEST_LIBRARY_FILES=$($files.Count)"
             return $resolved
