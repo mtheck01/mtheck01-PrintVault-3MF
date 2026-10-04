@@ -9,9 +9,9 @@ public sealed class MultilingualMetadataService
 {
     private static readonly (string Language, string[] Terms)[] LanguageHints =
     {
-        ("Chinese", new[] { "的", "和", "打印", "文件", "比例", "整体", "上传", "模型", "吊车", "叉车", "汽车", "飞机", "火箭", "城堡", "房子", "龙" }),
-        ("Japanese", new[] { "印刷", "モデル", "車", "飛行機", "城", "ドラゴン" }),
-        ("Korean", new[] { "인쇄", "모델", "자동차", "비행기", "로켓", "성", "용" })
+        ("Chinese", new[] { "的", "和", "打印", "文件", "比例", "整体", "上传", "模型", "吊车", "叉车", "汽车", "飞机", "火箭", "城堡", "房子", "龙", "蝙蝠车", "千年隼", "霍格沃茨" }),
+        ("Japanese", new[] { "印刷", "モデル", "車", "飛行機", "城", "ドラゴン", "建物", "収納", "工具", "恐竜" }),
+        ("Korean", new[] { "인쇄", "모델", "자동차", "비행기", "로켓", "성", "용", "건물", "수납", "도구", "공룡" })
     };
 
     private static readonly Dictionary<string,string> Chinese = new(StringComparer.Ordinal)
@@ -25,6 +25,22 @@ public sealed class MultilingualMetadataService
         ["整体"]="whole", ["比例"]="scale", ["套件"]="kit", ["支架"]="stand", ["底座"]="base", ["展示"]="display",
         ["收纳"]="storage", ["盒"]="box", ["架"]="rack", ["灯"]="lamp", ["钥匙扣"]="keychain",
         ["工具"]="tool", ["玩具"]="toy", ["装饰"]="decor", ["人物"]="character", ["角色"]="character"
+    };
+
+    private static readonly Dictionary<string,string> Japanese = new(StringComparer.Ordinal)
+    {
+        ["車"]="car", ["自動車"]="automobile", ["飛行機"]="airplane", ["戦闘機"]="fighter jet", ["ヘリコプター"]="helicopter",
+        ["ロケット"]="rocket", ["船"]="ship", ["城"]="castle", ["家"]="house", ["建物"]="building", ["塔"]="tower",
+        ["龍"]="dragon", ["ドラゴン"]="dragon", ["恐竜"]="dinosaur", ["工具"]="tool", ["収納"]="storage",
+        ["人形"]="figure", ["フィギュア"]="figure", ["オーガナイザー"]="organizer"
+    };
+
+    private static readonly Dictionary<string,string> Korean = new(StringComparer.Ordinal)
+    {
+        ["자동차"]="car", ["차"]="car", ["비행기"]="airplane", ["전투기"]="fighter jet", ["헬리콥터"]="helicopter",
+        ["로켓"]="rocket", ["배"]="ship", ["성"]="castle", ["집"]="house", ["건물"]="building", ["탑"]="tower",
+        ["용"]="dragon", ["공룡"]="dinosaur", ["도구"]="tool", ["수납"]="storage", ["인형"]="figure", ["피규어"]="figure",
+        ["정리함"]="organizer"
     };
 
     private readonly MultilingualEntityService entities = new();
@@ -56,7 +72,14 @@ public sealed class MultilingualMetadataService
 
         var translated = stem;
         var hits = new List<string>();
-        foreach (var kv in Chinese.OrderByDescending(x => x.Key.Length))
+        var glossary = language switch
+        {
+            "Chinese" => Chinese,
+            "Japanese" => Japanese,
+            "Korean" => Korean,
+            _ => new Dictionary<string,string>(StringComparer.Ordinal)
+        };
+        foreach (var kv in glossary.OrderByDescending(x => x.Key.Length))
         {
             if (translated.Contains(kv.Key, StringComparison.Ordinal))
             {
