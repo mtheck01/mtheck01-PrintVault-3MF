@@ -22,8 +22,7 @@ public sealed record WholeLibraryRootCauseResult(
 public sealed class WholeLibraryRootCauseAnalysisService
 {
     private readonly LibraryRepository repository;
-    private readonly SemanticEvidenceFusionService fusion = new();
-    private readonly MultilingualEntityService entities = new();
+    private readonly ModelIntelligencePipeline intelligence = new();
 
     public WholeLibraryRootCauseAnalysisService(LibraryRepository repository) => this.repository = repository;
 
@@ -78,8 +77,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
             var m = models[i];
             try
             {
-                var entity = entities.Recognize(m);
-                var f = fusion.Fuse(m, entity);
+                var stage = intelligence.Analyze(m);
+                var entity = stage.Entity;
+                var f = stage.Fusion;
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var conflict = !string.IsNullOrWhiteSpace(stored) && !string.IsNullOrWhiteSpace(inferred) &&
