@@ -1,0 +1,33 @@
+name: PrintVault Build and Architecture Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify modular architecture
+        shell: pwsh
+        run: ./tools/Verify-ModularArchitecture.ps1
+
+      - name: Restore
+        run: dotnet restore PrintVault.sln
+
+      - name: Build Release
+        run: dotnet build PrintVault.sln --configuration Release --no-restore
+
+      - name: Publish application
+        run: dotnet publish src/PrintVault/PrintVault.csproj --configuration Release --no-restore --output artifacts/PrintVault
