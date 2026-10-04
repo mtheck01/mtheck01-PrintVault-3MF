@@ -19,11 +19,19 @@ assert 'private readonly ModelIntelligencePipeline intelligencePipeline = new();
 assert 'intelligencePipeline.Apply(m);' in engine
 assert 'entityClassification.Apply(model);' in pipeline
 assert 'fusion.Fuse(model, entity);' in pipeline
-assert 'var lexicalActionable = lexicalBasis' in engine
-assert 'result.ClassificationConfidence >= 70' in engine
-assert 'result.EvidenceQuality >= 40' in engine
-assert 'var structuralActionable = structuralBasis' in engine
-assert 'result.ClassificationConfidence >= 85' in engine
-assert 'result.EvidenceQuality >= 75' in engine
+# Arbitration thresholds belong to the modular intelligence pipeline now.
+# LibraryEngine is responsible for invoking the pipeline; the pipeline owns
+# lexical/structural evidence arbitration and therefore is the authoritative
+# production path this gate must validate.
+assert 'var structuralBasis = result.Basis.Contains' in pipeline
+assert 'var lexicalBasis = result.Basis.Contains' in pipeline
+assert 'var lexicalHits = result.Evidence.Count' in pipeline
+assert 'result.ClassificationConfidence >= 85' in pipeline
+assert 'result.EvidenceQuality >= 75' in pipeline
+assert 'result.ClassificationConfidence >= 70' in pipeline
+assert 'result.EvidenceQuality >= 40' in pipeline
+assert 'var actionable = (structuralBasis' in pipeline
+assert 'if (!actionable) return entity is not null;' in pipeline
+assert 'model.Category = result.Category;' in pipeline
 
 print("PASS: 9.0.43 deep semantic architecture gate")
