@@ -7,8 +7,6 @@ public sealed class LibraryEngine : ILibraryEngine
 {
     private readonly LibraryRepository repo = new();
     private readonly ThreeMfAnalyzer analyzer = new();
-    private readonly EntityClassificationService entityClassification = new();
-    private readonly SemanticEvidenceFusionService semanticFusion = new();
     private readonly ModelIntelligencePipeline intelligencePipeline = new();
     public LibraryRepository Repository => repo;
 
@@ -215,8 +213,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 // it, so whole-library rebuilds could not benefit from the architecture we were
                 // testing. Named entities and high-confidence role/source-derived evidence now
                 // participate in production classification during the actual rebuild.
-                entityClassification.Apply(m);
-                ApplyHighConfidenceFusion(m);
+                intelligencePipeline.Apply(m);
                 // Optional enrichment must never be allowed to discard an otherwise valid model.
                 // A corrupt/unsupported thumbnail or hash is a property of the enrichment step,
                 // not a reason to lose the catalog record.
@@ -305,8 +302,7 @@ public sealed class LibraryEngine : ILibraryEngine
                         model.PrintMethodEvidence = a.PrintMethodEvidence;
                     }
 
-                    entityClassification.Apply(model);
-                    ApplyHighConfidenceFusion(model);
+                    intelligencePipeline.Apply(model);
 
                     if (!string.Equals(before, model.Category, StringComparison.OrdinalIgnoreCase))
                         Interlocked.Increment(ref reclassified);
@@ -343,68 +339,6 @@ public sealed class LibraryEngine : ILibraryEngine
         return Task.FromResult(new LibraryStats(all.Count, all.Count(m => m.Favorite), dup, all.Count(m => m.IntelligenceScore < .5), all.Sum(m => m.Size), all.Count(m => !m.HasThumbnail)));
     }
 
-
-    private void ApplyHighConfidenceFusion(ModelRecord model)
-    {
-        if (model.CategoryOverride) return;
-
-        // Unresolved records are explicitly eligible for semantic promotion. Previously
-        // this guard rejected Uncategorized/Unknown before fusion could run, which meant
-        // the lexical engine could identify a strong category but the production rebuild
-        // could never apply it. User-defined/custom categories remain protected.
-        var unresolved = string.IsNullOrWhiteSpace(model.Category) ||
-                         string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase);
-        if (!unresolved && !BuiltInCategories.All.Contains(model.Category, StringComparer.OrdinalIgnoreCase)) return;
-
-        var entity = new MultilingualEntityService().Recognize(model);
-        var result = semanticFusion.Fuse(model, entity);
-        if (string.IsNullOrWhiteSpace(result.Category) ||
-            string.Equals(result.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase)) return;
-
-        // Production repair must be able to resolve strong lexical evidence; otherwise
-        // the forensic engine can identify hundreds of deterministic disagreements while
-        // the repair path refuses to move them. Keep manual/custom categories protected,
-        // but allow high-quality lexical convergence to rewrite built-in classifications.
-        var structuralBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
-        var lexicalBasis = result.Basis.Contains("Lexical evidence", StringComparison.OrdinalIgnoreCase);
-        var lexicalHits = result.Evidence.Count(e => e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase));
-        var structuralActionable = structuralBasis &&
-                                   result.ClassificationConfidence >= 85 &&
-                                   result.EvidenceQuality >= 75;
-        var lexicalActionable = lexicalBasis &&
-                                result.ClassificationConfidence >= 70 &&
-                                result.EvidenceQuality >= 40 &&
-                                lexicalHits >= 1;
-        // Unresolved records are not protected classifications. The whole-library forensic
-        // run shows that the dominant unresolved population carries precise, curated lexical
-        // cues in the 64-72 confidence range (for example bear, dragon, peterbilt, lamp).
-        // Refusing those signals leaves hundreds of records permanently Uncategorized even
-        // though the fusion engine has already established a concrete built-in category.
-        // Existing classified records retain the stricter 74/50 gate above.
-        var unresolvedLexicalActionable = unresolved &&
-                                          lexicalBasis &&
-                                          result.ClassificationConfidence >= 60 &&
-                                          result.EvidenceQuality >= 25 &&
-                                          lexicalHits >= 1;
-        if (!structuralActionable &&
-            !lexicalActionable &&
-            !unresolvedLexicalActionable) return;
-
-        model.Category = result.Category;
-        model.Family = result.Family;
-        model.SemanticType = result.SemanticType;
-        model.Subtype = result.Subtype;
-        model.IntelligenceScore = Math.Max(model.IntelligenceScore, result.ClassificationConfidence / 100d);
-        var fusionEvidence = $"Semantic fusion: {result.Basis}; confidence {result.ClassificationConfidence}%";
-        model.IntelligenceReason = string.IsNullOrWhiteSpace(model.IntelligenceReason)
-            ? fusionEvidence.TrimEnd('"')
-            : $"{model.IntelligenceReason}; {fusionEvidence.TrimEnd('"')}";
-    }
 
     private static bool IsBuiltInOrUnresolved(string? category)
         => string.IsNullOrWhiteSpace(category) ||
