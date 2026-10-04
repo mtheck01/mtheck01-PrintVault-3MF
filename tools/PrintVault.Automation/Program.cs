@@ -2,15 +2,19 @@ using System.Text.Json;
 using PrintVault.Core;
 using PrintVault.Infrastructure;
 
-if (args.Length == 0 || !string.Equals(args[0], "rootcause", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "repair", StringComparison.OrdinalIgnoreCase))
+if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "repair", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
+    Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
     Console.Error.WriteLine("   or: PrintVault.Automation repair");
     return 2;
 }
 
 var command = args[0];
+var scanRoot = args.Length > 1 && string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(args[1]) ? Path.GetFullPath(args[1]) : "";
+var scanMode = args.Length > 2 && string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase) && Enum.TryParse<ScanMode>(args[2], true, out var parsedMode) ? parsedMode : ScanMode.Deep;
 var outputDirectory = args.Length > 1 && !string.Equals(command, "repair", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(args[1])
     ? Path.GetFullPath(args[1])
     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "reports");
@@ -30,6 +34,33 @@ try
     var repository = new LibraryRepository();
     Console.WriteLine($"DATABASE={repository.DatabasePath}");
 
+    if (string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        if (string.IsNullOrWhiteSpace(scanRoot) || !Directory.Exists(scanRoot))
+        {
+            Console.Error.WriteLine($"SCAN_ABORTED=LIBRARY_ROOT_NOT_FOUND:{scanRoot}");
+            return 20;
+        }
+        Console.WriteLine($"SCAN_ROOT={scanRoot}");
+        Console.WriteLine($"SCAN_MODE={scanMode}");
+        var scanEngine = new LibraryEngine();
+        var scanProgress = new Progress<ScanProgress>(p =>
+        {
+            if (p.Processed == p.Discovered || p.Processed % 100 == 0)
+                Console.WriteLine($"SCAN_PROGRESS={p.Processed}/{p.Discovered} INDEXED={p.Indexed} FAILED={p.Failed}");
+        });
+        var scanned = await scanEngine.ScanAsync(new[] { scanRoot }, scanMode, default, scanProgress);
+        var persisted = scanEngine.Repository.GetAll().Count;
+        Console.WriteLine($"SCAN_DISCOVERED={scanned.Count}");
+        Console.WriteLine($"SCAN_PERSISTED={persisted}");
+        if (persisted != scanned.Count)
+        {
+            Console.Error.WriteLine($"SCAN_PERSISTENCE_MISMATCH=EXPECTED:{scanned.Count};ACTUAL:{persisted}");
+            return 21;
+        }
+        Console.WriteLine("SCAN=PASS");
+        return 0;
+    }
     if (string.Equals(command, "repair", StringComparison.OrdinalIgnoreCase))
     {
         var models = repository.GetAll();
