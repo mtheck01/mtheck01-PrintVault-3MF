@@ -275,7 +275,7 @@ jobs:
               $evidenceText = [string]$row.Evidence
               $disposition = [string]$row.Disposition
               $storedIsBuiltIn = $stored -in $builtIn
-              $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.Contains("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase)
+              $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.IndexOf("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0
               $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
               if (-not $storedIsBuiltIn -and -not $highConfidenceResolution) { continue }
               $unresolvedFunctionalCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $inferred -eq "Functional" -and $confidence -ge 85 -and $evidence -ge 25
