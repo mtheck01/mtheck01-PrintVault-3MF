@@ -18,7 +18,9 @@ checks = [
     ("entity preservation covers artifact categories", "HueForge, Keychains, Soap Holders" in entity),
     ("entity mismatch is not automatically an artifact conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
     ("lexical evidence remains non-promoting against strong artifact evidence", "Lexical cue retained as non-promoting evidence" in fusion),
-    ("production rebuild uses semantic fusion", "ApplyHighConfidenceFusion(m);" in engine),
+    ("production rebuild uses modular intelligence pipeline", "intelligencePipeline.Apply(m);" in engine),
+    ("production pipeline performs dimensional arbitration", "var result = fusion.Fuse(model, entity);" in (ROOT / "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs").read_text(encoding="utf-8")),
+    ("production pipeline writes fused artifact classification", "model.Category = result.Category;" in (ROOT / "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs").read_text(encoding="utf-8")),
 ]
 
 failed = [name for name, ok in checks if not ok]
