@@ -46,8 +46,8 @@ public sealed class LibraryEngine : ILibraryEngine
                 var changed = m is null || m.Size != fi.Length || m.ModifiedUtc != fi.LastWriteTimeUtc;
                 var existingCategory = m?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
-                var preserveCustomCategory = m?.CategoryOverride == true || IsCustomCategory(existingCategory) || !string.IsNullOrWhiteSpace(folderCategory);
-                var preservedCategory = m?.CategoryOverride == true ? existingCategory : (IsCustomCategory(existingCategory) ? existingCategory : folderCategory);
+                var preserveCustomCategory = m?.CategoryOverride == true || (!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) || !string.IsNullOrWhiteSpace(folderCategory);
+                var preservedCategory = m?.CategoryOverride == true ? existingCategory : ((!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) ? existingCategory : folderCategory);
                 var needsIntelligence = m is null || changed || string.IsNullOrWhiteSpace(m.SemanticType) || string.IsNullOrWhiteSpace(m.IntelligenceReason);
                 var doIntelligence = mode != ScanMode.Quick && (mode == ScanMode.Deep || needsIntelligence);
                 var doHash = mode != ScanMode.Quick && (mode == ScanMode.Deep || changed || string.IsNullOrWhiteSpace(m?.Hash));
@@ -165,7 +165,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 previous.TryGetValue(path, out var old);
                 var oldCategory = old?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
-                var customCategory = old?.CategoryOverride == true ? oldCategory : (IsCustomCategory(oldCategory) ? oldCategory : folderCategory);
+                var customCategory = old?.CategoryOverride == true ? oldCategory : ((!IsLegacyCategory(oldCategory) && IsCustomCategory(oldCategory)) ? oldCategory : folderCategory);
 
                 var m = new ModelRecord
                 {
@@ -344,6 +344,13 @@ public sealed class LibraryEngine : ILibraryEngine
         => string.IsNullOrWhiteSpace(category) ||
            string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
            BuiltInCategories.All.Contains(category.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsLegacyCategory(string? category)
+        => category?.Trim() switch
+        {
+            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" => true,
+            _ => false
+        };
 
     private static bool IsCustomCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) &&
