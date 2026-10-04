@@ -52,7 +52,9 @@ public sealed class LanguageIntelligenceService
         ["展示"]="display", ["收纳"]="storage", ["盒"]="box", ["架"]="rack", ["灯"]="lamp",
         ["钥匙扣"]="keychain", ["工具"]="tool", ["玩具"]="toy", ["装饰"]="decor",
         ["桌面收纳"]="desk organizer", ["理线器"]="cable organizer",
-        ["蝙蝠车"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts"
+        ["蝙蝠车"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts",
+        ["蝙蝠俠"]="batman", ["蜘蛛人"]="spider-man", ["鋼鐵人"]="iron man",
+        ["打印模型"]="3d printed model", ["3D打印"]="3d printing", ["模型打印"]="model printing"
     };
 
     private static readonly Dictionary<string, string> Japanese = new(StringComparer.Ordinal)
