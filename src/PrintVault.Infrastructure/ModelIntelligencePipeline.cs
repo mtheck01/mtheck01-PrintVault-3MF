@@ -18,7 +18,59 @@ public sealed class ModelIntelligencePipeline
 {
     private readonly MultilingualMetadataService language = new();
     private readonly MultilingualEntityService entities = new();
+    private readonly EntityClassificationService entityClassification = new();
     private readonly SemanticEvidenceFusionService fusion = new();
+
+    /// <summary>
+    /// Production application of the modular intelligence stages.
+    /// Language normalization is always performed before entity/semantic arbitration.
+    /// Custom/user categories remain authoritative.
+    /// </summary>
+    public bool Apply(ModelRecord model)
+    {
+        if (model is null || model.CategoryOverride) return false;
+
+        language.Apply(model);
+        entityClassification.Apply(model);
+
+        var entity = entities.Recognize(model);
+        var result = fusion.Fuse(model, entity);
+
+        var unresolved = string.IsNullOrWhiteSpace(model.Category) ||
+                         string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase);
+
+        if (!unresolved && !BuiltInCategories.All.Contains(model.Category, StringComparer.OrdinalIgnoreCase))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(result.Category) ||
+            string.Equals(result.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase))
+            return entity is not null;
+
+        var structuralBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
+                              result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
+        var lexicalBasis = result.Basis.Contains("Lexical evidence", StringComparison.OrdinalIgnoreCase);
+        var lexicalHits = result.Evidence.Count(e => e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase));
+        var actionable = (structuralBasis && result.ClassificationConfidence >= 85 && result.EvidenceQuality >= 75) ||
+                         (lexicalBasis && result.ClassificationConfidence >= 70 && result.EvidenceQuality >= 40 && lexicalHits >= 1) ||
+                         (unresolved && lexicalBasis && result.ClassificationConfidence >= 60 && result.EvidenceQuality >= 25 && lexicalHits >= 1);
+
+        if (!actionable) return entity is not null;
+
+        model.Category = result.Category;
+        model.Family = result.Family;
+        model.SemanticType = result.SemanticType;
+        model.Subtype = result.Subtype;
+        model.IntelligenceScore = Math.Max(model.IntelligenceScore, result.ClassificationConfidence / 100d);
+        var evidence = $"Semantic fusion: {result.Basis}; confidence {result.ClassificationConfidence}%";
+        model.IntelligenceReason = string.IsNullOrWhiteSpace(model.IntelligenceReason)
+            ? evidence
+            : $"{model.IntelligenceReason}; {evidence}";
+        return true;
+    }
 
     public ModelIntelligenceStageResult Analyze(ModelRecord source)
     {
