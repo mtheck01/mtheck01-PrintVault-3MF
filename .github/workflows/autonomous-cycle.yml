@@ -208,10 +208,12 @@ jobs:
             if ($normalized -ne $testRoot) {
               throw "Refusing to scan unapproved test-library path: $normalized. Expected exactly: $testRoot"
             }
-            if ($normalized -match "^(?i)D:\3d(\|$)") {
+            # Use literal comparisons only. Regex is unnecessary here and can
+            # interpret the \\3 sequence as a regex backreference on PowerShell.
+            if ($normalized -eq "D:\\3d" -or $normalized -eq "D:\\3d\\") {
               throw "Refusing to scan production D:\\3d library path: $normalized"
             }
-            if ($normalized -match "^(?i)[A-Za-z]:\?$") {
+            if ($normalized.Length -eq 3 -and $normalized[1] -eq ':' -and $normalized[2] -eq '\\') {
               throw "Refusing to scan a drive root: $normalized"
             }
             if ($normalized -eq "D:\3d print files") {
