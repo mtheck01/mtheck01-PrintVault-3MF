@@ -148,6 +148,48 @@ jobs:
             return (Get-Content ".\VERSION" -Raw).Trim()
           }
 
+          function Write-CycleStatus($stage, $detail = "") {
+            $statusDir = Join-Path $PWD "build_logs"
+            New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
+            $status = [pscustomobject]@{
+              TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+              RunId = $env:GITHUB_RUN_ID
+              Attempt = $script:CurrentAttempt
+              Stage = $stage
+              Detail = $detail
+              ProcessId = $PID
+            }
+            $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-status.json")
+            Write-Host "CYCLE_STAGE=$stage DETAIL=$detail"
+          }
+
+          function Invoke-ExternalWithHeartbeat($filePath, [string[]]$arguments, $logPath, $timeoutSeconds = 900) {
+            $errPath = "$logPath.err"
+            Remove-Item $logPath,$errPath -Force -ErrorAction SilentlyContinue
+            Write-Host "EXTERNAL_START=$filePath"
+            $proc = Start-Process -FilePath $filePath -ArgumentList $arguments -RedirectStandardOutput $logPath -RedirectStandardError $errPath -PassThru
+            $started = Get-Date
+            while (-not $proc.HasExited) {
+              Start-Sleep -Seconds 15
+              $proc.Refresh()
+              $elapsed = [int]((Get-Date) - $started).TotalSeconds
+              Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsed PID=$($proc.Id)"
+              Write-CycleStatus "EXTERNAL_RUNNING" "$filePath elapsed=$elapsed"
+              if ($elapsed -ge $timeoutSeconds) {
+                try { $proc.Kill($true) } catch {}
+                throw "External process timed out after $timeoutSeconds seconds: $filePath"
+              }
+            }
+            if (Test-Path $logPath) {
+              Get-Content $logPath | ForEach-Object { Write-Host $_ }
+            }
+            if (Test-Path $errPath) {
+              Get-Content $errPath | ForEach-Object { Write-Host $_ }
+            }
+            Write-Host "EXTERNAL_EXIT=$($proc.ExitCode) FILE=$filePath"
+            return $proc.ExitCode
+          }
+
           function Find-TestLibraryRoot {
             Write-Host "DRIVE_SCAN=D_DISABLED"
             $candidates = New-Object System.Collections.Generic.List[string]
@@ -277,6 +319,7 @@ jobs:
           }
 
           function Invoke-WholeLibrary {
+            Write-CycleStatus "WHOLE_LIBRARY_START"
             $reportDir = Join-Path $env:APPDATA "PrintVault\reports"
             New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
             $artifactDir = Join-Path $PWD "build_logs\reports"
@@ -287,21 +330,16 @@ jobs:
             $runLog = Join-Path $PWD "build_logs\automation-run.log"
 
             Write-Host "WHOLE_LIBRARY=RESTORE"
-            & dotnet restore ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" *> $restoreLog
-            $restoreExit = $LASTEXITCODE
-            Get-Content $restoreLog | ForEach-Object { Write-Host $_ }
+            $restoreExit = Invoke-ExternalWithHeartbeat "dotnet" @("restore", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj") $restoreLog 600
             if ($restoreExit -ne 0) { throw "Whole-library automation restore failed with exit code $restoreExit." }
 
             Write-Host "WHOLE_LIBRARY=BUILD"
-            & dotnet build ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-restore *> $buildLog
-            $buildExit = $LASTEXITCODE
-            Get-Content $buildLog | ForEach-Object { Write-Host $_ }
+            $buildExit = Invoke-ExternalWithHeartbeat "dotnet" @("build", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-restore") $buildLog 900
             if ($buildExit -ne 0) { throw "Whole-library automation build failed with exit code $buildExit." }
 
             Write-Host "WHOLE_LIBRARY=RUN"
-            & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- rootcause $reportDir $expectedCatalog *> $runLog
-            $runExit = $LASTEXITCODE
-            Get-Content $runLog | ForEach-Object { Write-Host $_ }
+            Write-CycleStatus "WHOLE_LIBRARY_RUN" "rootcause"
+            $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 900
             if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
 
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
@@ -365,6 +403,8 @@ jobs:
           $deterministicRepairAttempted = $false
 
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $script:CurrentAttempt = $attempt
+            Write-CycleStatus "ATTEMPT_START" "attempt=$attempt max=$maxAttempts"
             Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
             if ($attempt -eq 1) {
               $version = Get-Version
@@ -373,7 +413,9 @@ jobs:
             else {
               $version = Bump-PatchVersion
             }
+            Write-CycleStatus "BUILD"
             $candidate = Invoke-CandidateBuild
+            Write-CycleStatus "INSTALL_AND_OPEN" "version=$($candidate.Version)"
             $app = Install-And-Open $candidate
             # Keep the validated application open while library ingestion and diagnostics run.
             Write-Host "APPLICATION=KEEP_OPEN_FOR_DIAGNOSTIC"
@@ -381,6 +423,7 @@ jobs:
             # The database is not the source of truth for new test files. Explicitly
             # ingest the populated test folder before forensic analysis, then make the
             # resulting catalog size the expected count for this run.
+            Write-CycleStatus "DISCOVER_TEST_ROOT"
             $testLibraryRoot = Find-TestLibraryRoot
             # Build the automation runner explicitly before invoking the scan command.
             # build_windows.bat builds the product, but it does not guarantee that
@@ -390,15 +433,17 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Test-library automation restore failed with exit code $LASTEXITCODE." }
             & dotnet build $automationProject -c Release --no-restore
             if ($LASTEXITCODE -ne 0) { throw "Test-library automation build failed with exit code $LASTEXITCODE." }
-            $scanOutput = @(& dotnet run --project $automationProject -c Release --no-build -- scan $testLibraryRoot Deep 2>&1)
-            $scanExit = $LASTEXITCODE
-            $scanOutput | ForEach-Object { Write-Host $_ }
+            Write-CycleStatus "INGEST" "root=$testLibraryRoot"
+            $scanLog = Join-Path $PWD "build_logs\test-library-scan.log"
+            $scanExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", $testLibraryRoot, "Deep") $scanLog 900
+            $scanOutput = if (Test-Path $scanLog) { @(Get-Content $scanLog) } else { @() }
             if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
 
             # Physically organize only files inside the selected test-library root.
-            $organizeOutput = @(& dotnet run --project $automationProject -c Release --no-build -- organize $testLibraryRoot 2>&1)
-            $organizeExit = $LASTEXITCODE
-            $organizeOutput | ForEach-Object { Write-Host $_ }
+            Write-CycleStatus "ORGANIZE" "root=$testLibraryRoot"
+            $organizeLog = Join-Path $PWD "build_logs\test-library-organize.log"
+            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", $testLibraryRoot) $organizeLog 900
+            $organizeOutput = if (Test-Path $organizeLog) { @(Get-Content $organizeLog) } else { @() }
             if ($organizeExit -ne 0) { throw "Test-library organization failed with exit code $organizeExit." }
             $organizeLine = $organizeOutput | Where-Object { $_ -match '^ORGANIZE_MOVED=' } | Select-Object -Last 1
             if (-not $organizeLine) { throw "Test-library organization did not report ORGANIZE_MOVED." }
@@ -412,6 +457,7 @@ jobs:
             }
             Write-Host "EXPECTED_CATALOG_AFTER_TEST_INGEST=$expectedCatalog"
 
+            Write-CycleStatus "WHOLE_LIBRARY_DIAGNOSTIC"
             $report = Invoke-WholeLibrary
 
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
@@ -435,6 +481,7 @@ jobs:
             # engineer and require a fresh build/install/full-library verification.
 
             if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
+              Write-CycleStatus "DETERMINISTIC_REPAIR" "conflicts=$remainingConflicts"
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=FULL_LIBRARY_REBUILD"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
               & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair $report $expectedCatalog
@@ -446,6 +493,7 @@ jobs:
             }
 
             if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts) {
+              Write-CycleStatus "AI_REPAIR" "conflicts=$remainingConflicts"
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
 
@@ -480,6 +528,7 @@ jobs:
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
 
               if ($publish) {
+                Write-CycleStatus "PUBLISH" "version=$version"
                 git add .
                 git diff --cached --quiet
                 $hasStagedChanges = ($LASTEXITCODE -ne 0)
@@ -501,6 +550,7 @@ jobs:
                 if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
                 Publish-SourceRelease $version $sourceSha $candidate.Installer
                 Write-Host "PROMOTED_VERSION=$version"
+                Write-CycleStatus "DONE" "version=$version"
               }
               else {
                 Write-Host "PUBLISH=DISABLED"
@@ -525,6 +575,7 @@ jobs:
               throw "Validation failed: regression gate did not pass cleanly. No release will be published."
             }
 
+            Write-CycleStatus "ATTEMPT_END" "attempt=$attempt"
             throw "Autonomous cycle reached an unexpected state."
           }
 
