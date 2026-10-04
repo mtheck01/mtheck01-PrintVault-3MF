@@ -262,9 +262,10 @@ jobs:
             $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installed).FileVersion
             if ($fv -ne $candidate.Version) { throw "Installed version mismatch. Expected $($candidate.Version), found $fv." }
             $proc = Start-Process -FilePath $installed -PassThru
-            Start-Sleep -Seconds 12
+            Start-Sleep -Seconds 30
             if ($proc.HasExited) { throw "PrintVault exited during smoke validation with code $($proc.ExitCode)." }
-            Write-Host "APPLICATION=OPEN VERSION=$fv PID=$($proc.Id)"
+            Write-Host "APPLICATION=OPEN VERSION=$fv PID=$($proc.Id) MAIN_WINDOW=$($proc.MainWindowHandle)"
+            Write-Host "APPLICATION=OPEN_READY=PASS"
             return @{ Process=$proc; Path=$installed; Version=$fv }
           }
 
@@ -373,7 +374,8 @@ jobs:
             }
             $candidate = Invoke-CandidateBuild
             $app = Install-And-Open $candidate
-            Close-PrintVault $app
+            # Keep the validated application open while library ingestion and diagnostics run.
+            Write-Host "APPLICATION=KEEP_OPEN_FOR_DIAGNOSTIC"
 
             # The database is not the source of truth for new test files. Explicitly
             # ingest the populated test folder before forensic analysis, then make the
