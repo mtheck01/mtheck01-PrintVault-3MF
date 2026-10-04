@@ -149,6 +149,8 @@ jobs:
           }
 
           function Find-TestLibraryRoot {
+            # HARD SAFETY: never enumerate D:\\ itself or the parent library directory.
+            Write-Host "DRIVE_SCAN=D_DISABLED"
             # Never recursively crawl the entire D: drive: that can hang a self-hosted
             # Windows runner on large/networked trees. Use explicit known roots first,
             # then only inspect immediate children of D:\3d print files.
@@ -175,7 +177,375 @@ jobs:
 
             $ranked = foreach ($candidate in $candidates) {
               if (Test-Path -LiteralPath $candidate -PathType Container) {
-                $files = @(Get-ChildItem -LiteralPath $candidate -Filter "*.3mf" -File -Recurse -ErrorAction SilentlyContinue)
+                $candidateFull = (Resolve-Path -LiteralPath $candidate).Path.TrimEnd('\\')
+                if ($candidateFull -match '^[A-Za-z]:
+                if ($files.Count -gt 0) {
+                  [pscustomobject]@{
+                    Path = (Resolve-Path -LiteralPath $candidate).Path
+                    Count = $files.Count
+                    Newest = ($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
+                  }
+                }
+              }
+            }
+
+            foreach ($item in ($ranked | Sort-Object Count -Descending)) {
+              Write-Host "TEST_LIBRARY_CANDIDATE=$($item.Path) COUNT=$($item.Count) NEWEST=$($item.Newest.ToString('o'))"
+            }
+
+            $selected = $ranked | Sort-Object Count -Descending | Select-Object -First 1
+            if ($null -ne $selected) {
+              Write-Host "TEST_LIBRARY_ROOT=$($selected.Path)"
+              Write-Host "TEST_LIBRARY_FILES=$($selected.Count)"
+              return $selected.Path
+            }
+
+            throw "No populated PrintVault test library folder was found. Set PRINTVAULT_TEST_LIBRARY_ROOT or use D:\3d print files\test."
+          }
+          function Bump-PatchVersion {
+            $v = [version](Get-Version)
+            $next = "$($v.Major).$($v.Minor).$($v.Build + 1)"
+            Set-Content ".\VERSION" $next -NoNewline
+            Write-Host "CANDIDATE_VERSION=$next"
+            return $next
+          }
+
+          function Invoke-SourceTests {
+            $tests = @(
+              "test_release_preflight_contract.py",
+              "test_autonomous_cycle_contract.py",
+              "test_source_integrity.py",
+              "test_challenge_version_consistency.py",
+              "test_xaml_cs_integrity.py",
+              "test_ui_features.py",
+              "test_ui_navigation.py",
+              "test_scan_modes.py",
+              "test_scan_progress.py",
+              "test_semantic_evidence_large_scale_fix_9_0_38.py",
+              "test_semantic_evidence_large_scale_fix_9_0_39.py",
+              "test_semantic_evidence_large_scale_fix_9_0_40.py",
+              "test_semantic_evidence_arbitration_9_0_42.py",
+              "test_semantic_evidence_architecture_9_0_43.py",
+              "test_semantic_evidence_dimensional_arbitration_9_0_44.py",
+              "test_semantic_evidence_artifact_role_precision_9_0_45.py",
+              "test_semantic_evidence_unresolved_category_gate_9_0_46.py"
+            )
+            foreach ($test in $tests) {
+              python ".\tools\$test"
+              if ($LASTEXITCODE -ne 0) { throw "Regression test failed: $test" }
+            }
+          }
+
+          function Invoke-CandidateBuild {
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
+            python ".\tools\static_audit.py"
+            Invoke-SourceTests
+            cmd /c build_windows.bat
+            if ($LASTEXITCODE -ne 0) { throw "build_windows.bat failed." }
+
+            $version = Get-Version
+            $installer = Join-Path $PWD ("dist\installer\PrintVault_3MF_v" + $version + "_Setup.exe")
+            $exe = Join-Path $PWD "dist\PrintVault\PrintVault.exe"
+            if (-not (Test-Path $installer)) { throw "Installer missing: $installer" }
+            if (-not (Test-Path $exe)) { throw "Application missing: $exe" }
+            return @{ Version=$version; Installer=$installer; Exe=$exe }
+          }
+
+          function Install-And-Open($candidate) {
+            Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            $p = Start-Process -FilePath $candidate.Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -PassThru
+            if (-not $p.WaitForExit(120000)) {
+              try { $p.Kill($true) } catch {}
+              throw "Installer timed out after 120 seconds."
+            }
+            if ($p.ExitCode -ne 0) { throw "Installer exited with code $($p.ExitCode)." }
+            $installed = "C:\Program Files\PrintVault 3MF\PrintVault.exe"
+            if (-not (Test-Path $installed)) { throw "Installed executable missing: $installed" }
+            $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installed).FileVersion
+            if ($fv -ne $candidate.Version) { throw "Installed version mismatch. Expected $($candidate.Version), found $fv." }
+            $proc = Start-Process -FilePath $installed -PassThru
+            Start-Sleep -Seconds 30
+            if ($proc.HasExited) { throw "PrintVault exited during smoke validation with code $($proc.ExitCode)." }
+            Write-Host "APPLICATION=OPEN VERSION=$fv PID=$($proc.Id) MAIN_WINDOW=$($proc.MainWindowHandle)"
+            Write-Host "APPLICATION=OPEN_READY=PASS"
+            return @{ Process=$proc; Path=$installed; Version=$fv }
+          }
+
+          function Close-PrintVault($app) {
+            if ($null -ne $app -and $null -ne $app.Process -and -not $app.Process.HasExited) { $app.Process | Stop-Process -Force -ErrorAction SilentlyContinue }
+            Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "APPLICATION=CLOSED"
+          }
+
+          function Invoke-WholeLibrary {
+            $reportDir = Join-Path $env:APPDATA "PrintVault\reports"
+            New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+            $artifactDir = Join-Path $PWD "build_logs\reports"
+            New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+            $restoreLog = Join-Path $PWD "build_logs\automation-restore.log"
+            $buildLog = Join-Path $PWD "build_logs\automation-build.log"
+            $runLog = Join-Path $PWD "build_logs\automation-run.log"
+
+            Write-Host "WHOLE_LIBRARY=RESTORE"
+            & dotnet restore ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" *> $restoreLog
+            $restoreExit = $LASTEXITCODE
+            Get-Content $restoreLog | ForEach-Object { Write-Host $_ }
+            if ($restoreExit -ne 0) { throw "Whole-library automation restore failed with exit code $restoreExit." }
+
+            Write-Host "WHOLE_LIBRARY=BUILD"
+            & dotnet build ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-restore *> $buildLog
+            $buildExit = $LASTEXITCODE
+            Get-Content $buildLog | ForEach-Object { Write-Host $_ }
+            if ($buildExit -ne 0) { throw "Whole-library automation build failed with exit code $buildExit." }
+
+            Write-Host "WHOLE_LIBRARY=RUN"
+            & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- rootcause $reportDir $expectedCatalog *> $runLog
+            $runExit = $LASTEXITCODE
+            Get-Content $runLog | ForEach-Object { Write-Host $_ }
+            if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
+
+            $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
+              Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+            if (-not $json) { throw "No whole-library JSON report found in $reportDir." }
+
+            Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.*" |
+              Copy-Item -Destination $artifactDir -Force
+
+            Write-Host "WHOLE_LIBRARY_REPORT=$($json.FullName)"
+            return $json.FullName
+          }
+
+          function Get-ActionableConflictCount($r) {
+            $builtIn = @("Functional","Terrain & Props","Figures & Characters","Vehicles","Household","Tools & Workshop","Toys & Games","Art & Decor","HueForge","Keychains","Buildings","Nature & Scenery","Tabletop Terrain","Props & Accessories","Uncategorized","Unknown")
+            $count = 0
+            foreach ($row in $r.rows) {
+              $stored = [string]$row.StoredCategory
+              $inferred = [string]$row.InferredCategory
+              if ([string]::IsNullOrWhiteSpace($inferred) -or $inferred -in @("Uncategorized","Unknown")) { continue }
+              $confidence = [int]$row.ClassificationConfidence
+              $evidence = [int]$row.EvidenceQuality
+              $basis = [string]$row.Basis
+              $evidenceText = [string]$row.Evidence
+              $disposition = [string]$row.Disposition
+              $storedIsBuiltIn = $stored -in $builtIn
+              $strongUnresolvedLexical = ($stored -in @("","Uncategorized","Unknown")) -and $basis.StartsWith("Lexical evidence:",[System.StringComparison]::OrdinalIgnoreCase) -and $confidence -ge 60 -and $evidenceText.IndexOf("Lexical cue:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0
+              $highConfidenceResolution = $disposition -eq "RESOLUTION_CANDIDATE" -and $confidence -ge 85 -and $evidence -ge 75
+              if (-not $storedIsBuiltIn -and -not $highConfidenceResolution) { continue }
+              $unresolvedFunctionalCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $inferred -eq "Functional" -and $confidence -ge 85 -and $evidence -ge 25
+              $unresolvedRoleCandidate = ($stored -in @("","Uncategorized","Unknown")) -and $confidence -ge 85 -and $evidence -ge 25 -and (
+                $basis.IndexOf("Object role evidence:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $basis.IndexOf("Generalized artifact role evidence",[System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $basis.IndexOf("Role-aware artifact arbitration:",[System.StringComparison]::OrdinalIgnoreCase) -ge 0
+              )
+              if ($strongUnresolvedLexical -or $unresolvedFunctionalCandidate -or $unresolvedRoleCandidate -or $highConfidenceResolution) { $count++ }
+            }
+            return $count
+          }
+
+          function Test-RegressionGate($reportPath) {
+            if ([string]::IsNullOrWhiteSpace($reportPath)) { throw "Regression gate received an empty report path." }
+            if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
+            $r = Get-Content $reportPath -Raw | ConvertFrom-Json
+            if ($r.Failed -ne 0) { return "FAIL" }
+            if ($null -eq $expectedCatalog) { return "FAIL" }
+            if ($r.Catalog -ne $expectedCatalog -or $r.Processed -ne $expectedCatalog) { return "FAIL" }
+            $lexical = if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) { [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT } else { 0 }
+            $resolution = if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) { [int]$r.Dispositions.RESOLUTION_CANDIDATE } else { 0 }
+            $baselineLexical = [int]$baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT
+            $baselineResolution = [int]$baseline.dispositions.RESOLUTION_CANDIDATE
+            $actionable = Get-ActionableConflictCount $r
+            Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$baselineLexical resolution=$baselineResolution"
+            Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution actionable=$actionable"
+            if ($actionable -eq 0) { Write-Host "ACTIONABLE_CONFLICTS=0"; return "PASS" }
+            if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
+            if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
+            if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
+            return "FAIL"
+          }
+          $deterministicRepairAttempted = $false
+
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
+            if ($attempt -eq 1) {
+              $version = Get-Version
+              Write-Host "INITIAL_CANDIDATE_VERSION=$version"
+            }
+            else {
+              $version = Bump-PatchVersion
+            }
+            $candidate = Invoke-CandidateBuild
+            $app = Install-And-Open $candidate
+            # Keep the validated application open while library ingestion and diagnostics run.
+            Write-Host "APPLICATION=KEEP_OPEN_FOR_DIAGNOSTIC"
+
+            # The database is not the source of truth for new test files. Explicitly
+            # ingest the populated test folder before forensic analysis, then make the
+            # resulting catalog size the expected count for this run.
+            $testLibraryRoot = Find-TestLibraryRoot
+            # Build the automation runner explicitly before invoking the scan command.
+            # build_windows.bat builds the product, but it does not guarantee that
+            # PrintVault.Automation.exe exists in tools/PrintVault.Automation/bin/Release.
+            $automationProject = ".\tools\PrintVault.Automation\PrintVault.Automation.csproj"
+            & dotnet restore $automationProject
+            if ($LASTEXITCODE -ne 0) { throw "Test-library automation restore failed with exit code $LASTEXITCODE." }
+            & dotnet build $automationProject -c Release --no-restore
+            if ($LASTEXITCODE -ne 0) { throw "Test-library automation build failed with exit code $LASTEXITCODE." }
+            $scanOutput = @(& dotnet run --project $automationProject -c Release --no-build -- scan $testLibraryRoot Deep 2>&1)
+            $scanExit = $LASTEXITCODE
+            $scanOutput | ForEach-Object { Write-Host $_ }
+            if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
+
+            # Physically organize classified files only inside the selected test-library root.
+            $organizeOutput = @(& dotnet run --project $automationProject -c Release --no-build -- organize $testLibraryRoot 2>&1)
+            $organizeExit = $LASTEXITCODE
+            $organizeOutput | ForEach-Object { Write-Host $_ }
+            if ($organizeExit -ne 0) { throw "Test-library organization failed with exit code $organizeExit." }
+            $organizeLine = $organizeOutput | Where-Object { $_ -match '^ORGANIZE_MOVED=' } | Select-Object -Last 1
+            if (-not $organizeLine) { throw "Test-library organization did not report ORGANIZE_MOVED." }
+            Write-Host "TEST_LIBRARY_ORGANIZATION=$organizeLine"
+
+            $scanCatalogLine = $scanOutput | Where-Object { $_ -match '^SCAN_DISCOVERED=' } | Select-Object -Last 1
+            if (-not $scanCatalogLine) { throw "Test-library ingestion did not report SCAN_DISCOVERED." }
+            $expectedCatalog = [int](($scanCatalogLine -split '=',2)[1])
+            if ($expectedCatalog -lt $baseline.catalog) {
+              throw "Test-library catalog regressed below baseline. Expected at least $($baseline.catalog), found $expectedCatalog."
+            }
+            Write-Host "EXPECTED_CATALOG_AFTER_TEST_INGEST=$expectedCatalog"
+
+            $report = Invoke-WholeLibrary
+
+            $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $remainingConflicts = [int]$reportData.Conflicts
+            $actionableConflicts = Get-ActionableConflictCount $reportData
+            $needsRepair = $remainingConflicts -gt 0
+
+            # A baseline match is NOT a successful endpoint when conflicts remain.
+            # The forensic command is read-only; the actual production fix is the
+            # rebuild/writeback pass. Previously this gate exited on a baseline match
+            # before deterministic repair could ever run, leaving the library at
+            # exactly 424 conflicts indefinitely.
+            $gate = Test-RegressionGate $report
+            Write-Host "REGRESSION_GATE=$gate"
+            if ($gate -eq "BASELINE" -and $needsRepair) {
+              Write-Host "BASELINE_WITH_CONFLICTS=CONTINUE_TO_REPAIR"
+            }
+
+            # Do not treat a small improvement as the finish line. If the whole-library
+            # scan still contains conflicts, feed the forensic report back into the repair
+            # engineer and require a fresh build/install/full-library verification.
+
+            if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=FULL_LIBRARY_REBUILD"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair $report $expectedCatalog
+              $repairExit = $LASTEXITCODE
+              if ($repairExit -ne 0) { throw "Deterministic full-library repair failed with exit code $repairExit." }
+              $deterministicRepairAttempted = $true
+              Write-Host "AUTONOMOUS_REPAIR=FULL_LIBRARY_REBUILD_APPLIED"
+              continue
+            }
+
+            if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+
+              if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+                throw "OPENAI_API_KEY is required for automatic repair."
+              }
+
+              python ".\tools\autonomous_repair.py" $report
+              if ($LASTEXITCODE -ne 0) { throw "Repair agent failed." }
+
+              $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
+              if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
+              git apply --check $patch
+              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed git apply --check." }
+              git apply $patch
+              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed to apply." }
+
+              if (git diff --name-only | Select-String "^VERSION$") {
+                git checkout -- VERSION
+              }
+
+              Write-Host "AUTONOMOUS_REPAIR=APPLIED"
+              continue
+            }
+
+            if ($gate -eq "PASS" -and -not $needsRepair) {
+              git fetch origin main --prune
+              $currentMainSha = (git rev-parse origin/main).Trim()
+              Write-Host "PROMOTION_GUARD_START_SHA=$startingMainSha"
+              Write-Host "PROMOTION_GUARD_CURRENT_SHA=$currentMainSha"
+              if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
+              Write-Host "VALIDATION=PASS_NO_CONFLICTS"
+
+              if ($publish) {
+                git add .
+                git diff --cached --quiet
+                $hasStagedChanges = ($LASTEXITCODE -ne 0)
+                if (-not $hasStagedChanges) {
+                  Write-Host "PUBLISH_SOURCE=NO_NEW_COMMIT"
+                }
+                else {
+                  git commit -m "${version}: autonomous validated patch"
+                  if ($LASTEXITCODE -ne 0) { throw "Validated commit failed." }
+                }
+                $sourceSha = (git rev-parse HEAD).Trim()
+                git push origin "HEAD:refs/heads/$branch"
+                if ($LASTEXITCODE -ne 0) { throw "Candidate branch push failed with exit code $LASTEXITCODE." }
+
+                powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
+                if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
+
+                git push origin "HEAD:refs/heads/main"
+                if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
+                Publish-SourceRelease $version $sourceSha $candidate.Installer
+                Write-Host "PROMOTED_VERSION=$version"
+              }
+              else {
+                Write-Host "PUBLISH=DISABLED"
+              }
+              exit 0
+            }
+
+            # Never publish a candidate while the whole-library scan still reports
+            # any conflicts. A low/zero ACTIONABLE count is not a clean library.
+            if ($remainingConflicts -gt 0) {
+              Write-Host "VALIDATION=CONFLICTS_REMAIN"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+                Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+                throw "Validation failed: $remainingConflicts whole-library conflicts remain after $attempt attempt(s). No release will be published."
+              }
+              continue
+            }
+
+            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+              throw "Validation failed: regression gate did not pass cleanly. No release will be published."
+            }
+
+            throw "Autonomous cycle reached an unexpected state."
+          }
+
+          throw "Autonomous cycle exhausted its attempt budget."
+
+      - name: Upload cycle artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintVault-autonomous-cycle-${{ github.run_id }}
+          path: |
+            build_logs/**
+            build_logs\reports\whole-library-root-cause.*.json
+            build_logs\reports\whole-library-root-cause.*.csv
+            build_logs\reports\whole-library-root-cause.*.txt
+          if-no-files-found: warn
+) { throw "Refusing to scan drive root: $candidateFull" }
+                if ($candidateFull -eq 'D:\\3d print files') { throw "Refusing to scan parent library directory: $candidateFull" }
+                $files = @(Get-ChildItem -LiteralPath $candidateFull -Filter "*.3mf" -File -Recurse -ErrorAction Stop)
                 if ($files.Count -gt 0) {
                   [pscustomobject]@{
                     Path = (Resolve-Path -LiteralPath $candidate).Path
