@@ -5,10 +5,11 @@ $engine = Get-Content "src/PrintVault.Infrastructure/LibraryEngine.cs" -Raw
 $mainWindow = Get-Content "src/PrintVault/MainWindow.xaml.cs" -Raw
 
 $requiredPipeline = @(
-    "MultilingualMetadataService",
-    "EntityClassificationService",
-    "SemanticEvidenceFusionService",
-    "public bool Apply(ModelRecord model)"
+    "new LanguageNormalizationStage()",
+    "new EntityClassificationStage()",
+    "new EntityRecognitionStage()",
+    "new SemanticFusionStage()",
+    "new EvidenceArbitrationStage()"
 )
 foreach ($token in $requiredPipeline) {
     if ($pipeline -notmatch [regex]::Escape($token)) {
