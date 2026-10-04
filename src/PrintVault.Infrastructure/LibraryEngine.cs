@@ -9,6 +9,7 @@ public sealed class LibraryEngine : ILibraryEngine
     private readonly ThreeMfAnalyzer analyzer = new();
     private readonly EntityClassificationService entityClassification = new();
     private readonly SemanticEvidenceFusionService semanticFusion = new();
+    private readonly ModelIntelligencePipeline intelligencePipeline = new();
     public LibraryRepository Repository => repo;
 
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
@@ -82,8 +83,7 @@ public sealed class LibraryEngine : ILibraryEngine
                     // Named-entity intelligence outranks generic analyzer metadata, while
                     // manual/custom categories remain protected. Raw analyzer evidence is
                     // retained in IntelligenceReason by EntityClassificationService.
-                    entityClassification.Apply(m);
-                    ApplyHighConfidenceFusion(m);
+                    intelligencePipeline.Apply(m);
                     // Preserve user tags; the intelligence layer stores its own suggested tags separately.
                     if (doHash)
                     {
