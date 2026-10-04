@@ -169,7 +169,19 @@ jobs:
             $errPath = "$logPath.err"
             Remove-Item $logPath,$errPath -Force -ErrorAction SilentlyContinue
             Write-Host "EXTERNAL_START=$filePath"
-            $proc = Start-Process -FilePath $filePath -ArgumentList $arguments -RedirectStandardOutput $logPath -RedirectStandardError $errPath -PassThru
+            # Start-Process flattens an argument array into one command line. Quote
+            # arguments containing spaces so paths such as D:\\3d print files test
+            # are passed as one argument instead of being truncated at D:\\3d.
+            $argumentString = ($arguments | ForEach-Object {
+              $arg = [string]$_
+              if ($arg -match '\\s') {
+                '"' + $arg.Replace('"','\\\"') + '"'
+              } else {
+                $arg
+              }
+            }) -join ' '
+            Write-Host "EXTERNAL_ARGUMENTS=$argumentString"
+            $proc = Start-Process -FilePath $filePath -ArgumentList $argumentString -RedirectStandardOutput $logPath -RedirectStandardError $errPath -PassThru
             $started = Get-Date
             while (-not $proc.HasExited) {
               Start-Sleep -Seconds 15
