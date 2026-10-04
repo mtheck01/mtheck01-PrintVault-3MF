@@ -4,11 +4,13 @@ using PrintVault.Infrastructure;
 
 if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "repair", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase)))
+    !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
     Console.Error.WriteLine("   or: PrintVault.Automation repair");
+    Console.Error.WriteLine("   or: PrintVault.Automation organize [libraryRoot]");
     return 2;
 }
 
@@ -61,6 +63,21 @@ try
         Console.WriteLine("SCAN=PASS");
         return 0;
     }
+    if (string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase))
+    {
+        if (string.IsNullOrWhiteSpace(scanRoot) || !Directory.Exists(scanRoot))
+        {
+            Console.Error.WriteLine($"ORGANIZE_ABORTED=LIBRARY_ROOT_NOT_FOUND:{scanRoot}");
+            return 30;
+        }
+        Console.WriteLine($"ORGANIZE_ROOT={scanRoot}");
+        var organization = new OrganizationService(repository, scanRoot);
+        var moved = organization.OrganizeClassifiedFiles();
+        Console.WriteLine($"ORGANIZE_MOVED={moved}");
+        Console.WriteLine("ORGANIZE=PASS");
+        return 0;
+    }
+
     if (string.Equals(command, "repair", StringComparison.OrdinalIgnoreCase))
     {
         var models = repository.GetAll();
