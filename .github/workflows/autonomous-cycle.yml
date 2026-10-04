@@ -191,56 +191,43 @@ jobs:
           }
 
           function Find-TestLibraryRoot {
-            Write-Host "DRIVE_SCAN=D_DISABLED"
-            $candidates = New-Object System.Collections.Generic.List[string]
-            foreach ($candidate in @(
-              $env:PRINTVAULT_TEST_LIBRARY_ROOT,
-              "D:\3d print files test",
-              "D:\3d print files\test",
-              "D:\3d print files\Test"
-            )) {
-              if (-not [string]::IsNullOrWhiteSpace($candidate) -and -not $candidates.Contains($candidate)) {
-                $candidates.Add($candidate)
-              }
+            # The autonomous test harness is allowed to touch ONLY the dedicated
+            # isolated test library. Never discover or scan the production library.
+            Write-Host "PRODUCTION_LIBRARY_SCAN=DISABLED"
+            Write-Host "DRIVE_ROOT_SCAN=DISABLED"
+            $testRoot = "D:\\3d print files test"
+            $resolvedConfigured = if (-not [string]::IsNullOrWhiteSpace($env:PRINTVAULT_TEST_LIBRARY_ROOT)) {
+              $env:PRINTVAULT_TEST_LIBRARY_ROOT.TrimEnd("\\")
+            } else {
+              $testRoot
             }
 
-            $parent = "D:\3d print files"
-            if (Test-Path -LiteralPath $parent -PathType Container) {
-              foreach ($child in @(Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue)) {
-                if ($child.Name -match "(?i)(test|printvault)") {
-                  if (-not $candidates.Contains($child.FullName)) { $candidates.Add($child.FullName) }
-                }
-              }
+            $normalized = $resolvedConfigured.TrimEnd("\\")
+            if ($normalized -ne $testRoot) {
+              throw "Refusing to scan unapproved test-library path: $normalized. Expected exactly: $testRoot"
+            }
+            if ($normalized -match "^(?i)D:\\3d(\\|$)") {
+              throw "Refusing to scan production D:\\3d library path: $normalized"
+            }
+            if ($normalized -match "^(?i)[A-Za-z]:\\?$") {
+              throw "Refusing to scan a drive root: $normalized"
+            }
+            if ($normalized -eq "D:\\3d print files") {
+              throw "Refusing to scan production library directory: $normalized"
+            }
+            if (-not (Test-Path -LiteralPath $normalized -PathType Container)) {
+              throw "Dedicated PrintVault test library folder not found: $normalized"
             }
 
-            $ranked = foreach ($candidate in $candidates) {
-              if (Test-Path -LiteralPath $candidate -PathType Container) {
-                $candidateFull = (Resolve-Path -LiteralPath $candidate).Path.TrimEnd("\")
-                if ($candidateFull -match "^[A-Za-z]:$") { throw "Refusing to scan drive root: $candidateFull" }
-                if ($candidateFull -eq "D:\3d print files") { throw "Refusing to scan parent library directory: $candidateFull" }
-                $files = @(Get-ChildItem -LiteralPath $candidateFull -Filter "*.3mf" -File -Recurse -ErrorAction Stop)
-                if ($files.Count -gt 0) {
-                  [pscustomobject]@{
-                    Path = $candidateFull
-                    Count = $files.Count
-                    Newest = ($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
-                  }
-                }
-              }
+            $files = @(Get-ChildItem -LiteralPath $normalized -Filter "*.3mf" -File -Recurse -ErrorAction Stop)
+            if ($files.Count -eq 0) {
+              throw "Dedicated PrintVault test library folder contains no .3mf files: $normalized"
             }
 
-            foreach ($item in ($ranked | Sort-Object Count -Descending)) {
-              Write-Host "TEST_LIBRARY_CANDIDATE=$($item.Path) COUNT=$($item.Count) NEWEST=$($item.Newest.ToString('o'))"
-            }
-
-            $selected = $ranked | Sort-Object Count -Descending | Select-Object -First 1
-            if ($null -ne $selected) {
-              Write-Host "TEST_LIBRARY_ROOT=$($selected.Path)"
-              Write-Host "TEST_LIBRARY_FILES=$($selected.Count)"
-              return $selected.Path
-            }
-
-            throw "No populated PrintVault test library folder was found. Set PRINTVAULT_TEST_LIBRARY_ROOT or use D:\3d print files\test."
+            $resolved = (Resolve-Path -LiteralPath $normalized).Path.TrimEnd("\\")
+            Write-Host "TEST_LIBRARY_ROOT=$resolved"
+            Write-Host "TEST_LIBRARY_FILES=$($files.Count)"
+            return $resolved
           }
           function Bump-PatchVersion {
             $v = [version](Get-Version)
