@@ -31,16 +31,11 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  # Serialize cycles; never cancel an active validation run.
-  group: printvault-autonomous-cycle
-  cancel-in-progress: false
-
 jobs:
   cycle:
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     name: Build Install Run Test Repair Repeat
-    runs-on: [self-hosted, windows, x64, printvault-validation]
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 30
 
     steps:
