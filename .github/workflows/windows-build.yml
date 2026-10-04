@@ -192,22 +192,9 @@ jobs:
             throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
           }
 
-      - name: Automatic autonomous validation trigger
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message != '' && !startsWith(github.event.head_commit.message, 'autonomous validated patch')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $uri = "https://api.github.com/repos/${{ github.repository }}/actions/workflows/autonomous-cycle.yml/dispatches"
-          $body = @{ ref = "main"; inputs = @{ max_attempts = "3"; auto_repair = "true"; publish_on_pass = "true" } } | ConvertTo-Json -Depth 4
-          Invoke-RestMethod -Method Post -Uri $uri -Headers @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = "application/vnd.github+json"
-            "X-GitHub-Api-Version" = "2026-03-10"
-          } -ContentType "application/json" -Body $body
-          Write-Host "AUTONOMOUS_CYCLE_TRIGGERED=TRUE"
-
+      # The autonomous cycle already triggers directly from pushes to main.
+      # Do not dispatch it again here; duplicate dispatches caused a false CI failure
+      # when GitHub reported the workflow_dispatch trigger as unavailable.
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
