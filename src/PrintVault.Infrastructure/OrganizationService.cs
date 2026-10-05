@@ -123,6 +123,31 @@ public sealed class OrganizationService
         // been neutralized. Uncategorized/Unknown records stay at the root.
         var moved = OrganizeClassifiedFiles();
 
+        // Legacy records that became Uncategorized must also leave their old
+        // category directory. Move them to the library root without overwriting.
+        foreach (var model in repo.GetAll().ToList())
+        {
+            if (!File.Exists(model.Path)) continue;
+            if (!string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var source = Path.GetFullPath(model.Path);
+            var parent = Path.GetDirectoryName(source);
+            if (string.IsNullOrWhiteSpace(parent)) continue;
+            var parentName = new DirectoryInfo(parent).Name;
+            if (!legacy.Contains(parentName)) continue;
+
+            var target = Path.Combine(root, Path.GetFileName(source));
+            if (File.Exists(target)) target = Unique(target);
+            File.Move(source, target);
+            model.Path = target;
+            model.Name = Path.GetFileName(target);
+            model.ModifiedUtc = File.GetLastWriteTimeUtc(target);
+            repo.RenamePath(source, target, model);
+            repo.Upsert(model);
+            moved++;
+        }
+
         var knownLegacyFoldersRemaining = 0;
         foreach (var name in legacy)
         {
