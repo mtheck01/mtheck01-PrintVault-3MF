@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-infra = (ROOT / "src/PrintVault.Infrastructure/PrintVault.Infrastructure.csproj").resolve()
+\n# GitHub Actions Windows runners may use cp1252 for stdout; the challenge emits\n# multilingual diagnostics, so force UTF-8 output as well as subprocess decoding.\nif hasattr(__import__("sys").stdout, "reconfigure"):\n    __import__("sys").stdout.reconfigure(encoding="utf-8", errors="replace")\n    __import__("sys").stderr.reconfigure(encoding="utf-8", errors="replace")\ninfra = (ROOT / "src/PrintVault.Infrastructure/PrintVault.Infrastructure.csproj").resolve()
 
 program = r'''
 using System;
