@@ -29,6 +29,22 @@ assert "repair $report $expectedCatalog" in workflow or \
 assert "cancel-in-progress: true" not in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
 
+assert 'Install-Candidate' in workflow
+assert 'Start-FinalApp' in workflow
+assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
+assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
+assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
+assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=' in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
+assert 'CleanupLegacyTaxonomy' in (ROOT / "src" / "PrintVault.Infrastructure" / "OrganizationService.cs").read_text(encoding="utf-8")
+assert 'if (IsCustomCategory(top) && !IsLegacyCategory(top)) return top;' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
+assert '!IsLegacyCategory(x)' in (ROOT / "src" / "PrintVault" / "MainWindow.xaml.cs").read_text(encoding="utf-8")
+
+assert 'INITIAL_VERSION_BUMP=PASS' in workflow
+assert workflow.index('INITIAL_VERSION_BUMP=PASS') < workflow.index('$candidate = Invoke-CandidateBuild')
+assert 'PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY = "1"' in workflow
+assert 'autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
+assert 'doHash = !autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
+assert 'doThumbnail = !autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
 print("PASS: autonomous cycle contract and promotion safety gate")
 
 # The validation runner must use only the isolated test library and must never

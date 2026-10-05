@@ -118,6 +118,8 @@ try
         Console.WriteLine($"LEGACY_CATEGORIES_REMAINING={result.LegacyCategoriesRemaining}");
         Console.WriteLine($"LEGACY_TAGS_REMAINING={result.LegacyTagsRemaining}");
         Console.WriteLine($"LEGACY_FOLDERS_REMAINING={result.LegacyFoldersRemaining}");
+        Console.WriteLine($"LEGACY_REGISTRY_ENTRIES_REMOVED={result.LegacyRegistryEntriesRemoved}");
+        Console.WriteLine($"LEGACY_REGISTRY_ENTRIES_REMAINING={result.LegacyRegistryEntriesRemaining}");
 
         if (afterFiles != beforeFiles) return 31;
         if (afterRecords != beforeRecords) return 32;

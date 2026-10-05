@@ -11,7 +11,7 @@ checks={
 "deep": "ScanMode.Deep" in engine,
 "quick_skips_intelligence": "var doIntelligence = mode != ScanMode.Quick" in engine,
 "quick_clears_changed_hash": "if (mode == ScanMode.Quick) m.Hash = """ in engine,
-"turbo_hashes": "var doHash = mode != ScanMode.Quick" in engine,
+"turbo_hashes": "var doHash = !autonomousClassificationOnly" in engine and "mode != ScanMode.Quick" in engine,
 "deep_forces_intelligence": "mode == ScanMode.Deep || needsIntelligence" in engine,
 "selector": 'x:Name="ScanModeSelector"' in xaml,
 "three_modes": all(x in xaml for x in ["Quick Scan","Turbo Scan","Deep Scan"]),

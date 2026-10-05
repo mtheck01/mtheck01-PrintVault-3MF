@@ -16,6 +16,10 @@ public sealed class LibraryEngine : ILibraryEngine
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var autonomousClassificationOnly = string.Equals(
+            Environment.GetEnvironmentVariable("PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"),
+            "1",
+            StringComparison.OrdinalIgnoreCase);
         var files = rootList
             .SelectMany(SafeEnumerate3Mf)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -32,7 +36,7 @@ public sealed class LibraryEngine : ILibraryEngine
 
         await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 12),
+            MaxDegreeOfParallelism = autonomousClassificationOnly ? Math.Clamp(Environment.ProcessorCount, 2, 6) : Math.Clamp(Environment.ProcessorCount, 4, 12),
             CancellationToken = token
         }, async (i, ct) =>
         {
@@ -46,12 +50,18 @@ public sealed class LibraryEngine : ILibraryEngine
                 var changed = m is null || m.Size != fi.Length || m.ModifiedUtc != fi.LastWriteTimeUtc;
                 var existingCategory = m?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
-                var preserveCustomCategory = m?.CategoryOverride == true || (!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) || !string.IsNullOrWhiteSpace(folderCategory);
-                var preservedCategory = m?.CategoryOverride == true ? existingCategory : ((!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) ? existingCategory : folderCategory);
+                var preserveCustomCategory = m?.CategoryOverride == true || (!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) || (!IsLegacyCategory(folderCategory) && !string.IsNullOrWhiteSpace(folderCategory));
+                var preservedCategory = m?.CategoryOverride == true ? existingCategory : ((!IsLegacyCategory(existingCategory) && IsCustomCategory(existingCategory)) ? existingCategory : (!IsLegacyCategory(folderCategory) ? folderCategory : null));
                 var needsIntelligence = m is null || changed || string.IsNullOrWhiteSpace(m.SemanticType) || string.IsNullOrWhiteSpace(m.IntelligenceReason);
                 var doIntelligence = mode != ScanMode.Quick && (mode == ScanMode.Deep || needsIntelligence);
-                var doHash = mode != ScanMode.Quick && (mode == ScanMode.Deep || changed || string.IsNullOrWhiteSpace(m?.Hash));
-                var doThumbnail = mode != ScanMode.Quick;
+                // Autonomous classification must not block on enrichment. Hashing and thumbnail
+                // extraction are useful UI enrichment, but they are not prerequisites for
+                // classification, organization, or taxonomy cleanup. They are deliberately
+                // deferred during the bounded autonomous pass.
+                var doHash = !autonomousClassificationOnly &&
+                             mode != ScanMode.Quick &&
+                             (mode == ScanMode.Deep || changed || string.IsNullOrWhiteSpace(m?.Hash));
+                var doThumbnail = !autonomousClassificationOnly && mode != ScanMode.Quick;
                 m ??= new ModelRecord { Path = path, Name = fi.Name, Category = "Uncategorized" };
                 m.Path = path;
                 m.Name = fi.Name;
@@ -165,7 +175,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 previous.TryGetValue(path, out var old);
                 var oldCategory = old?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
-                var customCategory = old?.CategoryOverride == true ? oldCategory : ((!IsLegacyCategory(oldCategory) && IsCustomCategory(oldCategory)) ? oldCategory : folderCategory);
+                var customCategory = old?.CategoryOverride == true ? oldCategory : ((!IsLegacyCategory(oldCategory) && IsCustomCategory(oldCategory)) ? oldCategory : (!IsLegacyCategory(folderCategory) ? folderCategory : null));
 
                 var m = new ModelRecord
                 {
@@ -369,7 +379,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 var parts = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 2) continue;
                 var top = parts[0].Trim();
-                if (IsCustomCategory(top)) return top;
+                if (IsCustomCategory(top) && !IsLegacyCategory(top)) return top;
             }
         }
         catch { }

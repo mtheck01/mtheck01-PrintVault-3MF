@@ -99,8 +99,7 @@ public sealed class OrganizationService
                 normalizedRecords++;
             }
 
-            var tags = model.Tags
-                .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var tags = SplitTags(model.Tags)
                 .Where(tag =>
                 {
                     if (legacy.Contains(tag))
@@ -132,10 +131,7 @@ public sealed class OrganizationService
                 !string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase)) continue;
 
             var source = Path.GetFullPath(model.Path);
-            var parent = Path.GetDirectoryName(source);
-            if (string.IsNullOrWhiteSpace(parent)) continue;
-            var parentName = new DirectoryInfo(parent).Name;
-            if (!legacy.Contains(parentName)) continue;
+            if (!IsInsideLegacyFolder(source, legacy)) continue;
 
             var target = Path.Combine(root, Path.GetFileName(source));
             if (File.Exists(target)) target = Unique(target);
@@ -163,18 +159,16 @@ public sealed class OrganizationService
             Directory.Delete(path, false);
         }
 
-        var remainingLegacyFolders = legacy.Count(name =>
-        {
-            var path = Path.Combine(root, name);
-            return Directory.Exists(path);
-        });
+        var registryRemoved = CleanupLegacyCategoryRegistry(legacy);
+        var remainingLegacyFolders = CountLegacyFolders(legacy);
 
         var remainingLegacyCategories = repo.GetAll().Count(m =>
             !string.IsNullOrWhiteSpace(m.Category) && legacy.Contains(m.Category.Trim()));
 
         var remainingLegacyTags = repo.GetAll().Sum(m =>
-            m.Tags.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Count(tag => legacy.Contains(tag)));
+            SplitTags(m.Tags).Count(tag => legacy.Contains(tag)));
+
+        var remainingRegistryEntries = CountLegacyCategoryRegistry(legacy);
 
         return new TaxonomyCleanupResult(
             legacyCategories,
@@ -183,7 +177,71 @@ public sealed class OrganizationService
             moved,
             remainingLegacyCategories,
             remainingLegacyTags,
-            remainingLegacyFolders);
+            remainingLegacyFolders,
+            registryRemoved,
+            remainingRegistryEntries);
+    }
+
+    private static string[] SplitTags(string? tags)
+        => (tags ?? "")
+            .Split(new[] { ',', ';', '|', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private int CleanupLegacyCategoryRegistry(IReadOnlySet<string> legacy)
+    {
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
+        if (!File.Exists(path)) return 0;
+
+        var lines = File.ReadAllLines(path);
+        var removed = lines.Count(line => legacy.Contains(line.Trim()));
+        var kept = lines
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !legacy.Contains(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        File.WriteAllLines(path, kept);
+        return removed;
+    }
+
+    private int CountLegacyCategoryRegistry(IReadOnlySet<string> legacy)
+    {
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
+        if (!File.Exists(path)) return 0;
+        return File.ReadAllLines(path).Count(line => legacy.Contains(line.Trim()));
+    }
+
+    private int CountLegacyFolders(IReadOnlySet<string> legacy)
+    {
+        if (!Directory.Exists(root)) return 0;
+
+        var directories = Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+            .OrderByDescending(x => x.Length)
+            .ToArray();
+
+        foreach (var dir in directories)
+        {
+            try
+            {
+                if (!legacy.Contains(Path.GetFileName(dir))) continue;
+                if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    Directory.Delete(dir, false);
+            }
+            catch { }
+        }
+
+        return Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+            .Count(dir => legacy.Contains(Path.GetFileName(dir)));
+    }
+
+    private bool IsInsideLegacyFolder(string path, IReadOnlySet<string> legacy)
+    {
+        var relative = Path.GetRelativePath(root, Path.GetFullPath(path));
+        if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) return false;
+        var parts = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Any(part => legacy.Contains(part));
     }
 
     public MoveResult? UndoLast()
@@ -253,4 +311,6 @@ public sealed record TaxonomyCleanupResult(
     int FilesMoved,
     int LegacyCategoriesRemaining,
     int LegacyTagsRemaining,
-    int LegacyFoldersRemaining);
+    int LegacyFoldersRemaining,
+    int LegacyRegistryEntriesRemoved,
+    int LegacyRegistryEntriesRemaining);

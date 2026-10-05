@@ -302,6 +302,12 @@ jobs:
             $candidateBuildLog = Join-Path $PWD "build_logs\\candidate-build.log"
             New-Item -ItemType Directory -Force -Path (Split-Path $candidateBuildLog) | Out-Null
             Write-Host "CANDIDATE_BUILD_LOG=$candidateBuildLog"
+            # build_windows.bat contains an interactive pause for local builds.
+            # Autonomous CI must explicitly select its non-interactive path.
+            $env:PRINTVAULT_CI = "1"
+            Write-Host "PRINTVAULT_CI=$env:PRINTVAULT_CI"
+            $env:PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY = "1"
+            Write-Host "PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY=$env:PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"
             cmd /c "build_windows.bat" > $candidateBuildLog 2>&1
             $buildExit = $LASTEXITCODE
             if (Test-Path $candidateBuildLog) {
@@ -318,7 +324,7 @@ jobs:
             return @{ Version=$version; Installer=$installer; Exe=$exe }
           }
 
-          function Install-And-Open($candidate) {
+          function Install-Candidate($candidate) {
             Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
             $p = Start-Process -FilePath $candidate.Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -PassThru
@@ -331,12 +337,22 @@ jobs:
             if (-not (Test-Path $installed)) { throw "Installed executable missing: $installed" }
             $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installed).FileVersion
             if ($fv -ne $candidate.Version) { throw "Installed version mismatch. Expected $($candidate.Version), found $fv." }
-            $proc = Start-Process -FilePath $installed -PassThru
+            Write-Host "APPLICATION=INSTALLED VERSION=$fv"
+            return @{ Path=$installed; Version=$fv; Installer=$candidate.Installer }
+          }
+
+          function Start-FinalApp($candidate, $libraryRoot) {
+            Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            $rootFile = Join-Path $env:APPDATA "PrintVault\root.txt"
+            New-Item -ItemType Directory -Force -Path (Split-Path $rootFile) | Out-Null
+            Set-Content -Path $rootFile -Value $libraryRoot -NoNewline
+
+            $proc = Start-Process -FilePath $candidate.Path -PassThru
             Start-Sleep -Seconds 30
-            if ($proc.HasExited) { throw "PrintVault exited during smoke validation with code $($proc.ExitCode)." }
-            Write-Host "APPLICATION=OPEN VERSION=$fv PID=$($proc.Id) MAIN_WINDOW=$($proc.MainWindowHandle)"
+            if ($proc.HasExited) { throw "Final PrintVault smoke launch exited with code $($proc.ExitCode)." }
+            Write-Host "APPLICATION=OPEN VERSION=$($candidate.Version) PID=$($proc.Id) MAIN_WINDOW=$($proc.MainWindowHandle)"
             Write-Host "APPLICATION=OPEN_READY=PASS"
-            return @{ Process=$proc; Path=$installed; Version=$fv }
+            return $proc
           }
 
           function Close-PrintVault($app) {
@@ -434,18 +450,20 @@ jobs:
             Write-CycleStatus "ATTEMPT_START" "attempt=$attempt max=$maxAttempts"
             Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
             if ($attempt -eq 1) {
-              $version = Get-Version
-              Write-Host "INITIAL_CANDIDATE_VERSION=$version"
+              # Never validate a candidate under an already-published version.
+              # 9.0.65 is already released; the first autonomous candidate is
+              # therefore the next patch version, 9.0.66.
+              $version = Bump-PatchVersion
+              Write-Host "INITIAL_VERSION_BUMP=PASS"
             }
             else {
               $version = Bump-PatchVersion
             }
             Write-CycleStatus "BUILD"
             $candidate = Invoke-CandidateBuild
-            Write-CycleStatus "INSTALL_AND_OPEN" "version=$($candidate.Version)"
-            $app = Install-And-Open $candidate
-            # Keep the validated application open while library ingestion and diagnostics run.
-            Write-Host "APPLICATION=KEEP_OPEN_FOR_DIAGNOSTIC"
+            Write-CycleStatus "INSTALL" "version=$($candidate.Version)"
+            $candidate = Install-Candidate $candidate
+            Write-Host "APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS"
 
             # The database is not the source of truth for new test files. Explicitly
             # ingest the populated test folder before forensic analysis, then make the
@@ -480,7 +498,8 @@ jobs:
             foreach ($requiredZero in @(
               "LEGACY_CATEGORIES_REMAINING=0",
               "LEGACY_TAGS_REMAINING=0",
-              "LEGACY_FOLDERS_REMAINING=0"
+              "LEGACY_FOLDERS_REMAINING=0",
+              "LEGACY_REGISTRY_ENTRIES_REMAINING=0"
             )) {
               if (-not ($cleanupOutput -contains $requiredZero)) {
                 throw "Legacy taxonomy cleanup verification missing or nonzero: $requiredZero"
@@ -571,6 +590,8 @@ jobs:
               Write-Host "PROMOTION_GUARD_CURRENT_SHA=$currentMainSha"
               if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
+              Write-CycleStatus "FINAL_APP_SMOKE" "version=$version"
+              $finalApp = Start-FinalApp $candidate $testLibraryRoot
 
               if ($publish) {
                 Write-CycleStatus "PUBLISH" "version=$version"

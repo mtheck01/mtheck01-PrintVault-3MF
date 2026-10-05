@@ -164,10 +164,21 @@ public partial class MainWindow : Window
         categories.AddRange(BuiltInCategories.All);
         var p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
         if (File.Exists(p))
-            foreach (var c in File.ReadAllLines(p).Select(x => x.Trim()).Where(x => x.Length > 0 && !categories.Contains(x, StringComparer.OrdinalIgnoreCase))) categories.Add(c);
-        foreach (var c in engine.Repository.GetAll().Select(x => x.Category).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var c in File.ReadAllLines(p).Select(x => x.Trim())
+                .Where(x => x.Length > 0 && !IsLegacyCategory(x) && !categories.Contains(x, StringComparer.OrdinalIgnoreCase)))
+                categories.Add(c);
+        foreach (var c in engine.Repository.GetAll().Select(x => x.Category)
+            .Where(x => !string.IsNullOrWhiteSpace(x) && !IsLegacyCategory(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
             if (!categories.Contains(c, StringComparer.OrdinalIgnoreCase)) categories.Add(c);
     }
+
+    private static bool IsLegacyCategory(string? category)
+        => category?.Trim() switch
+        {
+            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" => true,
+            _ => false
+        };
 
     private void SaveCategories()
     {
