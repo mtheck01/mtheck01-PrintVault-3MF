@@ -70,7 +70,7 @@ public sealed class LibraryEngine : ILibraryEngine
 
                 if (doIntelligence)
                 {
-                    var a = analyzer.Analyze(path, fi.Name);
+                    var a = autonomousClassificationOnly ? analyzer.AnalyzeFilenameOnly(path, fi.Name) : analyzer.Analyze(path, fi.Name);
                     // Deep analysis must never destroy a user-defined category.
                     // Automatic classification is only allowed to choose a built-in category
                     // when the item is currently Uncategorized or already using a built-in one.
