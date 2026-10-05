@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
     (td / "Program.cs").write_text(program, encoding="utf-8")
 
     result = subprocess.run(
-        ["dotnet", "run", "--project", str(project), "--no-restore"],
+        ["dotnet", "run", "--project", str(project)],
         cwd=ROOT,
         text=True,
         capture_output=True,
