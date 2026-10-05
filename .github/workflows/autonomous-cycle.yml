@@ -464,14 +464,14 @@ jobs:
             $scanLog = Join-Path $PWD "build_logs\test-library-scan.log"
             $env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot
             Write-Host "TEST_LIBRARY_ROOT_ENV=$env:PRINTVAULT_TEST_LIBRARY_ROOT"
-            $scanExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", $testLibraryRoot, "Deep") $scanLog 900
+            $scanExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", "", "Deep") $scanLog 900
             $scanOutput = if (Test-Path $scanLog) { @(Get-Content $scanLog) } else { @() }
             if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
 
             # Physically organize only files inside the selected test-library root.
             Write-CycleStatus "ORGANIZE" "root=$testLibraryRoot"
             $organizeLog = Join-Path $PWD "build_logs\test-library-organize.log"
-            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", $testLibraryRoot) $organizeLog 900
+            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", "") $organizeLog 900
             Remove-Item Env:PRINTVAULT_TEST_LIBRARY_ROOT -ErrorAction SilentlyContinue
             $organizeOutput = if (Test-Path $organizeLog) { @(Get-Content $organizeLog) } else { @() }
             if ($organizeExit -ne 0) { throw "Test-library organization failed with exit code $organizeExit." }
