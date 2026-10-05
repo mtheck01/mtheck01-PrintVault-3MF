@@ -46,4 +46,10 @@ assert 'DRIVE_ROOT_SCAN=DISABLED' in workflow
 assert '$env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot' in workflow,     "Autonomous cycle must export the isolated test root"
 assert 'Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT")' in     (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8"),     "Automation scanner must consume PRINTVAULT_TEST_LIBRARY_ROOT"
 assert 'scan", "", "Deep"' in workflow,     "Autonomous scan must not pass the spaced test root as a positional argument"
-assert 'organize", "")' in workflow,     "Autonomous organize must not pass the spaced test root as a positional argument"
+assert 'cleanup", "")' in workflow,     "Autonomous cleanup must not pass the spaced test root as a positional argument"
+assert 'LEGACY_CATEGORIES_REMAINING=0' in workflow
+assert 'LEGACY_TAGS_REMAINING=0' in workflow
+assert 'LEGACY_FOLDERS_REMAINING=0' in workflow
+assert 'FILES_BEFORE=' in workflow and 'FILES_AFTER=' in workflow
+assert 'Legacy taxonomy cleanup failed' in workflow
+assert 'Test-library organization failed' not in workflow
