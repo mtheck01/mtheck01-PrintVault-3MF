@@ -695,6 +695,7 @@ jobs:
                 Publish-SourceRelease $version $sourceSha $candidate.Installer
                 Write-Host "PROMOTED_VERSION=$version"
                 Write-CycleStatus "DONE" "version=$version"
+              }
               else {
                 Write-Host "PUBLISH=DISABLED"
               }
