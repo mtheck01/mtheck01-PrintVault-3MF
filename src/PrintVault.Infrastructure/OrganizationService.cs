@@ -74,6 +74,93 @@ public sealed class OrganizationService
         return moved;
     }
 
+
+    public TaxonomyCleanupResult CleanupLegacyTaxonomy()
+    {
+        if (!Directory.Exists(root)) throw new InvalidOperationException("Library root not found.");
+
+        var legacy = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "06_Cosplay", "08_Aviation", "09_Models", "10_Multi_Color", "Soap Holders", "test eng 8.6"
+        };
+
+        var records = repo.GetAll().ToList();
+        var legacyCategories = 0;
+        var legacyTags = 0;
+        var normalizedRecords = 0;
+
+        foreach (var model in records)
+        {
+            var categoryIsLegacy = !string.IsNullOrWhiteSpace(model.Category) && legacy.Contains(model.Category.Trim());
+            if (categoryIsLegacy)
+            {
+                legacyCategories++;
+                model.Category = "Uncategorized";
+                normalizedRecords++;
+            }
+
+            var tags = model.Tags
+                .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(tag =>
+                {
+                    if (legacy.Contains(tag))
+                    {
+                        legacyTags++;
+                        return false;
+                    }
+                    return true;
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            model.Tags = string.Join(", ", tags);
+            if (File.Exists(model.Path))
+                model.ModifiedUtc = File.GetLastWriteTimeUtc(model.Path);
+            repo.Upsert(model);
+        }
+
+        // Move every confidently classified record after legacy categories have
+        // been neutralized. Uncategorized/Unknown records stay at the root.
+        var moved = OrganizeClassifiedFiles();
+
+        var knownLegacyFoldersRemaining = 0;
+        foreach (var name in legacy)
+        {
+            var path = Path.Combine(root, name);
+            if (!Directory.Exists(path)) continue;
+
+            if (Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                knownLegacyFoldersRemaining++;
+                continue;
+            }
+
+            Directory.Delete(path, false);
+        }
+
+        var remainingLegacyFolders = legacy.Count(name =>
+        {
+            var path = Path.Combine(root, name);
+            return Directory.Exists(path);
+        });
+
+        var remainingLegacyCategories = repo.GetAll().Count(m =>
+            !string.IsNullOrWhiteSpace(m.Category) && legacy.Contains(m.Category.Trim()));
+
+        var remainingLegacyTags = repo.GetAll().Sum(m =>
+            m.Tags.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Count(tag => legacy.Contains(tag)));
+
+        return new TaxonomyCleanupResult(
+            legacyCategories,
+            legacyTags,
+            normalizedRecords,
+            moved,
+            remainingLegacyCategories,
+            remainingLegacyTags,
+            remainingLegacyFolders);
+    }
+
     public MoveResult? UndoLast()
     {
         lock (undo)
@@ -133,3 +220,12 @@ public sealed class OrganizationService
         return x;
     }
 }
+
+public sealed record TaxonomyCleanupResult(
+    int LegacyCategoriesFound,
+    int LegacyTagsRemoved,
+    int RecordsNormalized,
+    int FilesMoved,
+    int LegacyCategoriesRemaining,
+    int LegacyTagsRemaining,
+    int LegacyFoldersRemaining);
