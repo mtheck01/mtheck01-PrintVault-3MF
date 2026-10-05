@@ -40,24 +40,24 @@ foreach (var c in cases)
     var mixedOk = result.MixedLanguage == c.Item4;
     var pass = languageOk && mixedOk;
 
-    Console.WriteLine($"\{c.Item1}|expected=\{c.Item3}|actual=\{result.Language}|mixedExpected=\{c.Item4}|mixedActual=\{result.MixedLanguage}|confidence=\{result.Confidence}|pass=\{pass}");
+    Console.WriteLine($"{c.Item1}|expected={c.Item3}|actual={result.Language}|mixedExpected={c.Item4}|mixedActual={result.MixedLanguage}|confidence={result.Confidence}|pass={pass}");
 
     if (!pass)
     {
-        Console.WriteLine($"  normalized=\{result.NormalizedText}");
-        Console.WriteLine($"  translated=\{result.TranslatedText}");
-        Console.WriteLine($"  evidence=\{result.Evidence}");
+        Console.WriteLine($"  normalized={result.NormalizedText}");
+        Console.WriteLine($"  translated={result.TranslatedText}");
+        Console.WriteLine($"  evidence={result.Evidence}");
         failures++;
     }
 }
 
 if (failures != 0)
 {
-    Console.WriteLine($"LANGUAGE DETECTION CHALLENGE FAILED — \{failures} case(s)");
+    Console.WriteLine($"LANGUAGE DETECTION CHALLENGE FAILED — {failures} case(s)");
     Environment.Exit(1);
 }
 
-Console.WriteLine($"LANGUAGE DETECTION CHALLENGE PASSED — \{cases.Length} executable cases");
+Console.WriteLine($"LANGUAGE DETECTION CHALLENGE PASSED — {cases.Length} executable cases");
 '''
 
 with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
