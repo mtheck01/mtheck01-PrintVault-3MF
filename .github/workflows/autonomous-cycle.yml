@@ -468,16 +468,31 @@ jobs:
             $scanOutput = if (Test-Path $scanLog) { @(Get-Content $scanLog) } else { @() }
             if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
 
-            # Physically organize only files inside the selected test-library root.
-            Write-CycleStatus "ORGANIZE" "root=$testLibraryRoot"
-            $organizeLog = Join-Path $PWD "build_logs\test-library-organize.log"
-            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", "") $organizeLog 900
+            # Reconcile legacy taxonomy before diagnostics. This is deliberately a
+            # hard gate: moving files alone is insufficient because stale category
+            # values/tags can repopulate the UI.
+            Write-CycleStatus "LEGACY_TAXONOMY_CLEANUP" "root=$testLibraryRoot"
+            $cleanupLog = Join-Path $PWD "build_logs\test-library-cleanup.log"
+            $cleanupExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "cleanup", "") $cleanupLog 900
             Remove-Item Env:PRINTVAULT_TEST_LIBRARY_ROOT -ErrorAction SilentlyContinue
-            $organizeOutput = if (Test-Path $organizeLog) { @(Get-Content $organizeLog) } else { @() }
-            if ($organizeExit -ne 0) { throw "Test-library organization failed with exit code $organizeExit." }
-            $organizeLine = $organizeOutput | Where-Object { $_ -match '^ORGANIZE_MOVED=' } | Select-Object -Last 1
-            if (-not $organizeLine) { throw "Test-library organization did not report ORGANIZE_MOVED." }
-            Write-Host "TEST_LIBRARY_ORGANIZATION=$organizeLine"
+            $cleanupOutput = if (Test-Path $cleanupLog) { @(Get-Content $cleanupLog) } else { @() }
+            if ($cleanupExit -ne 0) { throw "Legacy taxonomy cleanup failed with exit code $cleanupExit." }
+            foreach ($requiredZero in @(
+              "LEGACY_CATEGORIES_REMAINING=0",
+              "LEGACY_TAGS_REMAINING=0",
+              "LEGACY_FOLDERS_REMAINING=0"
+            )) {
+              if (-not ($cleanupOutput -contains $requiredZero)) {
+                throw "Legacy taxonomy cleanup verification missing or nonzero: $requiredZero"
+              }
+            }
+            $filesBeforeLine = $cleanupOutput | Where-Object { $_ -match '^FILES_BEFORE=' } | Select-Object -Last 1
+            $filesAfterLine = $cleanupOutput | Where-Object { $_ -match '^FILES_AFTER=' } | Select-Object -Last 1
+            if (-not $filesBeforeLine -or -not $filesAfterLine) { throw "Legacy taxonomy cleanup did not report file-count preservation." }
+            $filesBefore = [int](($filesBeforeLine -split '=',2)[1])
+            $filesAfter = [int](($filesAfterLine -split '=',2)[1])
+            if ($filesBefore -ne $filesAfter) { throw "Legacy taxonomy cleanup changed file count: before=$filesBefore after=$filesAfter." }
+            Write-Host "LEGACY_TAXONOMY_VERIFIED=PASS FILES=$filesAfter"
 
             $scanCatalogLine = $scanOutput | Where-Object { $_ -match '^SCAN_DISCOVERED=' } | Select-Object -Last 1
             if (-not $scanCatalogLine) { throw "Test-library ingestion did not report SCAN_DISCOVERED." }
