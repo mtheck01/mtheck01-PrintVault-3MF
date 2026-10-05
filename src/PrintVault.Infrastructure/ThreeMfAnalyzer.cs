@@ -132,6 +132,53 @@ public sealed class ThreeMfAnalyzer
         ["IdeaMaker"] = new[]{"ideamaker"}
     };
 
+    public IntelligenceResult AnalyzeFilenameOnly(string path, string name)
+    {
+        var category = "Uncategorized";
+        var reason = "Filename-only classification";
+        var family = "";
+        var type = "Unknown";
+        var subtype = "";
+        var score = 0.12;
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var evidence = new List<string>();
+        var risk = new List<string> { "Autonomous classification-only pass" };
+        var semantic = NormalizeSemanticSeparators(name.ToLowerInvariant());
+        var scored = Signals
+            .Select(s => (s, score: TokenScore(semantic, s.Phrase, s.Weight)))
+            .Where(x => x.score > 0)
+            .GroupBy(x => x.s.Category)
+            .Select(g => new { g.Key, Score = g.Sum(x => x.score), Hits = g.OrderByDescending(x => x.score).Take(4).ToList() })
+            .OrderByDescending(x => x.Score)
+            .ToList();
+
+        if (scored.Count > 0 && scored[0].Score >= 2.5)
+        {
+            category = scored[0].Key;
+            var best = scored[0].Hits.First();
+            family = best.s.Family;
+            type = best.s.Type;
+            subtype = best.s.Subtype;
+            foreach (var h in scored[0].Hits) tags.Add(h.s.Tag);
+            reason = string.Join(", ", scored[0].Hits.Select(h => h.s.Phrase).Distinct(StringComparer.OrdinalIgnoreCase).Take(4));
+            evidence.Add($"{category}: {reason}");
+            score = Math.Clamp(score + Math.Min(.65, scored[0].Score * .04), 0, .99);
+        }
+        else
+        {
+            risk.Add("Low filename semantic confidence");
+        }
+
+        tags.Add(category.ToLowerInvariant().Replace(" ", "-", StringComparison.Ordinal));
+        if (!string.IsNullOrWhiteSpace(family))
+            tags.Add(family.ToLowerInvariant().Replace("/", "-", StringComparison.Ordinal).Replace(" ", "-", StringComparison.Ordinal));
+
+        return new IntelligenceResult(
+            category, score, string.Join(" | ", evidence.Take(4)), family, 0, "", "", "", false,
+            type, subtype, string.Join(", ", tags.Take(12)), string.Join(", ", risk.Distinct(StringComparer.OrdinalIgnoreCase)),
+            "Unknown", 0, "Autonomous classification-only pass", "");
+    }
+
     public IntelligenceResult Analyze(string path, string name)
     {
         var category="Uncategorized"; var reason="No strong semantic signal"; var family=""; var type="Unknown"; var subtype="";
