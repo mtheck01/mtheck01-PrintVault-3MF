@@ -82,7 +82,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var f = stage.Fusion;
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
-                var conflict = !string.IsNullOrWhiteSpace(stored) && !string.IsNullOrWhiteSpace(inferred) &&
+                var conflict = !IsUnresolvedCategory(stored) &&
+                               !IsUnresolvedCategory(inferred) &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
                 if (conflict) conflicts++;
                 if (conflict || f.ReviewRequired)
@@ -176,6 +177,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
             return Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         });
     }
+
+    private static bool IsUnresolvedCategory(string? category)
+        => string.IsNullOrWhiteSpace(category) ||
+           string.Equals(category.Trim(), "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(category.Trim(), "Unknown", StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsFolderLikeCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) && category.Contains("/", StringComparison.Ordinal);
