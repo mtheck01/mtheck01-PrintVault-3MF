@@ -294,6 +294,7 @@ jobs:
               "test_release_preflight_contract.py",
               "test_autonomous_cycle_contract.py",
               "test_source_integrity.py",
+              "test_language_detection_challenge.py",
               "test_challenge_version_consistency.py",
               "test_xaml_cs_integrity.py",
               "test_ui_features.py",
