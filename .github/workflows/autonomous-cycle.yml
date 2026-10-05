@@ -625,19 +625,76 @@ jobs:
                   git commit -m "${version}: autonomous validated patch"
                   if ($LASTEXITCODE -ne 0) { throw "Validated commit failed." }
                 }
+
                 $sourceSha = (git rev-parse HEAD).Trim()
                 git push origin "HEAD:refs/heads/$branch"
                 if ($LASTEXITCODE -ne 0) { throw "Candidate branch push failed with exit code $LASTEXITCODE." }
 
+                $promoted = $false
+                for ($promotionAttempt = 1; $promotionAttempt -le 5; $promotionAttempt++) {
+                  Write-Host "PROMOTION_ATTEMPT=$promotionAttempt/5"
+                  git fetch origin main --prune
+                  $promotionBase = (git rev-parse origin/main).Trim()
+                  Write-Host "PROMOTION_BASE_SHA=$promotionBase"
+
+                  $isAncestor = $true
+                  git merge-base --is-ancestor $promotionBase HEAD
+                  if ($LASTEXITCODE -ne 0) { $isAncestor = $false }
+
+                  if (-not $isAncestor) {
+                    Write-Host "PROMOTION_REBASE_REQUIRED=YES"
+                    git rebase origin/main
+                    if ($LASTEXITCODE -ne 0) {
+                      git rebase --abort 2>$null
+                      throw "Promotion rebase conflict: main changed with incompatible edits."
+                    }
+
+                    Write-Host "PROMOTION_REVALIDATION=FULL"
+                    Write-CycleStatus "PROMOTION_REVALIDATION" "attempt=$promotionAttempt base=$promotionBase"
+                    $candidate = Invoke-CandidateBuild
+                    $candidate = Install-Candidate $candidate
+                    $recheckReport = Invoke-WholeLibrary
+                    $recheckData = Get-Content $recheckReport -Raw | ConvertFrom-Json
+                    $recheckConflicts = [int]$recheckData.Conflicts
+                    $recheckGate = Test-RegressionGate $recheckReport
+                    Write-Host "PROMOTION_RECHECK_GATE=$recheckGate CONFLICTS=$recheckConflicts"
+                    if ($recheckConflicts -ne 0 -or $recheckGate -ne "PASS") {
+                      throw "Promotion revalidation failed after main changed: gate=$recheckGate conflicts=$recheckConflicts."
+                    }
+
+                    git add .
+                    git diff --cached --quiet
+                    if ($LASTEXITCODE -ne 0) {
+                      git commit -m "${version}: autonomous revalidation after main update"
+                      if ($LASTEXITCODE -ne 0) { throw "Promotion revalidation commit failed." }
+                    }
+                    git push origin "HEAD:refs/heads/$branch"
+                    if ($LASTEXITCODE -ne 0) { throw "Revalidated candidate branch push failed." }
+                    $sourceSha = (git rev-parse HEAD).Trim()
+                    git fetch origin main --prune
+                    $promotionBase = (git rev-parse origin/main).Trim()
+                  }
+
+                  git push origin "HEAD:refs/heads/main" "--force-with-lease=refs/heads/main:$promotionBase"
+                  if ($LASTEXITCODE -eq 0) {
+                    $promoted = $true
+                    break
+                  }
+                  Write-Warning "Promotion lease lost; another writer moved main. Retrying."
+                  Start-Sleep -Seconds 2
+                }
+
+                if (-not $promoted) {
+                  throw "Promotion failed after 5 lease-protected attempts. No unvalidated force push was performed."
+                }
+
+                $sourceSha = (git rev-parse HEAD).Trim()
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
                 if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
 
-                git push origin "HEAD:refs/heads/main"
-                if ($LASTEXITCODE -ne 0) { throw "Promotion push failed with exit code $LASTEXITCODE." }
                 Publish-SourceRelease $version $sourceSha $candidate.Installer
                 Write-Host "PROMOTED_VERSION=$version"
                 Write-CycleStatus "DONE" "version=$version"
-              }
               else {
                 Write-Host "PUBLISH=DISABLED"
               }
