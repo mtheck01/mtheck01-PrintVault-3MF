@@ -183,52 +183,61 @@ jobs:
             $errPath = "$logPath.err"
             Remove-Item $logPath,$errPath -Force -ErrorAction SilentlyContinue
             Write-Host "EXTERNAL_START=$filePath"
-            # Start-Process flattens an argument array into one command line. Quote
-            # arguments containing spaces so paths such as D:\\3d print files test
-            # are passed as one argument instead of being truncated at D:\\3d.
+
+            # Use System.Diagnostics.Process directly. Start-Process on this
+            # self-hosted PowerShell runner has intermittently produced a Process
+            # wrapper whose ExitCode is unavailable after the child exits, which
+            # falsely aborts a successful automation run. Process.WaitForExit()
+            # gives us the actual OS exit code deterministically.
             $argumentString = ($arguments | ForEach-Object {
               $arg = [string]$_
               if ($arg -match '\\s') {
-                # Windows command-line parsing requires one backslash before an
-                # embedded quote; the outer quotes preserve the full argument.
                 '"' + $arg.Replace('"','\"') + '"'
               } else {
                 $arg
               }
             }) -join ' '
             Write-Host "EXTERNAL_ARGUMENTS=$argumentString"
-            $proc = Start-Process -FilePath $filePath -ArgumentList $argumentString -RedirectStandardOutput $logPath -RedirectStandardError $errPath -PassThru
+
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $filePath
+            $psi.Arguments = $argumentString
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+
+            $proc = New-Object System.Diagnostics.Process
+            $proc.StartInfo = $psi
+            if (-not $proc.Start()) { throw "Unable to start external process: $filePath" }
+
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
             $started = Get-Date
             while (-not $proc.HasExited) {
               Start-Sleep -Seconds 15
-              $proc.Refresh()
               $elapsed = [int]((Get-Date) - $started).TotalSeconds
               Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsed PID=$($proc.Id)"
               Write-CycleStatus "EXTERNAL_RUNNING" "$filePath elapsed=$elapsed"
               if ($elapsed -ge $timeoutSeconds) {
-                try { $proc.Kill($true) } catch {}
+                try { $proc.Kill() } catch {}
+                $proc.WaitForExit()
                 throw "External process timed out after $timeoutSeconds seconds: $filePath"
               }
             }
 
-            # HasExited can become true before the Process object has refreshed its
-            # ExitCode property. Refresh and WaitForExit explicitly so a successful
-            # child process is never converted into a blank/null exit code.
             $proc.WaitForExit()
-            $proc.Refresh()
-            $exitCode = $proc.ExitCode
-            if ($null -eq $exitCode) {
-              throw "External process exited but returned no exit code: $filePath"
-            }
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            Set-Content -Path $logPath -Value $stdout -NoNewline
+            Set-Content -Path $errPath -Value $stderr -NoNewline
 
-            if (Test-Path $logPath) {
-              Get-Content $logPath | ForEach-Object { Write-Host $_ }
-            }
-            if (Test-Path $errPath) {
-              Get-Content $errPath | ForEach-Object { Write-Host $_ }
-            }
+            $exitCode = [int]$proc.ExitCode
+            if (Test-Path $logPath) { Get-Content $logPath | ForEach-Object { Write-Host $_ } }
+            if (Test-Path $errPath) { Get-Content $errPath | ForEach-Object { Write-Host $_ } }
             Write-Host "EXTERNAL_EXIT=$exitCode FILE=$filePath"
-            return [int]$exitCode
+            $proc.Dispose()
+            return $exitCode
           }
 
           function Find-TestLibraryRoot {
