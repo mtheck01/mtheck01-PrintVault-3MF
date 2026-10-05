@@ -5,13 +5,15 @@ using PrintVault.Infrastructure;
 if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "repair", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase)))
+    !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "cleanup", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
     Console.Error.WriteLine("       Autonomous runs may supply PRINTVAULT_TEST_LIBRARY_ROOT instead of libraryRoot.");
     Console.Error.WriteLine("   or: PrintVault.Automation repair");
     Console.Error.WriteLine("   or: PrintVault.Automation organize [libraryRoot]");
+    Console.Error.WriteLine("   or: PrintVault.Automation cleanup [libraryRoot]");
     return 2;
 }
 
@@ -24,7 +26,8 @@ var scanRoot = string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase
         : args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
             ? Path.GetFullPath(args[1])
             : "")
-    : string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase)
+    : (string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase) ||
+       string.Equals(command, "cleanup", StringComparison.OrdinalIgnoreCase))
         ? (!string.IsNullOrWhiteSpace(configuredTestRoot)
             ? Path.GetFullPath(configuredTestRoot)
             : args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])
@@ -86,6 +89,46 @@ try
         Console.WriteLine("SCAN=PASS");
         return 0;
     }
+    if (string.Equals(command, "cleanup", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine($"CLEANUP_ROOT_SOURCE={(string.IsNullOrWhiteSpace(configuredTestRoot) ? "ARGUMENT" : "ENVIRONMENT")}");
+
+        if (string.IsNullOrWhiteSpace(scanRoot) || !Directory.Exists(scanRoot))
+        {
+            Console.Error.WriteLine($"CLEANUP_ABORTED=LIBRARY_ROOT_NOT_FOUND:{scanRoot}");
+            return 30;
+        }
+
+        Console.WriteLine($"CLEANUP_ROOT={scanRoot}");
+        var beforeFiles = Directory.EnumerateFiles(scanRoot, "*.3mf", SearchOption.AllDirectories).Count();
+        var beforeRecords = repository.GetAll().Count;
+        var organization = new OrganizationService(repository, scanRoot);
+        var result = organization.CleanupLegacyTaxonomy();
+        var afterFiles = Directory.EnumerateFiles(scanRoot, "*.3mf", SearchOption.AllDirectories).Count();
+        var afterRecords = repository.GetAll().Count;
+
+        Console.WriteLine($"FILES_BEFORE={beforeFiles}");
+        Console.WriteLine($"FILES_AFTER={afterFiles}");
+        Console.WriteLine($"RECORDS_BEFORE={beforeRecords}");
+        Console.WriteLine($"RECORDS_AFTER={afterRecords}");
+        Console.WriteLine($"LEGACY_CATEGORIES_FOUND={result.LegacyCategoriesFound}");
+        Console.WriteLine($"LEGACY_TAGS_REMOVED={result.LegacyTagsRemoved}");
+        Console.WriteLine($"RECORDS_NORMALIZED={result.RecordsNormalized}");
+        Console.WriteLine($"FILES_MOVED={result.FilesMoved}");
+        Console.WriteLine($"LEGACY_CATEGORIES_REMAINING={result.LegacyCategoriesRemaining}");
+        Console.WriteLine($"LEGACY_TAGS_REMAINING={result.LegacyTagsRemaining}");
+        Console.WriteLine($"LEGACY_FOLDERS_REMAINING={result.LegacyFoldersRemaining}");
+
+        if (afterFiles != beforeFiles) return 31;
+        if (afterRecords != beforeRecords) return 32;
+        if (result.LegacyCategoriesRemaining != 0) return 33;
+        if (result.LegacyTagsRemaining != 0) return 34;
+        if (result.LegacyFoldersRemaining != 0) return 35;
+
+        Console.WriteLine("LEGACY_TAXONOMY_CLEANUP=PASS");
+        return 0;
+    }
+
     if (string.Equals(command, "organize", StringComparison.OrdinalIgnoreCase))
     {
         Console.WriteLine($"ORGANIZE_ROOT_SOURCE={(string.IsNullOrWhiteSpace(configuredTestRoot) ? "ARGUMENT" : "ENVIRONMENT")}");
