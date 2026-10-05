@@ -1,9 +1,17 @@
+import sys
 import tempfile
 from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-\n# GitHub Actions Windows runners may use cp1252 for stdout; the challenge emits\n# multilingual diagnostics, so force UTF-8 output as well as subprocess decoding.\nif hasattr(__import__("sys").stdout, "reconfigure"):\n    __import__("sys").stdout.reconfigure(encoding="utf-8", errors="replace")\n    __import__("sys").stderr.reconfigure(encoding="utf-8", errors="replace")\ninfra = (ROOT / "src/PrintVault.Infrastructure/PrintVault.Infrastructure.csproj").resolve()
+
+# GitHub Actions Windows runners may use cp1252 for stdout; the challenge emits
+# multilingual diagnostics, so force UTF-8 output as well as subprocess decoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+infra = (ROOT / "src/PrintVault.Infrastructure/PrintVault.Infrastructure.csproj").resolve()
 
 program = r'''
 using System;
@@ -32,24 +40,24 @@ foreach (var c in cases)
     var mixedOk = result.MixedLanguage == c.Item4;
     var pass = languageOk && mixedOk;
 
-    Console.WriteLine($"{c.Item1}|expected={c.Item3}|actual={result.Language}|mixedExpected={c.Item4}|mixedActual={result.MixedLanguage}|confidence={result.Confidence}|pass={pass}");
+    Console.WriteLine($"\{c.Item1}|expected=\{c.Item3}|actual=\{result.Language}|mixedExpected=\{c.Item4}|mixedActual=\{result.MixedLanguage}|confidence=\{result.Confidence}|pass=\{pass}");
 
     if (!pass)
     {
-        Console.WriteLine($"  normalized={result.NormalizedText}");
-        Console.WriteLine($"  translated={result.TranslatedText}");
-        Console.WriteLine($"  evidence={result.Evidence}");
+        Console.WriteLine($"  normalized=\{result.NormalizedText}");
+        Console.WriteLine($"  translated=\{result.TranslatedText}");
+        Console.WriteLine($"  evidence=\{result.Evidence}");
         failures++;
     }
 }
 
 if (failures != 0)
 {
-    Console.WriteLine($"LANGUAGE DETECTION CHALLENGE FAILED — {failures} case(s)");
+    Console.WriteLine($"LANGUAGE DETECTION CHALLENGE FAILED — \{failures} case(s)");
     Environment.Exit(1);
 }
 
-Console.WriteLine($"LANGUAGE DETECTION CHALLENGE PASSED — {cases.Length} executable cases");
+Console.WriteLine($"LANGUAGE DETECTION CHALLENGE PASSED — \{cases.Length} executable cases");
 '''
 
 with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
