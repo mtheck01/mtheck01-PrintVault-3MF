@@ -50,86 +50,130 @@ Current whole-library report:
 Relevant source:
 """ + json.dumps(source, indent=2)
 
-payload = {
-    "model": MODEL,
-    "input": [
-        {"role": "system", "content": "Return strict JSON only."},
-        {"role": "user", "content": prompt},
-    ],
-}
-
-print(f"REPAIR_MODEL={MODEL}")
-print("REPAIR_API=RESPONSES")
-print("REPAIR_REQUEST=START")
-req = Request(
-    "https://api.openai.com/v1/responses",
-    data=json.dumps(payload).encode("utf-8"),
-    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-    method="POST",
-)
-try:
-    with urlopen(req, timeout=300) as response:
-        data = json.load(response)
-except HTTPError as exc:
-    body = exc.read().decode("utf-8", errors="replace")
-    print(f"REPAIR_API_HTTP_ERROR={exc.code}", file=sys.stderr)
-    print(body[:12000], file=sys.stderr)
-    raise SystemExit(f"OpenAI Responses API returned HTTP {exc.code}.")
-except URLError as exc:
-    print(f"REPAIR_API_NETWORK_ERROR={exc}", file=sys.stderr)
-    raise SystemExit("OpenAI Responses API network request failed.")
-
-print("REPAIR_REQUEST=COMPLETE")
-text = data.get("output_text")
-if not text:
+def extract_output_text(data):
+    text = data.get("output_text")
+    if text:
+        return text
     chunks = []
     for item in data.get("output", []):
         for content in item.get("content", []):
             if content.get("type") == "output_text":
                 chunks.append(content.get("text", ""))
-    text = "".join(chunks)
+    return "".join(chunks)
 
-if not text:
-    raise SystemExit("Repair model returned no output.")
 
-try:
-    result = json.loads(text)
-except json.JSONDecodeError as exc:
-    (ROOT / "build_logs" / "autonomous-repair-raw.txt").write_text(text, encoding="utf-8")
-    raise SystemExit(f"Repair model did not return valid JSON: {exc}")
+def normalize_patch(patch):
+    patch = patch.strip()
+    if patch.startswith("```"):
+        lines = patch.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        patch = "\n".join(lines).strip()
+    if patch.startswith("*** Begin Patch"):
+        lines = patch.splitlines()
+        if lines and lines[0].strip() == "*** Begin Patch":
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "*** End Patch":
+            lines = lines[:-1]
+        patch = "\n".join(lines).strip()
+    if not patch.startswith("diff --git "):
+        raise ValueError("Patch must start with a standard 'diff --git a/... b/...' header.")
+    return patch + "\n"
 
-patch = result.get("patch", "")
-if not patch.strip():
-    raise SystemExit("Repair model returned an empty patch.")
 
-# Normalize common presentation wrappers, then validate before returning the patch.
-if patch.strip().startswith("```"):
-    lines = patch.strip().splitlines()
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    patch = "\n".join(lines) + "\n"
-if patch.lstrip().startswith("*** Begin Patch"):
-    lines = patch.splitlines()
-    if lines and lines[0].strip() == "*** Begin Patch":
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "*** End Patch":
-        lines = lines[:-1]
-    patch = "\n".join(lines) + "\n"
+def request_repair(request_prompt):
+    payload = {
+        "model": MODEL,
+        "input": [
+            {"role": "system", "content": "Return strict JSON only. Never return Markdown."},
+            {"role": "user", "content": request_prompt},
+        ],
+    }
+    req = Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=300) as response:
+            data = json.load(response)
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        print(f"REPAIR_API_HTTP_ERROR={exc.code}", file=sys.stderr)
+        print(body[:12000], file=sys.stderr)
+        raise SystemExit(f"OpenAI Responses API returned HTTP {exc.code}.")
+    except URLError as exc:
+        print(f"REPAIR_API_NETWORK_ERROR={exc}", file=sys.stderr)
+        raise SystemExit("OpenAI Responses API network request failed.")
 
-patch_path = ROOT / "build_logs" / "autonomous-repair.patch"
-patch_path.parent.mkdir(parents=True, exist_ok=True)
-patch_path.write_text(patch, encoding="utf-8")
-check = subprocess.run(["git", "apply", "--check", str(patch_path)], cwd=ROOT, text=True, capture_output=True)
-patch_error = (check.stdout + check.stderr).strip()
-if check.returncode != 0:
-    (ROOT / "build_logs" / "autonomous-repair-invalid.patch").write_text(patch, encoding="utf-8")
-    (ROOT / "build_logs" / "autonomous-repair-validation-error.txt").write_text(patch_error, encoding="utf-8")
-    raise SystemExit("Repair model returned a patch that fails git apply --check: " + (patch_error or "unknown patch validation error"))
-(ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
-    json.dumps({"model": MODEL, "summary": result.get("summary", "")}, indent=2),
-    encoding="utf-8",
-)
-print(f"PATCH={patch_path}")
-print(f"SUMMARY={result.get('summary','')}")
+    text = extract_output_text(data)
+    if not text:
+        raise ValueError("Repair model returned no output.")
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError as exc:
+        (ROOT / "build_logs" / "autonomous-repair-raw.txt").write_text(text, encoding="utf-8")
+        raise ValueError(f"Repair model did not return valid JSON: {exc}")
+    return result
+
+
+print(f"REPAIR_MODEL={MODEL}")
+print("REPAIR_API=RESPONSES")
+print("REPAIR_REQUEST=START")
+
+last_error = ""
+for repair_attempt in range(1, 4):
+    print(f"REPAIR_ATTEMPT={repair_attempt}/3")
+    retry_prompt = prompt
+    if last_error:
+        retry_prompt += (
+            "\n\nThe previous candidate patch was rejected by git apply --check. "
+            "Do not repeat it. Correct the patch formatting and hunk structure. "
+            "The exact validator error was:\n" + last_error +
+            "\nReturn a complete replacement patch, not an explanation."
+        )
+    try:
+        result = request_repair(retry_prompt)
+        patch = normalize_patch(result.get("patch", ""))
+        patch_path = ROOT / "build_logs" / "autonomous-repair.patch"
+        patch_path.parent.mkdir(parents=True, exist_ok=True)
+        patch_path.write_text(patch, encoding="utf-8")
+        check = subprocess.run(
+            ["git", "apply", "--check", str(patch_path)],
+            cwd=ROOT, text=True, capture_output=True
+        )
+        patch_error = (check.stdout + check.stderr).strip()
+        if check.returncode == 0:
+            (ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
+                json.dumps({
+                    "model": MODEL,
+                    "repair_attempt": repair_attempt,
+                    "summary": result.get("summary", ""),
+                }, indent=2),
+                encoding="utf-8",
+            )
+            print(f"PATCH={patch_path}")
+            print(f"SUMMARY={result.get('summary','')}")
+            print("PATCH_VALIDATION=PASS")
+            break
+        last_error = patch_error or "unknown patch validation error"
+        (ROOT / "build_logs" / f"autonomous-repair-invalid-{repair_attempt}.patch").write_text(
+            patch, encoding="utf-8"
+        )
+        (ROOT / "build_logs" / f"autonomous-repair-validation-error-{repair_attempt}.txt").write_text(
+            last_error, encoding="utf-8"
+        )
+        print(f"PATCH_VALIDATION=FAIL ERROR={last_error}", file=sys.stderr)
+    except (ValueError, KeyError) as exc:
+        last_error = str(exc)
+        print(f"PATCH_RESPONSE=INVALID ERROR={last_error}", file=sys.stderr)
+else:
+    raise SystemExit(
+        "Repair model failed to produce a git-applicable patch after 3 validated attempts. "
+        + last_error
+    )
+
+print("REPAIR_REQUEST=COMPLETE")
