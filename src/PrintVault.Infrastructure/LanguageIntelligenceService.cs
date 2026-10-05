@@ -89,8 +89,23 @@ public sealed class LanguageIntelligenceService
             if (score > 0) scores[pair.Key] = score;
         }
 
+        // Script alone cannot distinguish Japanese Kanji from Chinese Han characters.
+        // Score language-specific glossary evidence first, then use script as a secondary signal.
+        var glossaryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Chinese"] = Chinese.Keys.Count(term => source.Contains(term, StringComparison.Ordinal)),
+            ["Japanese"] = Japanese.Keys.Count(term => source.Contains(term, StringComparison.Ordinal)),
+            ["Korean"] = Korean.Keys.Count(term => source.Contains(term, StringComparison.Ordinal))
+        };
+        foreach (var pair in glossaryScores)
+        {
+            if (pair.Value > 0)
+                scores[pair.Key] = scores.GetValueOrDefault(pair.Key) + pair.Value * 4;
+        }
+
         var script = DetectScript(source);
-        if (script is not null) scores[script] = scores.GetValueOrDefault(script) + 3;
+        if (script is not null)
+            scores[script] = scores.GetValueOrDefault(script) + 2;
 
         var language = scores.Count == 0
             ? "Unknown"
@@ -99,7 +114,13 @@ public sealed class LanguageIntelligenceService
         var topScore = scores.GetValueOrDefault(language);
         var secondScore = scores.Where(x => !string.Equals(x.Key, language, StringComparison.OrdinalIgnoreCase))
             .Select(x => x.Value).DefaultIfEmpty(0).Max();
-        var mixed = secondScore > 0 && Math.Abs(topScore - secondScore) <= 1;
+        // Mixed-language evidence must come from two substantive language signals,
+        // not from the CJK script fallback bonus.
+        var substantive = glossaryScores.Where(x => x.Value > 0)
+            .OrderByDescending(x => x.Value)
+            .ToArray();
+        var mixed = substantive.Length >= 2 &&
+                    Math.Abs(substantive[0].Value - substantive[1].Value) <= 1;
 
         var glossary = language switch
         {
@@ -165,9 +186,9 @@ public sealed class LanguageIntelligenceService
 
     private static string? DetectScript(string text)
     {
-        if (text.Any(c => c >= '\u4E00' && c <= '\u9FFF')) return "Chinese";
-        if (text.Any(c => c >= '\u3040' && c <= '\u30FF')) return "Japanese";
         if (text.Any(c => c >= '\uAC00' && c <= '\uD7AF')) return "Korean";
+        if (text.Any(c => c >= '\u3040' && c <= '\u30FF')) return "Japanese";
+        if (text.Any(c => c >= '\u4E00' && c <= '\u9FFF')) return "Chinese";
         return null;
     }
 
