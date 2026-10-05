@@ -215,7 +215,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine(); sb.AppendLine("DISPOSITIONS");
         foreach (var x in dispositions) sb.AppendLine($"{x.Key}: {x.Value:N0}");
         sb.AppendLine(); sb.AppendLine("ACCOUNTING");
-        sb.AppendLine($"Catalog == Processed: {catalog == catalog}");
+        sb.AppendLine($"Catalog == Processed: {catalog == rows.Count + failed}");
         sb.AppendLine($"Failures + analyzed rows <= catalog: {failed + rows.Count <= catalog}");
         sb.AppendLine("MODE: READ-ONLY FORENSIC PASS — no classifications, files, or database records were changed.");
         return sb.ToString();
