@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 fusion = (ROOT / "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs").read_text(encoding="utf-8")
 entity = (ROOT / "src/PrintVault.Infrastructure/EntityClassificationService.cs").read_text(encoding="utf-8")
 engine = (ROOT / "src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
+root_cause = (ROOT / "src/PrintVault.Infrastructure/WholeLibraryRootCauseAnalysisService.cs").read_text(encoding="utf-8")
 
 # 9.0.44 semantic architecture contract:
 # - subject identity describes what the model depicts;
@@ -18,6 +19,8 @@ checks = [
     ("entity preservation covers artifact categories", "HueForge, Keychains, Soap Holders" in entity),
     ("entity mismatch is not automatically an artifact conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
     ("lexical evidence remains non-promoting against strong artifact evidence", "Lexical cue retained as non-promoting evidence" in fusion),
+    ("unresolved stored category cannot trigger review", "strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved" in fusion),
+    ("unresolved categories are excluded from forensic conflicts", "!IsUnresolvedCategory(stored)" in root_cause and "!IsUnresolvedCategory(inferred)" in root_cause),
     ("production rebuild uses modular intelligence pipeline", "intelligencePipeline.Apply(m);" in engine),
     ("production semantic fusion stage exists and invokes fusion service", (ROOT / "src/PrintVault.Infrastructure/Intelligence/SemanticFusionStage.cs").exists() and "service.Fuse(" in (ROOT / "src/PrintVault.Infrastructure/Intelligence/SemanticFusionStage.cs").read_text(encoding="utf-8")),
     ("production arbitration stage writes fused artifact classification", "model.Category = result.Category;" in (ROOT / "src/PrintVault.Infrastructure/Intelligence/EvidenceArbitrationStage.cs").read_text(encoding="utf-8")),

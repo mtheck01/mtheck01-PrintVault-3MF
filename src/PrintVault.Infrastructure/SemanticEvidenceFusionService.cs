@@ -578,7 +578,8 @@ public sealed class SemanticEvidenceFusionService
         var strongAlternative = strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
                                 (cueHits.Count > 0 && best.Hits.Length > 0 && classification >= 85);
-        var review = actionableConflict || (strongAlternative && categoriesDiffer && !semanticChannelsAgree);
+        var review = actionableConflict ||
+                     (strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved && !semanticChannelsAgree);
         if (review)
         {
             evidence.Add("Review recommended: independent evidence conflicts with stored classification");

@@ -82,7 +82,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var f = stage.Fusion;
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
-                var conflict = !string.IsNullOrWhiteSpace(stored) && !string.IsNullOrWhiteSpace(inferred) &&
+                var conflict = !IsUnresolvedCategory(stored) &&
+                               !IsUnresolvedCategory(inferred) &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
                 if (conflict) conflicts++;
                 if (conflict || f.ReviewRequired)
@@ -126,6 +127,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
             synchronizedFromActiveCatalog, catalogMismatch), Encoding.UTF8);
         return new WholeLibraryRootCauseResult(created, models.Count, models.Count, conflicts, rows.Count, failed, causes, dispositions, report, csv, json);
     }
+
+    private static bool IsUnresolvedCategory(string? category)
+        => string.IsNullOrWhiteSpace(category) ||
+           string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase);
 
     private static string DetermineCause(ModelRecord m, MultilingualEntityMatch? entity, SemanticEvidenceFusionResult f, bool conflict)
     {
