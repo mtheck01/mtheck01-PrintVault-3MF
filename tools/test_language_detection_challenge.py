@@ -72,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
         ["dotnet", "run", "--project", str(project)],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
     )
     print(result.stdout, end="")
