@@ -210,14 +210,25 @@ jobs:
                 throw "External process timed out after $timeoutSeconds seconds: $filePath"
               }
             }
+
+            # HasExited can become true before the Process object has refreshed its
+            # ExitCode property. Refresh and WaitForExit explicitly so a successful
+            # child process is never converted into a blank/null exit code.
+            $proc.WaitForExit()
+            $proc.Refresh()
+            $exitCode = $proc.ExitCode
+            if ($null -eq $exitCode) {
+              throw "External process exited but returned no exit code: $filePath"
+            }
+
             if (Test-Path $logPath) {
               Get-Content $logPath | ForEach-Object { Write-Host $_ }
             }
             if (Test-Path $errPath) {
               Get-Content $errPath | ForEach-Object { Write-Host $_ }
             }
-            Write-Host "EXTERNAL_EXIT=$($proc.ExitCode) FILE=$filePath"
-            return $proc.ExitCode
+            Write-Host "EXTERNAL_EXIT=$exitCode FILE=$filePath"
+            return [int]$exitCode
           }
 
           function Find-TestLibraryRoot {
