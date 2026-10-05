@@ -107,9 +107,18 @@ public sealed class LanguageIntelligenceService
         if (script is not null)
             scores[script] = scores.GetValueOrDefault(script) + 2;
 
-        var language = scores.Count == 0
-            ? "Unknown"
-            : scores.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).First().Key;
+        // If substantive glossary evidence exists, it outranks the script heuristic.
+        // This is critical for mixed CJK text: script identifies only one character
+        // system, while the glossary can prove that multiple languages are present.
+        var language = glossaryScores.Any(x => x.Value > 0)
+            ? glossaryScores
+                .Where(x => x.Value > 0)
+                .OrderByDescending(x => x.Value)
+                .ThenBy(x => x.Key, StringComparer.Ordinal)
+                .First().Key
+            : scores.Count == 0
+                ? "Unknown"
+                : scores.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).First().Key;
 
         var topScore = scores.GetValueOrDefault(language);
         var secondScore = scores.Where(x => !string.Equals(x.Key, language, StringComparison.OrdinalIgnoreCase))
