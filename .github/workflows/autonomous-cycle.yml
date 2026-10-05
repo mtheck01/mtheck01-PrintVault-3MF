@@ -30,6 +30,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 concurrency:
   # Required by the autonomous-chain contract; do not cancel an active validation cycle.
@@ -163,6 +164,19 @@ jobs:
             $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-status.json")
             Write-Host "CYCLE_RUN_ID=$env:GITHUB_RUN_ID"
             Write-Host "CYCLE_STAGE=$stage DETAIL=$detail"
+
+            # Publish live stage through commit status instead of relying on Actions log blobs.
+            if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
+              $statusState = if ($stage -eq "DONE") { "success" } elseif ($stage -eq "FAILED") { "failure" } else { "pending" }
+              $description = "$stage" + $(if ([string]::IsNullOrWhiteSpace($detail)) { "" } else { ": $detail" })
+              if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
+              $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
+              $body = @{ state = $statusState; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
+              try {
+                Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+                Write-Host "CYCLE_COMMIT_STATUS=$statusState"
+              } catch { Write-Warning "Unable to publish cycle commit status: $($_.Exception.Message)" }
+            }
           }
 
           function Invoke-ExternalWithHeartbeat($filePath, [string[]]$arguments, $logPath, $timeoutSeconds = 900) {
@@ -450,14 +464,14 @@ jobs:
             $scanLog = Join-Path $PWD "build_logs\test-library-scan.log"
             $env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot
             Write-Host "TEST_LIBRARY_ROOT_ENV=$env:PRINTVAULT_TEST_LIBRARY_ROOT"
-            $scanExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", "", "Deep") $scanLog 900
+            $scanExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", $testLibraryRoot, "Deep") $scanLog 900
             $scanOutput = if (Test-Path $scanLog) { @(Get-Content $scanLog) } else { @() }
             if ($scanExit -ne 0) { throw "Test-library ingestion failed with exit code $scanExit." }
 
             # Physically organize only files inside the selected test-library root.
             Write-CycleStatus "ORGANIZE" "root=$testLibraryRoot"
             $organizeLog = Join-Path $PWD "build_logs\test-library-organize.log"
-            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", "") $organizeLog 900
+            $organizeExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "organize", $testLibraryRoot) $organizeLog 900
             Remove-Item Env:PRINTVAULT_TEST_LIBRARY_ROOT -ErrorAction SilentlyContinue
             $organizeOutput = if (Test-Path $organizeLog) { @(Get-Content $organizeLog) } else { @() }
             if ($organizeExit -ne 0) { throw "Test-library organization failed with exit code $organizeExit." }
@@ -596,6 +610,24 @@ jobs:
           }
 
           throw "Autonomous cycle exhausted its attempt budget."
+
+      - name: Publish final cycle status
+        if: always()
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINAL_JOB_STATUS: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $state = if ($env:FINAL_JOB_STATUS -eq "success") { "success" } else { "failure" }
+          $description = "Workflow $($env:FINAL_JOB_STATUS)"
+          $statusPath = Join-Path $PWD "build_logs\cycle-status.json"
+          if (Test-Path $statusPath) { try { $s = Get-Content $statusPath -Raw | ConvertFrom-Json; $description = "$($s.Stage): $($s.Detail)" } catch {} }
+          if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
+          $body = @{ state = $state; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
+          Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+          Write-Host "FINAL_CYCLE_COMMIT_STATUS=$state"
 
       - name: Upload cycle artifacts
         if: always()
