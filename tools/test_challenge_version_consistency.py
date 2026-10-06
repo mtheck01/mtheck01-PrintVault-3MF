@@ -30,10 +30,7 @@ for path in services:
     if "AppVersion.Version" not in text:
         errors.append(f"challenge service does not consume AppVersion.Version: {path.relative_to(ROOT)}")
 
-# The current release must be represented by the authoritative VERSION file,
-# not duplicated inside challenge report strings.
-if VERSION != "9.0.20":
-    print(f"INFO: running version-consistency audit for VERSION={VERSION}")
+# VERSION is the sole release authority. No historical version sentinel belongs in this test.
 
 if errors:
     print("CHALLENGE VERSION CONSISTENCY FAILED")
