@@ -120,7 +120,7 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        // 8.6 engineering rule: startup must never auto-select a library.
+        // Engineering rule: startup must never auto-select a library.
         // A previously cleared/absent library leaves the application idle until
         // the user explicitly chooses a library from Settings / Library.
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
@@ -191,7 +191,7 @@ public partial class MainWindow : Window
     {
         using var dialog = new Forms.FolderBrowserDialog
         {
-            Description = "Choose your 3MF library folder (production library is blocked in this 8.6 engineering build)",
+            Description = "Choose your 3MF library folder (the production library is protected in this engineering build)",
             UseDescriptionForTitle = true,
             SelectedPath = root != null && Directory.Exists(root) ? root :
                 (Directory.Exists(@"D:\3d print files test") ? @"D:\3d print files test" : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments))
@@ -199,7 +199,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
         if (IsForbiddenProductionLibrary(dialog.SelectedPath))
         {
-            MessageBox.Show(this, "The production library is protected in PrintVault 8.6 Engineering.\n\nUse D:\\3d print files test or another test/library copy.", "Production Library Protected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, $"The production library is protected in PrintVault {AppVersion.Version} Engineering.\n\nUse D:\\3d print files test or another test/library copy.", "Production Library Protected", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         SetLibraryRoot(dialog.SelectedPath);
@@ -1068,7 +1068,7 @@ public partial class MainWindow : Window
         {
             if (IsForbiddenProductionLibrary(dialog.SelectedLibrary))
             {
-                MessageBox.Show(this, "The production library is protected in this 8.6 Engineering build.", "Production Library Protected", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, $"The production library is protected in this {AppVersion.Version} Engineering build.", "Production Library Protected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             SetLibraryRoot(dialog.SelectedLibrary);
