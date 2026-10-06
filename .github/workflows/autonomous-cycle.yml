@@ -72,6 +72,19 @@ jobs:
           dotnet --version
           python --version
 
+      - name: Deterministic autonomous intake preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          for ($pass = 1; $pass -le 2; $pass++) {
+            Write-Host "AUTONOMOUS_INTAKE_PREFLIGHT_PASS=$pass/2"
+            python ".\tools\test_autonomous_engineering_intake.py"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Deterministic autonomous intake preflight failed on pass $pass. No OpenAI repair request is permitted."
+            }
+          }
+          Write-Host "AUTONOMOUS_INTAKE_PREFLIGHT=PASS"
+
       - name: Run autonomous cycle
         shell: powershell
         env:
