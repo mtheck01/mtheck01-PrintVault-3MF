@@ -53,6 +53,9 @@ assert "Passes=2" in workflow
 assert "MODULE_LOCKS=CREATED" in workflow
 assert "MODULE_LOCK_GATE=PASS" in workflow
 assert "Get-SourceFingerprint" in workflow
+assert 'git status --porcelain=v1 -z -- . ' in workflow
+assert "Every executable test named by the autonomous workflow must physically exist." in (ROOT / "tools" / "forensic_repository_audit.py").read_text(encoding="utf-8")
+assert 'SKIP_DIRS = {".git", "bin", "obj"}' in (ROOT / "tools" / "forensic_repository_audit.py").read_text(encoding="utf-8")
 assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "Invoke-WholeLibrary -Pass 1" in workflow
