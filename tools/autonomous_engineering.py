@@ -403,6 +403,28 @@ if blocked_marker in (detail.get("body") or ""):
 
 print(f"ENGINEERING_JOB=CLAIMED ISSUE={ISSUE['number']}")
 request = (detail.get("title","") + "\n\n" + detail.get("body","")).strip()
+
+# Zero-credit validation mode is a hard safety boundary. When enabled, recognized
+# deterministic fallbacks may validate locally, but no model request is permitted.
+if os.environ.get("PRINTVAULT_ZERO_CREDIT") == "1":
+    print("ENGINEERING_ZERO_CREDIT_MODE=1")
+    print(f"ENGINEERING_JOB=ZERO_CREDIT_BLOCKED ISSUE={ISSUE['number']}")
+    print("ENGINEERING_API_CALLS=0")
+    (ROOT / "build_logs").mkdir(exist_ok=True)
+    (ROOT / "build_logs" / "autonomous-engineering-job.json").write_text(
+        json.dumps({
+            "issue": ISSUE["number"],
+            "title": ISSUE["title"],
+            "model": MODEL,
+            "action": "validate",
+            "edited_paths": [],
+            "edit_count": 0,
+            "summary": "Zero-credit validation mode blocked model repair; no OpenAI request was permitted.",
+            "fallback": "zero_credit_block"
+        }, indent=2),
+        encoding="utf-8"
+    )
+    sys.exit(0)
 def local_validate_existing_handoff(issue):
     """Validate the already-implemented autonomous handoff when model credits are unavailable.
 
