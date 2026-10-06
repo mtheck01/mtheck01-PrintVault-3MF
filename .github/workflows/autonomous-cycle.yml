@@ -623,7 +623,7 @@ jobs:
               continue
             }
 
-            if ($gate -eq "PASS" -and -not $needsRepair) {
+            if ($gate -eq "PASS" -and -not $needsRepair -and $sourceTestFailures.Count -eq 0) {
               git fetch origin main --prune
               $currentMainSha = (git rev-parse origin/main).Trim()
               Write-Host "PROMOTION_GUARD_START_SHA=$startingMainSha"
