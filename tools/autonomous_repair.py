@@ -49,10 +49,12 @@ Repair only a demonstrated semantic regression. Do not reset/delete the library.
 Do not weaken tests, lower thresholds merely to make counts look better, or change
 stored classifications directly. Preserve the dimensional architecture:
 subject identity, artifact/function, and catalog category are separate.
-Return ONLY JSON with keys summary and patch. patch must be a standard unified diff
-starting with "diff --git a/... b/..." and must apply cleanly with git apply.
-Do not use Markdown fences, "*** Begin Patch", or "*** End Patch". Keep the patch minimal and production-safe. Add or update
-a regression test when appropriate. Do not modify VERSION; the orchestrator owns it.
+Return ONLY JSON with keys summary and edits. edits must be an array of objects with
+"path", "old", and "new" keys. Each edit must replace an EXACT, UNIQUE text block in
+an existing file. The repair runner will generate the git patch itself, so do NOT
+return a unified diff, Markdown fences, or Begin/End Patch markers. If no edit is
+needed, return an empty edits array. Keep edits minimal and production-safe. Add or
+update a regression test when appropriate. Do not modify VERSION; the orchestrator owns it.
 
 Current whole-library report:
 """ + json.dumps(report, indent=2) + """
@@ -75,25 +77,84 @@ def extract_output_text(data):
     return "".join(chunks)
 
 
-def normalize_patch(patch):
-    patch = patch.strip()
-    if patch.startswith("```"):
-        lines = patch.splitlines()
-        if lines and lines[0].strip().startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        patch = "\n".join(lines).strip()
-    if patch.startswith("*** Begin Patch"):
-        lines = patch.splitlines()
-        if lines and lines[0].strip() == "*** Begin Patch":
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "*** End Patch":
-            lines = lines[:-1]
-        patch = "\n".join(lines).strip()
+def apply_edits(result):
+    edits = result.get("edits")
+    if not isinstance(edits, list):
+        raise ValueError("Repair model must return an 'edits' array.")
+
+    allowed = set(paths)
+    originals = {}
+    changed = []
+
+    for index, edit in enumerate(edits, 1):
+        if not isinstance(edit, dict):
+            raise ValueError(f"Edit {index} must be an object.")
+        rel = edit.get("path")
+        old = edit.get("old")
+        new = edit.get("new")
+        if not isinstance(rel, str) or rel not in allowed:
+            raise ValueError(f"Edit {index} targets a disallowed or invalid path: {rel!r}")
+        if not isinstance(old, str) or not isinstance(new, str):
+            raise ValueError(f"Edit {index} must contain string old/new values.")
+        p = ROOT / rel
+        if not p.exists():
+            raise ValueError(f"Edit {index} targets missing file: {rel}")
+        if rel not in originals:
+            originals[rel] = p.read_text(encoding="utf-8", errors="replace")
+        current = p.read_text(encoding="utf-8", errors="replace")
+        occurrences = current.count(old)
+        if occurrences != 1:
+            raise ValueError(
+                f"Edit {index} requires exactly one match in {rel}; found {occurrences}."
+            )
+        p.write_text(current.replace(old, new, 1), encoding="utf-8")
+        if rel not in changed:
+            changed.append(rel)
+
+    if not changed:
+        raise ValueError("Repair model returned no edits.")
+
+    diff = subprocess.run(
+        ["git", "diff", "--", *changed],
+        cwd=ROOT, text=True, capture_output=True
+    )
+    if diff.returncode != 0:
+        for rel, original in originals.items():
+            (ROOT / rel).write_text(original, encoding="utf-8")
+        raise ValueError("git diff failed while generating the repair patch.")
+
+    patch = diff.stdout
     if not patch.startswith("diff --git "):
-        raise ValueError("Patch must start with a standard 'diff --git a/... b/...' header.")
-    return patch + "\n"
+        for rel, original in originals.items():
+            (ROOT / rel).write_text(original, encoding="utf-8")
+        raise ValueError("Generated repair patch is empty or malformed.")
+
+    patch_path = ROOT / "build_logs" / "autonomous-repair.patch"
+    patch_path.parent.mkdir(parents=True, exist_ok=True)
+    patch_path.write_text(patch, encoding="utf-8")
+
+    check = subprocess.run(
+        ["git", "apply", "--check", str(patch_path)],
+        cwd=ROOT, text=True, capture_output=True
+    )
+    if check.returncode != 0:
+        error = (check.stdout + check.stderr).strip() or "unknown patch validation error"
+        for rel, original in originals.items():
+            (ROOT / rel).write_text(original, encoding="utf-8")
+        raise ValueError(f"Generated patch failed git apply --check: {error}")
+
+    (ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
+        json.dumps({
+            "model": MODEL,
+            "summary": result.get("summary", ""),
+            "edited_paths": changed,
+            "edit_count": len(edits),
+        }, indent=2),
+        encoding="utf-8",
+    )
+    print(f"PATCH={patch_path}")
+    print(f"SUMMARY={result.get('summary','')}")
+    print("PATCH_VALIDATION=PASS")
 
 
 def request_repair(request_prompt):
@@ -143,49 +204,20 @@ for repair_attempt in range(1, 4):
     retry_prompt = prompt
     if last_error:
         retry_prompt += (
-            "\n\nThe previous candidate patch was rejected by git apply --check. "
-            "Do not repeat it. Correct the patch formatting and hunk structure. "
-            "The exact validator error was:\n" + last_error +
-            "\nReturn a complete replacement patch, not an explanation."
+            "\n\nThe previous candidate edit set was rejected by the local validator. "
+            "Do not repeat it. Correct the exact old/new text blocks and return a complete "
+            "replacement JSON response. The exact validator error was:\n" + last_error
         )
     try:
         result = request_repair(retry_prompt)
-        patch = normalize_patch(result.get("patch", ""))
-        patch_path = ROOT / "build_logs" / "autonomous-repair.patch"
-        patch_path.parent.mkdir(parents=True, exist_ok=True)
-        patch_path.write_text(patch, encoding="utf-8")
-        check = subprocess.run(
-            ["git", "apply", "--check", str(patch_path)],
-            cwd=ROOT, text=True, capture_output=True
-        )
-        patch_error = (check.stdout + check.stderr).strip()
-        if check.returncode == 0:
-            (ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
-                json.dumps({
-                    "model": MODEL,
-                    "repair_attempt": repair_attempt,
-                    "summary": result.get("summary", ""),
-                }, indent=2),
-                encoding="utf-8",
-            )
-            print(f"PATCH={patch_path}")
-            print(f"SUMMARY={result.get('summary','')}")
-            print("PATCH_VALIDATION=PASS")
-            break
-        last_error = patch_error or "unknown patch validation error"
-        (ROOT / "build_logs" / f"autonomous-repair-invalid-{repair_attempt}.patch").write_text(
-            patch, encoding="utf-8"
-        )
-        (ROOT / "build_logs" / f"autonomous-repair-validation-error-{repair_attempt}.txt").write_text(
-            last_error, encoding="utf-8"
-        )
-        print(f"PATCH_VALIDATION=FAIL ERROR={last_error}", file=sys.stderr)
+        apply_edits(result)
+        break
     except (ValueError, KeyError) as exc:
         last_error = str(exc)
         print(f"PATCH_RESPONSE=INVALID ERROR={last_error}", file=sys.stderr)
 else:
     raise SystemExit(
-        "Repair model failed to produce a git-applicable patch after 3 validated attempts. "
+        "Repair model failed to produce a valid source edit set after 3 validated attempts. "
         + last_error
     )
 
