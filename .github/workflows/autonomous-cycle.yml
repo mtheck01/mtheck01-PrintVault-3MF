@@ -907,6 +907,8 @@ jobs:
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
               Write-CycleStatus "FINAL_APP_SMOKE" "version=$version"
               $finalApp = Start-FinalApp $candidate $testLibraryRoot
+              Close-PrintVault $finalApp
+              Write-Host "FINAL_APP_SMOKE_CLOSED=PASS"
 
               if ($publish) {
                 Write-CycleStatus "PUBLISH" "version=$version"
