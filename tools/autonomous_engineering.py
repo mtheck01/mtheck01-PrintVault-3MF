@@ -139,12 +139,39 @@ def request_model(prompt):
                  "Content-Type": "application/json"},
         method="POST",
     )
-    with urlopen(req, timeout=300) as r:
-        data = json.load(r)
-    text = extract_text(data)
-    if not text:
-        raise ValueError("Model returned no output.")
-    return json.loads(text)
+
+    # A 429 is a transport/rate-limit failure, not a model-validation failure.
+    # Retry it here with bounded exponential backoff so the outer engineering
+    # attempt budget is not burned by three immediate identical requests.
+    last_429 = None
+    for transport_attempt in range(1, 5):
+        try:
+            with urlopen(req, timeout=300) as r:
+                data = json.load(r)
+            text = extract_text(data)
+            if not text:
+                raise ValueError("Model returned no output.")
+            return json.loads(text)
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            if exc.code != 429:
+                raise RuntimeError(f"OpenAI API HTTP {exc.code}: {body[:4000]}")
+            retry_after = exc.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else float(2 ** (transport_attempt - 1))
+            except (TypeError, ValueError):
+                delay = float(2 ** (transport_attempt - 1))
+            delay = max(1.0, min(delay, 60.0))
+            last_429 = f"OpenAI API HTTP 429: {body[:4000]}"
+            print(
+                f"ENGINEERING_MODEL_RATE_LIMIT attempt={transport_attempt}/4 "
+                f"retry_after={retry_after!r} sleep={delay:.1f}s",
+                file=sys.stderr,
+            )
+            if transport_attempt < 4:
+                import time
+                time.sleep(delay)
+    raise RuntimeError(last_429 or "OpenAI API HTTP 429: rate limit persisted after retries.")
 
 def apply_edits(result):
     action = result.get("action")
