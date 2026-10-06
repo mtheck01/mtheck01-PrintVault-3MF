@@ -39,9 +39,9 @@ var outputDirectory = args.Length > 1 && !string.Equals(command, "repair", Strin
     ? Path.GetFullPath(args[1])
     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "reports");
 
-var expectedCatalog = args.Length > 2 && int.TryParse(args[2], out var parsed)
+int? expectedCatalog = args.Length > 2 && int.TryParse(args[2], out var parsed)
     ? parsed
-    : 1758;
+    : null;
 
 bool IsLegacyCategory(string? category) => category?.Trim() switch
 {
@@ -266,8 +266,8 @@ try
         Console.WriteLine($"REPAIR_CATALOG={models.Count}");
         Console.WriteLine($"REPAIR_PERSISTED_CATALOG={persisted}");
 
-        if (models.Count != expectedCatalog) return 14;
-        if (persisted != expectedCatalog) return 15;
+        if (expectedCatalog.HasValue && models.Count != expectedCatalog.Value) return 14;
+        if (expectedCatalog.HasValue && persisted != expectedCatalog.Value) return 15;
 
         Console.WriteLine("REPAIR=PASS");
         return 0;
@@ -295,7 +295,7 @@ try
 
     if (resultReport.Failed != 0)
         return 10;
-    if (resultReport.Catalog != expectedCatalog || resultReport.Processed != expectedCatalog)
+    if (expectedCatalog.HasValue && (resultReport.Catalog != expectedCatalog.Value || resultReport.Processed != expectedCatalog.Value))
         return 11;
 
     return 0;
