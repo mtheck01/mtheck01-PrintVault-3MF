@@ -1,9 +1,9 @@
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-an=(ROOT/"src/PrintVault.Infrastructure/ThreeMfAnalyzer.cs").read_text()
-model=(ROOT/"src/PrintVault.Core/Models.cs").read_text()
-repo=(ROOT/"src/PrintVault.Infrastructure/LibraryRepository.cs").read_text()
-engine=(ROOT/"src/PrintVault.Infrastructure/LibraryEngine.cs").read_text()
+an=(ROOT/"src/PrintVault.Infrastructure/ThreeMfAnalyzer.cs").read_text(encoding="utf-8")
+model=(ROOT/"src/PrintVault.Core/Models.cs").read_text(encoding="utf-8")
+repo=(ROOT/"src/PrintVault.Infrastructure/LibraryRepository.cs").read_text(encoding="utf-8")
+engine=(ROOT/"src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
 checks=[
  ("weighted semantic signals", "Signal[]" in an and "TokenScore" in an),
  ("geometry dimensions", "ComputeDimensions" in an and "vertex" in an),
@@ -16,7 +16,7 @@ checks=[
  ("custom category preservation", "IsCustomCategory(existingCategory)" in engine and "preserveCustomCategory" in engine),
  ("custom folder recovery", "GetTopLevelCustomCategory" in engine and "Path.GetRelativePath" in engine),
  ("filesystem path excluded from semantic scoring", "allText.Append(name)" in an and "Append(path)" not in an),
- ("signal weights applied", "TokenScore(low,s.Phrase,s.Weight)" in an),
+ ("signal weights applied", ("TokenScore(semanticScoringText,s.Phrase,s.Weight)" in an or "TokenScore(semantic, s.Phrase, s.Weight)" in an)),
  ("HueForge first-class detection", "DetectSpecialType" in an and "HueForge" in an and "custom_gcode_per_layer" in an),
  ("Keychain first-class detection", "KeychainTerms" in an and "Keychains" in an and "keychain" in an.lower()),
  ("special type confidence", "special.Score" in an),
