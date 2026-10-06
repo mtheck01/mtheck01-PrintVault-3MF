@@ -76,6 +76,22 @@ assert 'FILES_BEFORE=' in workflow and 'FILES_AFTER=' in workflow
 assert 'Legacy taxonomy cleanup failed' in workflow
 assert 'Test-library organization failed' not in workflow
 
+current_modular_tests = [
+    "test_8_6_library_lifecycle.py", "test_browse_sorting.py",
+    "test_category_dropdown_fix3.py", "test_category_navigation_fix2.py",
+    "test_category_reconciliation.py", "test_change_category_readability.py",
+    "test_clear_scan_race.py", "test_consolidation_deep.py",
+    "test_full_library_intelligence_9_0_11.py", "test_intelligence_8_4.py",
+    "test_language_intelligence_module.py", "test_library_intelligence_health.py",
+    "test_scan_stability.py", "test_schema_migration.py",
+    "test_semantic_evidence_fusion_9_0_13.py", "test_semantic_evidence_taxonomy_contract_9_0_24.py",
+    "test_semantic_intelligence.py", "test_semantic_relationship_integration_9_0_20.py",
+    "test_smart_category_engine.py", "test_smart_category_review.py",
+    "test_whole_library_entity_coverage_v1.py"
+]
+for test_name in current_modular_tests:
+    assert test_name in workflow, f"Current modular regression test is not wired into autonomous cycle: {test_name}"
+
 assert 'Refusing to manufacture a release' in workflow
 assert 'SCHEDULE_VALIDATION_NEEDED=NO' in workflow
 assert 'SCHEDULE_VALIDATION_NEEDED=YES' in workflow
