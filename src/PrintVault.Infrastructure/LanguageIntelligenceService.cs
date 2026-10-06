@@ -36,44 +36,9 @@ public sealed class LanguageIntelligenceService
         ["Korean"] = new[] { "의", "및", "모델", "자동차", "비행기", "수납", "도구", "건물", "드래곤", "피규어" }
     };
 
-    private static readonly Dictionary<string, string> Chinese = new(StringComparer.Ordinal)
-    {
-        ["吊车"]="crane", ["起重机"]="crane", ["移动吊车"]="mobile crane",
-        ["叉车"]="forklift", ["挖掘机"]="excavator", ["推土机"]="bulldozer",
-        ["卡车"]="truck", ["货车"]="truck", ["汽车"]="car", ["轿车"]="car",
-        ["摩托车"]="motorcycle", ["飞机"]="airplane", ["战斗机"]="fighter jet",
-        ["直升机"]="helicopter", ["无人机"]="drone", ["火箭"]="rocket",
-        ["坦克"]="tank", ["船"]="ship", ["潜艇"]="submarine",
-        ["房子"]="house", ["房屋"]="building", ["建筑"]="building", ["城堡"]="castle",
-        ["塔"]="tower", ["桥"]="bridge", ["树"]="tree", ["岩石"]="rock", ["山"]="mountain",
-        ["龙"]="dragon", ["恐龙"]="dinosaur", ["人物"]="character", ["角色"]="character",
-        ["模型"]="model", ["文件"]="file", ["打印件"]="printed model", ["上传文件"]="uploaded file",
-        ["整体"]="whole", ["比例"]="scale", ["套件"]="kit", ["支架"]="stand", ["底座"]="base",
-        ["展示"]="display", ["收纳"]="storage", ["盒"]="box", ["架"]="rack", ["灯"]="lamp",
-        ["钥匙扣"]="keychain", ["工具"]="tool", ["玩具"]="toy", ["装饰"]="decor",
-        ["桌面收纳"]="desk organizer", ["理线器"]="cable organizer",
-        ["蝙蝠车"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts",
-        ["蝙蝠俠"]="batman", ["蜘蛛人"]="spider-man", ["鋼鐵人"]="iron man",
-        ["打印模型"]="3d printed model", ["3D打印"]="3d printing", ["模型打印"]="model printing"
-    };
-
-    private static readonly Dictionary<string, string> Japanese = new(StringComparer.Ordinal)
-    {
-        ["車"]="car", ["自動車"]="automobile", ["飛行機"]="airplane", ["戦闘機"]="fighter jet",
-        ["ヘリコプター"]="helicopter", ["ロケット"]="rocket", ["船"]="ship", ["城"]="castle",
-        ["家"]="house", ["建物"]="building", ["塔"]="tower", ["龍"]="dragon", ["ドラゴン"]="dragon",
-        ["恐竜"]="dinosaur", ["工具"]="tool", ["収納"]="storage", ["人形"]="figure",
-        ["フィギュア"]="figure", ["オーガナイザー"]="organizer"
-    };
-
-    private static readonly Dictionary<string, string> Korean = new(StringComparer.Ordinal)
-    {
-        ["자동차"]="car", ["차"]="car", ["비행기"]="airplane", ["전투기"]="fighter jet",
-        ["헬리콥터"]="helicopter", ["로켓"]="rocket", ["배"]="ship", ["성"]="castle",
-        ["집"]="house", ["건물"]="building", ["탑"]="tower", ["용"]="dragon", ["공룡"]="dinosaur",
-        ["도구"]="tool", ["수납"]="storage", ["인형"]="figure", ["피규어"]="figure",
-        ["정리함"]="organizer"
-    };
+    private static readonly IReadOnlyDictionary<string, string> Chinese = TranslationAliasNormalizationModule.ChineseGlossary;
+    private static readonly IReadOnlyDictionary<string, string> Japanese = TranslationAliasNormalizationModule.JapaneseGlossary;
+    private static readonly IReadOnlyDictionary<string, string> Korean = TranslationAliasNormalizationModule.KoreanGlossary;
 
     public LanguageResult Analyze(string? text)
     {
@@ -159,19 +124,10 @@ public sealed class LanguageIntelligenceService
             _ => null
         };
 
-        var translated = normalized;
-        var hits = new List<string>();
-        if (glossary is not null)
-        {
-            foreach (var pair in glossary.OrderByDescending(x => x.Key.Length))
-            {
-                if (!translated.Contains(pair.Key, StringComparison.Ordinal)) continue;
-                translated = translated.Replace(pair.Key, $" {pair.Value} ", StringComparison.Ordinal);
-                hits.Add($"{pair.Key} → {pair.Value}");
-            }
-        }
+        var translation = TranslationAliasNormalizationModule.Translate(source, language);
+        var translated = translation.TranslatedText;
+        var hits = translation.Terms.ToList();
 
-        translated = Normalize(translated);
         var confidence = CalculateConfidence(language, topScore, secondScore, hits.Count, mixed);
         var evidence = BuildEvidence(language, script, scores, hits, mixed);
 
@@ -192,26 +148,7 @@ public sealed class LanguageIntelligenceService
     }
 
     public static string Normalize(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-
-        var value = text.Normalize(NormalizationForm.FormKC).Trim();
-        value = Regex.Replace(value, @"[\u200B-\u200D\uFEFF]", string.Empty);
-        value = Regex.Replace(value, @"[+_\-]+", " ");
-        value = Regex.Replace(value, @"\s+", " ");
-
-        // Remove diacritics for comparison-friendly Latin text while preserving CJK.
-        var decomposed = value.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-        foreach (var c in decomposed)
-        {
-            var category = CharUnicodeInfo.GetUnicodeCategory(c);
-            if (category != UnicodeCategory.NonSpacingMark)
-                builder.Append(c);
-        }
-
-        return builder.ToString().Normalize(NormalizationForm.FormC).Trim();
-    }
+        => TranslationAliasNormalizationModule.Normalize(text);
 
     private static string? DetectScript(string text)
     {
