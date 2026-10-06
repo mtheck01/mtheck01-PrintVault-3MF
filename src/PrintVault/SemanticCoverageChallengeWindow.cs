@@ -56,7 +56,7 @@ public sealed class SemanticCoverageChallengeWindow : Window
     private async System.Threading.Tasks.Task RunAsync()
     {
         if (runButton is not null) runButton.IsEnabled = false;
-        progress.Value = 0; progress.Maximum = 1758; Mouse.OverrideCursor = Cursors.Wait;
+        progress.Value = 0; progress.Maximum = 1; Mouse.OverrideCursor = Cursors.Wait;
         try
         {
             result = await System.Threading.Tasks.Task.Run(() => service.Run((done, total, stage) => Dispatcher.Invoke(() =>
