@@ -36,8 +36,8 @@ public sealed class FullLibraryIntelligenceChallengeWindow : Window
         var title = new TextBlock { Text = "FULL LIBRARY INTELLIGENCE CHALLENGE", FontSize = 22, FontWeight = FontWeights.Bold };
         Grid.SetRow(title, 0); root.Children.Add(title);
         summary.Margin = new Thickness(0, 8, 0, 8); summary.TextWrapping = TextWrapping.Wrap;
-        summary.Text = "Controlled 1,758-record validation of semantic identity, relationship indexing, determinism, performance, catalog safety, and physical-file protection." +
-                       " This may take several minutes.";
+        summary.Text = "Controlled full-library validation of semantic identity, relationship indexing, determinism, performance, catalog safety, and physical-file protection." +
+                       " The catalog size is measured from the active library when the challenge runs.";
         Grid.SetRow(summary, 1); root.Children.Add(summary);
         Grid.SetRow(progress, 2); root.Children.Add(progress);
 
@@ -66,7 +66,7 @@ public sealed class FullLibraryIntelligenceChallengeWindow : Window
     private async System.Threading.Tasks.Task RunAsync()
     {
         if (runButton is not null) runButton.IsEnabled = false;
-        progress.Value = 0; progress.Maximum = 1758; Mouse.OverrideCursor = Cursors.Wait;
+        progress.Value = 0; progress.Maximum = 1; Mouse.OverrideCursor = Cursors.Wait;
         try
         {
             result = await System.Threading.Tasks.Task.Run(() => service.Run((done, total, stage) => Dispatcher.Invoke(() =>
