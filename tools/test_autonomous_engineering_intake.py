@@ -15,6 +15,8 @@ required_agent = [
     "git apply --check",
     "OPENAI_API_KEY",
     "Do not modify VERSION",
+    'action not in ("patch", "validate")',
+    'action="validate" ONLY when',
 ]
 for marker in required_agent:
     assert marker in agent, f"autonomous engineering agent missing required guard/feature: {marker}"
