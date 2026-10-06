@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     private readonly LibraryEngine engine = new();
     private readonly MultilingualMetadataService multilingual = new();
     private readonly MultilingualEntityService entities = new();
-    private readonly EntityClassificationService entityClassification = new();
+    private readonly ModelIntelligencePipeline intelligencePipeline = new();
     private readonly LibraryStateStore stateStore = new();
     private readonly LearningService learning;
     private OrganizationService? organization;
@@ -712,9 +712,9 @@ public partial class MainWindow : Window
             m.SpecialType = a.SpecialType; m.ObjectCount = a.ObjectCount;
             m.Dimensions = a.Dimensions; m.Slicer = a.Slicer; m.Materials = a.Materials; m.PrintReady = a.PrintReady; m.SemanticType=a.SemanticType; m.Subtype=a.Subtype; m.SuggestedTags=a.SuggestedTags; m.IntelligenceReason=a.Reason; m.RiskFlags=a.RiskFlags; m.Tags = NormalizeTags(m.Category, m.Tags);
             multilingual.Apply(m);
-            var entityApplied = entityClassification.Apply(m);
+            var pipelineApplied = intelligencePipeline.Apply(m);
             engine.Repository.Upsert(m); UpdateDashboard(); RefreshFilter(); Select(m);
-            Status.Text = entityApplied ? "Analysis and entity classification complete" : "Analysis and multilingual metadata complete";
+            Status.Text = pipelineApplied ? "Analysis and modular intelligence classification complete" : "Analysis and multilingual metadata complete";
         }
         catch (Exception ex) { Error("Analysis failed", ex); }
     }
