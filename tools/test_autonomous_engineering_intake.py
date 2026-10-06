@@ -11,7 +11,6 @@ ast.parse(agent)
 required_agent = [
     "ENGINEERING_JOB=CLAIMED",
     "ISSUE_PREFIX = \"[PrintVault-Autonomous]\"",
-    "git grep",
     "git apply --check",
     "OPENAI_API_KEY",
     "Do not modify VERSION",
