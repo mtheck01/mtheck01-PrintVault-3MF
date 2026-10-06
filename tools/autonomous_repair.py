@@ -133,15 +133,22 @@ def apply_edits(result):
     patch_path.parent.mkdir(parents=True, exist_ok=True)
     patch_path.write_text(patch, encoding="utf-8")
 
+    # The edits above are intentionally applied to the working tree so exact-match
+    # validation can prove that the requested source blocks exist and are unique.
+    # Git cannot validate/apply that same patch while those edits are already present:
+    # git apply --check correctly reports "patch does not apply". Revert to the exact
+    # pre-repair contents before validating the generated patch; the workflow then owns
+    # the actual git apply step.
+    for rel, original in originals.items():
+        (ROOT / rel).write_text(original, encoding="utf-8")
+
     check = subprocess.run(
         ["git", "apply", "--check", str(patch_path)],
-        cwd=ROOT, text=True, capture_output=True
+        cwd=ROOT, text=True, encoding="utf-8", errors="replace", capture_output=True
     )
     if check.returncode != 0:
         error = (check.stdout + check.stderr).strip() or "unknown patch validation error"
-        for rel, original in originals.items():
-            (ROOT / rel).write_text(original, encoding="utf-8")
-        raise ValueError(f"Generated patch failed git apply --check: {error}")
+        raise ValueError(f"Generated repair patch failed git apply --check: {error}")
 
     (ROOT / "build_logs" / "autonomous-repair-summary.json").write_text(
         json.dumps({
