@@ -43,7 +43,7 @@ assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
-assert "expected 39, found" in workflow
+assert "expected 40, found" in workflow
 assert "timeout-minutes: 120" in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
 
@@ -99,7 +99,8 @@ current_modular_tests = [
     "test_semantic_evidence_fusion_9_0_13.py", "test_semantic_evidence_taxonomy_contract_9_0_24.py",
     "test_semantic_intelligence.py", "test_semantic_relationship_integration_9_0_20.py",
     "test_smart_category_engine.py", "test_smart_category_review.py",
-    "test_whole_library_entity_coverage_v1.py"
+    "test_whole_library_entity_coverage_v1.py",
+    "test_autonomous_engineering_intake.py"
 ]
 for test_name in current_modular_tests:
     assert test_name in workflow, f"Current modular regression test is not wired into autonomous cycle: {test_name}"
