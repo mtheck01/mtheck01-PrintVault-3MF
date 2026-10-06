@@ -100,6 +100,33 @@ jobs:
           git fetch origin main --prune
           $startingMainSha = (git rev-parse origin/main).Trim()
           Write-Host "STARTING_MAIN_SHA=$startingMainSha"
+
+          # Scheduled runs exist only to catch commits that were created through
+          # an API path that did not emit a push event. A scheduled run must NEVER
+          # manufacture a new patch version or release when main is already at the
+          # source commit of the latest published release.
+          if ($env:GITHUB_EVENT_NAME -eq "schedule") {
+            $headers = @{
+              Authorization = "Bearer $env:GITHUB_TOKEN"
+              Accept = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2026-03-10"
+              "User-Agent" = "PrintVault-Autonomous-Cycle"
+            }
+            try {
+              $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest" -Headers $headers -Method Get
+              $latestReleaseSha = [string]$latestRelease.target_commitish
+              Write-Host "SCHEDULE_LATEST_RELEASE=$($latestRelease.tag_name) TARGET=$latestReleaseSha"
+              if ($latestReleaseSha -eq $startingMainSha) {
+                Write-Host "SCHEDULE_VALIDATION_NEEDED=NO"
+                Write-CycleStatus "DONE" "scheduled poll: main already matches latest published release $($latestRelease.tag_name)"
+                exit 0
+              }
+              Write-Host "SCHEDULE_VALIDATION_NEEDED=YES"
+            } catch {
+              Write-Warning "Unable to resolve latest published release; scheduled validation will proceed fail-open for detection: $($_.Exception.Message)"
+            }
+          }
+
           git switch -c $branch
 
           function Publish-SourceRelease($version, $sourceSha, $installerPath) {
