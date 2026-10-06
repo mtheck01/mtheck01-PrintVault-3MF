@@ -110,12 +110,26 @@ public sealed class LanguageIntelligenceService
         // If substantive glossary evidence exists, it outranks the script heuristic.
         // This is critical for mixed CJK text: script identifies only one character
         // system, while the glossary can prove that multiple languages are present.
-        var language = glossaryScores.Any(x => x.Value > 0)
-            ? glossaryScores
-                .Where(x => x.Value > 0)
-                .OrderByDescending(x => x.Value)
-                .ThenBy(x => x.Key, StringComparer.Ordinal)
-                .First().Key
+        var glossaryEvidence = glossaryScores
+            .Where(x => x.Value > 0)
+            .Select(x => new
+            {
+                Language = x.Key,
+                Score = x.Value,
+                FirstEvidenceIndex = GetFirstGlossaryIndex(source, x.Key)
+            })
+            .ToArray();
+
+        // When mixed-language glossary evidence ties, the first substantive
+        // language evidence in the source text is the primary language. This
+        // avoids an arbitrary alphabetical tie-break and preserves the user's
+        // source ordering (for example, "汽车 자동차" => Chinese primary).
+        var language = glossaryEvidence.Length > 0
+            ? glossaryEvidence
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.FirstEvidenceIndex)
+                .ThenBy(x => x.Language, StringComparer.Ordinal)
+                .First().Language
             : scores.Count == 0
                 ? "Unknown"
                 : scores.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).First().Key;
@@ -199,6 +213,27 @@ public sealed class LanguageIntelligenceService
         if (text.Any(c => c >= '\u3040' && c <= '\u30FF')) return "Japanese";
         if (text.Any(c => c >= '\u4E00' && c <= '\u9FFF')) return "Chinese";
         return null;
+    }
+
+    private int GetFirstGlossaryIndex(string source, string language)
+    {
+        var glossary = language switch
+        {
+            "Chinese" => Chinese,
+            "Japanese" => Japanese,
+            "Korean" => Korean,
+            _ => null
+        };
+
+        if (glossary is null) return int.MaxValue;
+
+        var first = int.MaxValue;
+        foreach (var term in glossary.Keys)
+        {
+            var index = source.IndexOf(term, StringComparison.Ordinal);
+            if (index >= 0 && index < first) first = index;
+        }
+        return first;
     }
 
     private static int CalculateConfidence(string language, int top, int second, int hits, bool mixed)
