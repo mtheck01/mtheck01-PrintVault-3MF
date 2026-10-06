@@ -50,8 +50,14 @@ def find_issue():
     issues.sort(key=lambda x: x.get("created_at", ""))
     return issues[0] if issues else None
 
+def run_text(args, *, check=False, capture_output=True):
+    return subprocess.run(
+        args, cwd=ROOT, text=True, encoding="utf-8", errors="replace",
+        capture_output=capture_output, check=check,
+    )
+
 def git_files():
-    p = subprocess.run(["git", "ls-files"], cwd=ROOT, text=True, capture_output=True, check=True)
+    p = run_text(["git", "ls-files"], check=True)
     return [x for x in p.stdout.splitlines() if x]
 
 def select_context(request):
@@ -84,10 +90,7 @@ def select_context(request):
         for root in ("src", "tools", "tests", "automation"):
             if not Path(ROOT / root).exists():
                 continue
-            p = subprocess.run(
-                ["git", "grep", "-Il", "-i", "-E", pattern, "--", root],
-                cwd=ROOT, text=True, capture_output=True
-            )
+            p = run_text(["git", "grep", "-Il", "-i", "-E", pattern, "--", root])
             ranked.extend(p.stdout.splitlines())
 
     # Prefer files matched by the request, then a bounded set of architecture files.
@@ -190,6 +193,8 @@ def request_model(prompt):
     raise RuntimeError(last_429 or "OpenAI API HTTP 429: rate limit persisted after retries.")
 
 def apply_edits(result):
+    if not isinstance(result, dict):
+        raise ValueError(f"Model response must be a JSON object; got {type(result).__name__}.")
     action = result.get("action")
     edits = result.get("edits")
     if action not in ("patch", "validate"):
@@ -200,61 +205,100 @@ def apply_edits(result):
         raise ValueError("Validate-only jobs must not modify source.")
     if action == "validate":
         summary = result.get("summary", "")
-        if not summary or any(x in summary.lower() for x in ("cannot", "unable", "insufficient", "not enough context")):
+        if not isinstance(summary, str) or not summary.strip() or any(
+            x in summary.lower() for x in ("cannot", "unable", "insufficient", "not enough context")
+        ):
             raise ValueError("Validate-only result must contain a concrete successful rationale.")
         (ROOT / "build_logs").mkdir(exist_ok=True)
         (ROOT / "build_logs" / "autonomous-engineering-job.json").write_text(
-            json.dumps({"issue": ISSUE["number"], "title": ISSUE["title"],
-                        "model": MODEL, "action": "validate",
-                        "edited_paths": [], "edit_count": 0,
+            json.dumps({"issue": ISSUE["number"], "title": ISSUE["title"], "model": MODEL,
+                        "action": "validate", "edited_paths": [], "edit_count": 0,
                         "summary": summary}, indent=2), encoding="utf-8")
         return [], summary
+
     originals = {}
     changed = []
-    for i, e in enumerate(edits, 1):
-        path, old, new = e.get("path"), e.get("old"), e.get("new")
+    for i, edit in enumerate(edits, 1):
+        if not isinstance(edit, dict):
+            raise ValueError(f"Edit {i} must be an object.")
+        path, old, new = edit.get("path"), edit.get("old"), edit.get("new")
         if not isinstance(path, str) or not path.startswith(ALLOWED_ROOTS):
             raise ValueError(f"Edit {i} targets a disallowed path: {path!r}")
         if Path(path).name in BLOCKED_NAMES or "build_logs" in Path(path).parts:
             raise ValueError(f"Edit {i} targets a blocked path: {path}")
+
+        target = ROOT / path
+        create = edit.get("create", False) is True
+        if create:
+            if not isinstance(old, str) or old != "":
+                raise ValueError(f"Create edit {i} must use old=''.")
+            if not isinstance(new, str) or not new.strip():
+                raise ValueError(f"Create edit {i} must contain non-empty UTF-8 file contents.")
+            if target.exists():
+                raise ValueError(f"Create edit {i} targets an existing file: {path}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(new, encoding="utf-8", newline="")
+            originals[path] = None
+            changed.append(path)
+            continue
+
         if not isinstance(old, str) or not isinstance(new, str):
             raise ValueError(f"Edit {i} must contain string old/new values.")
-        p = ROOT / path
-        if not p.exists():
+        if not target.exists():
             raise ValueError(f"Missing edit target: {path}")
-        current = p.read_text(encoding="utf-8", errors="replace")
-        if current.count(old) != 1:
-            raise ValueError(f"Edit {i} requires exactly one match in {path}; found {current.count(old)}.")
+        current = target.read_text(encoding="utf-8", errors="replace")
+        occurrences = current.count(old)
+        if occurrences != 1:
+            raise ValueError(f"Edit {i} requires exactly one match in {path}; found {occurrences}.")
         if path not in originals:
             originals[path] = current
-        p.write_text(current.replace(old, new, 1), encoding="utf-8")
+        target.write_text(current.replace(old, new, 1), encoding="utf-8")
         if path not in changed:
             changed.append(path)
 
-    diff = subprocess.run(["git", "diff", "--", *changed], cwd=ROOT, text=True,
-                          capture_output=True)
-    if diff.returncode != 0 or not diff.stdout.startswith("diff --git "):
-        for path, original in originals.items():
-            (ROOT / path).write_text(original, encoding="utf-8")
+    existing = [path for path in changed if originals[path] is not None]
+    created = [path for path in changed if originals[path] is None]
+    diff_parts = []
+    if existing:
+        tracked = run_text(["git", "diff", "--", *existing])
+        if tracked.returncode != 0:
+            raise ValueError("git diff failed while generating the autonomous engineering patch.")
+        diff_parts.append(tracked.stdout)
+    for path in created:
+        new_file = run_text(["git", "diff", "--no-index", "--binary", "--", os.devnull, str(ROOT / path)])
+        if new_file.returncode not in (0, 1):
+            raise ValueError(f"git diff --no-index failed for new file {path}: {new_file.stderr}")
+        diff_parts.append(new_file.stdout)
+
+    patch_text = "".join(x for x in diff_parts if x)
+    if not patch_text.startswith("diff --git "):
         raise ValueError("Generated patch is empty or malformed.")
 
     patch = ROOT / "build_logs" / "autonomous-engineering.patch"
     patch.parent.mkdir(exist_ok=True)
-    patch.write_text(diff.stdout, encoding="utf-8")
+    patch.write_text(patch_text, encoding="utf-8")
 
     for path, original in originals.items():
-        (ROOT / path).write_text(original, encoding="utf-8")
+        target = ROOT / path
+        if original is None:
+            if target.exists():
+                target.unlink()
+        else:
+            target.write_text(original, encoding="utf-8")
 
-    check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=ROOT,
-                           text=True, capture_output=True)
+    check = run_text(["git", "apply", "--check", str(patch)])
     if check.returncode != 0:
         raise ValueError("git apply --check failed: " + (check.stderr or check.stdout))
-    subprocess.run(["git", "apply", str(patch)], cwd=ROOT, check=True)
+    run_text(["git", "apply", str(patch)], check=True)
+
+    summary = result.get("summary", "")
+    if not isinstance(summary, str):
+        summary = str(summary)
     (ROOT / "build_logs" / "autonomous-engineering-job.json").write_text(
-        json.dumps({"issue": ISSUE["number"], "title": ISSUE["title"],
-                    "model": MODEL, "edited_paths": changed,
-                    "edit_count": len(edits)}, indent=2), encoding="utf-8")
-    return changed, result.get("summary", "")
+        json.dumps({"issue": ISSUE["number"], "title": ISSUE["title"], "model": MODEL,
+                    "edited_paths": changed, "edit_count": len(edits),
+                    "summary": summary}, indent=2), encoding="utf-8")
+    return changed, summary
 
 ISSUE = find_issue()
 if not ISSUE:
@@ -281,10 +325,7 @@ def local_validate_existing_handoff(issue):
         return None
     if not (ROOT / "tools" / "test_autonomous_engineering_intake.py").exists():
         return None
-    check = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "test_autonomous_engineering_intake.py")],
-        cwd=ROOT, text=True, capture_output=True,
-    )
+    check = run_text([sys.executable, str(ROOT / "tools" / "test_autonomous_engineering_intake.py")])
     if check.returncode != 0:
         raise RuntimeError("Existing autonomous handoff contract failed: " + (check.stdout + check.stderr)[-4000:])
     summary = "Model credits unavailable; existing autonomous engineering handoff contract validated locally. No source patch was fabricated; downstream build/test/whole-library/promotion gates remain required."
@@ -297,6 +338,17 @@ def local_validate_existing_handoff(issue):
     return summary
 
 context, terms = select_context(request)
+available_files = git_files()
+focus_paths = [
+    "src/PrintVault.Infrastructure/LanguageIntelligenceService.cs",
+    "src/PrintVault.Infrastructure/Intelligence/LanguageNormalizationStage.cs",
+    "src/PrintVault.Infrastructure/MultilingualEntityService.cs",
+    "src/PrintVault.Infrastructure/MultilingualMetadataService.cs",
+    "tools/test_language_intelligence_module.py",
+    "tools/test_language_detection_challenge.py",
+    "tools/Verify-ModularArchitecture.ps1",
+]
+focus_paths = [p for p in focus_paths if p in available_files]
 
 prompt = f"""You are the autonomous engineering agent for PrintVault 3MF.
 A human submitted the following engineering request. Solve the request in the repository,
@@ -307,6 +359,12 @@ REQUEST:
 
 RELEVANT SEARCH TERMS:
 {json.dumps(terms)}
+
+AUTHORITATIVE EXISTING FILES (existing target paths MUST be copied exactly from this list):
+{json.dumps(available_files, indent=2)}
+
+ISSUE-FOCUSED FILES TO INSPECT FIRST:
+{json.dumps(focus_paths, indent=2)}
 
 REPOSITORY CONTEXT:
 {json.dumps(context, indent=2)}
@@ -319,6 +377,9 @@ Use action="validate" ONLY when the human request is explicitly asking to prove/
 Rules:
 - Make the smallest production-safe change that actually addresses the request.
 - Each old block must be exact and unique.
+- NEVER invent an existing target path. Existing edit paths must be copied verbatim from AUTHORITATIVE EXISTING FILES.
+- If the modular boundary requires a genuinely new file, use {"path":"src/...","create":true,"old":"","new":"<complete UTF-8 contents>"}; create=true is the only allowed way to create a new file.
+- A create=true path must be under an allowed root and must not already exist.
 - Do not modify VERSION, build_logs, secrets, or generated artifacts.
 - Do not weaken/delete tests or lower gates just to obtain a pass.
 - Add/update a regression test when the request is a bug fix and an appropriate test location exists.
