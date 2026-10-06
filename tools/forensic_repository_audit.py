@@ -18,6 +18,8 @@ SKIP_DIRS = {".git", "bin", "obj", "build_logs", "dist"}
 VERSION_RE = re.compile(r"(?<![A-Za-z0-9_])(?:\d+\.\d+\.\d+)(?![A-Za-z0-9_])")
 URL_RE = re.compile(r'''https?://[^\s"'<>]+''')
 REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/(?:mtheck01-PrintVault-3MF|PrintVault-3MF)(?![A-Za-z0-9_-])")
+ANY_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s#?]+)")
+TIMEOUT_RE = re.compile(r"(?i)\b(?:timeout(?:-minutes)?|timeoutSeconds)\s*[:=]\s*[0-9]+")
 TOOL_REF_RE = re.compile(r"(?:\\|/)?tools[\\/][A-Za-z0-9_.-]+\.(?:py|ps1|csproj|bat)")
 ENV_RE = re.compile(r"\$env:([A-Za-z_][A-Za-z0-9_]*)|GetEnvironmentVariable\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -41,11 +43,13 @@ def read_text(path):
 def line_number(text, offset):
     return text.count("\n", 0, offset) + 1
 
-def classify_version(path, value):
+def classify_version(path, value, line_text):
     if value == CURRENT_VERSION:
         return "current"
     if path.startswith(HISTORICAL_TEST_PREFIX):
         return "historical-test-fixture"
+    if "baseline-" in line_text or "baseline" in line_text.lower():
+        return "baseline/validation-fixture"
     if path.startswith("automation/") and value.startswith("9.0."):
         return "baseline/validation-fixture"
     if path.endswith((".md", ".txt")):
@@ -68,7 +72,8 @@ def main():
 
         for match in VERSION_RE.finditer(text):
             value = match.group(0)
-            kind = classify_version(rel, value)
+            line_text = text.splitlines()[line_number(text, match.start()) - 1]
+            kind = classify_version(rel, value, line_text)
             finding = {
                 "type": "version", "path": rel,
                 "line": line_number(text, match.start()),
@@ -77,6 +82,21 @@ def main():
             findings.append(finding)
             if kind == "stale-operational-reference":
                 failures.append(finding)
+
+        for match in ANY_GITHUB_REPO_RE.finditer(text):
+            repo_value = match.group(1).rstrip(".,);]")
+            findings.append({
+                "type": "github-repository-url", "path": rel,
+                "line": line_number(text, match.start()),
+                "value": repo_value,
+                "classification": "current" if repo_value.lower() == EXPECTED_REPO.lower() else "repository-mismatch"
+            })
+            if repo_value.lower() != EXPECTED_REPO.lower() and repo_value.lower().startswith("mtheck01/"):
+                failures.append({
+                    "type": "repository-identity", "path": rel,
+                    "line": line_number(text, match.start()),
+                    "value": repo_value, "classification": "repository-mismatch"
+                })
 
         for match in REPO_RE.finditer(text):
             findings.append({
@@ -100,6 +120,13 @@ def main():
                     "line": line_number(text, match.start()),
                     "value": ref, "classification": "broken"
                 })
+
+        for match in TIMEOUT_RE.finditer(text):
+            findings.append({
+                "type": "timeout", "path": rel,
+                "line": line_number(text, match.start()),
+                "value": match.group(0)
+            })
 
         for match in ENV_RE.finditer(text):
             findings.append({
