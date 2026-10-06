@@ -378,37 +378,34 @@ public sealed class SemanticEvidenceFusionService
         }
         else if (entity is not null)
         {
-            // Arbitration rule: once the rebuilt analyzer has crossed its semantic threshold
-            // and supplied a complete source-derived category/type/subtype, generic lexical
-            // cues are corroboration only. They cannot replace a stronger semantic channel.
-            // This prevents words such as "dragon", "cat", "castle", "revolver", etc. from
-            // overriding a file-level semantic result such as HueForge, Keychains, Workshop,
-            // or another source-derived domain.
-            category = analyzerCategory;
-            type = model.SemanticType ?? string.Empty;
-            subtype = model.Subtype ?? string.Empty;
-            family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
-            var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
-            classification = Math.Max(classification, analyzerConfidence);
-            identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 78, 91));
+            // A recognized named entity is an independent identity/classification channel.
+            // When no source-derived artifact analyzer result exists, the entity category
+            // must remain authoritative rather than being replaced by the empty
+            // analyzerCategory out-parameter. This preserves entity classifications such
+            // as Pikachu -> Figures & Characters and DeLorean -> Vehicles.
+            category = entity.Category;
+            type = string.IsNullOrWhiteSpace(model.SemanticType)
+                ? InferType(entity.Category, entity.Subtype)
+                : model.SemanticType;
+            subtype = string.IsNullOrWhiteSpace(model.Subtype) ? entity.Subtype : model.Subtype;
+            family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(entity.Category) : model.Family;
+            classification = Math.Max(classification, entity.Confidence);
+            identity = Math.Max(identity, entity.Confidence);
+            basis = "Named entity evidence";
+            evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
             if (cueHits.Count > 0 && best.Hits.Length > 0)
             {
                 var lexicalCategory = best.Cue.Category;
-                if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(lexicalCategory, entity.Category, StringComparison.OrdinalIgnoreCase))
                 {
-                    basis = "Source-derived analyzer + lexical corroboration";
+                    basis = "Named entity + lexical corroboration";
                     evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
                 }
                 else
                 {
-                    basis = "Source-derived analyzer arbitration";
                     evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
-                    evidence.Add($"Analyzer arbitration: {analyzerCategory} outranks lexical category {lexicalCategory}");
+                    evidence.Add($"Entity arbitration: {entity.Category} outranks lexical category {lexicalCategory}");
                 }
-            }
-            else
-            {
-                basis = "Source-derived analyzer semantics";
             }
         }
         else if (cueHits.Count > 0 && best.Hits.Length > 0)
