@@ -29,7 +29,7 @@ if repo_env and repo_env != EXPECTED:
 
 try:
     origin = run("git", "remote", "get-url", "origin")
-    normalized = re.sub(r"\\.git$", "", origin).rstrip("/")
+    normalized = re.sub(r"\.git$", "", origin).rstrip("/")
     expected_url = f"https://github.com/{EXPECTED}"
     if normalized.lower() != expected_url.lower():
         errors.append(f"origin is {origin!r}; expected {expected_url + '.git'!r}")
