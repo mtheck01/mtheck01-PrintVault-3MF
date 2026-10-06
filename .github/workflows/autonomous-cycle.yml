@@ -186,6 +186,53 @@ jobs:
             return (Get-Content ".\VERSION" -Raw).Trim()
           }
 
+          function Get-ModuleLockEntries {
+            $tracked = git ls-files -z
+            if ($LASTEXITCODE -ne 0) { throw "Unable to enumerate tracked files for module lock." }
+            $paths = @($tracked -split [char]0 | Where-Object {
+              $_ -and $_ -ne "VERSION" -and
+              $_ -notlike "build_logs/*" -and
+              $_ -notlike "build_logs\*" -and
+              $_ -notlike "dist/*" -and
+              $_ -notlike "dist\*"
+            })
+            return $paths
+          }
+
+          function Write-ModuleLock {
+            $entries = @()
+            foreach ($rel in Get-ModuleLockEntries) {
+              if (-not (Test-Path -LiteralPath $rel -PathType Leaf)) { throw "Tracked module file disappeared before lock: $rel" }
+              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $rel).Hash.ToLowerInvariant()
+              $entries += [pscustomobject]@{ Path=$rel; Sha256=$hash }
+            }
+            $lock = [pscustomobject]@{
+              CreatedUtc=(Get-Date).ToUniversalTime().ToString("o")
+              EntryCount=$entries.Count
+              Entries=$entries
+            }
+            $lockPath = Join-Path $PWD "build_logs\module-lock.json"
+            $lock | ConvertTo-Json -Depth 5 | Set-Content -Path $lockPath -Encoding UTF8
+            Write-Host "MODULE_LOCK_CREATED=PASS ENTRIES=$($entries.Count)"
+          }
+
+          function Verify-ModuleLock {
+            $lockPath = Join-Path $PWD "build_logs\module-lock.json"
+            if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { throw "Module lock is missing." }
+            $lock = Get-Content $lockPath -Raw | ConvertFrom-Json
+            $current = @{}
+            foreach ($rel in Get-ModuleLockEntries) {
+              if (-not (Test-Path -LiteralPath $rel -PathType Leaf)) { throw "Tracked module file disappeared after lock: $rel" }
+              $current[$rel] = (Get-FileHash -Algorithm SHA256 -LiteralPath $rel).Hash.ToLowerInvariant()
+            }
+            if ($current.Count -ne [int]$lock.EntryCount) { throw "Module lock entry count changed: locked=$($lock.EntryCount) current=$($current.Count)." }
+            foreach ($entry in @($lock.Entries)) {
+              if (-not $current.ContainsKey([string]$entry.Path)) { throw "Module lock path missing: $($entry.Path)" }
+              if ($current[[string]$entry.Path] -ne [string]$entry.Sha256) { throw "Module changed after passing lock: $($entry.Path)" }
+            }
+            Write-Host "MODULE_LOCK_VERIFIED=PASS ENTRIES=$($current.Count)"
+          }
+
           function Write-CycleStatus($stage, $detail = "") {
             $statusDir = Join-Path $PWD "build_logs"
             New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
@@ -371,27 +418,30 @@ jobs:
             New-Item -ItemType Directory -Force -Path (Split-Path $failurePath) | Out-Null
             $failures = @()
             foreach ($test in $tests) {
-              Write-Host "SOURCE_TEST_START=$test"
-              $testLog = Join-Path $PWD ("build_logs\\source-test-" + [System.IO.Path]::GetFileNameWithoutExtension($test) + ".log")
-              python ".\tools\$test" *> $testLog
-              $exit = $LASTEXITCODE
-              if (Test-Path $testLog) {
-                Get-Content $testLog | ForEach-Object { Write-Host $_ }
-              }
-              if ($exit -ne 0) {
-                Write-Host "SOURCE_TEST_FAILURE=$test EXIT=$exit"
-                $diagnostics = if (Test-Path $testLog) { (Get-Content $testLog -Raw) } else { "" }
-                if ($diagnostics.Length -gt 12000) {
-                  $diagnostics = $diagnostics.Substring($diagnostics.Length - 12000)
+              for ($testRun = 1; $testRun -le 2; $testRun++) {
+                Write-Host "SOURCE_TEST_START=$test RUN=$testRun/2"
+                $testLog = Join-Path $PWD ("build_logs\\source-test-" + [System.IO.Path]::GetFileNameWithoutExtension($test) + "-run" + $testRun + ".log")
+                python ".\tools\$test" *> $testLog
+                $exit = $LASTEXITCODE
+                if (Test-Path $testLog) {
+                  Get-Content $testLog | ForEach-Object { Write-Host $_ }
                 }
-                $failures += [pscustomobject]@{
-                  Test=$test
-                  ExitCode=$exit
-                  LogPath=$testLog
-                  Diagnostics=$diagnostics
+                if ($exit -ne 0) {
+                  Write-Host "SOURCE_TEST_FAILURE=$test RUN=$testRun EXIT=$exit"
+                  $diagnostics = if (Test-Path $testLog) { (Get-Content $testLog -Raw) } else { "" }
+                  if ($diagnostics.Length -gt 12000) {
+                    $diagnostics = $diagnostics.Substring($diagnostics.Length - 12000)
+                  }
+                  $failures += [pscustomobject]@{
+                    Test=$test
+                    Run=$testRun
+                    ExitCode=$exit
+                    LogPath=$testLog
+                    Diagnostics=$diagnostics
+                  }
+                } else {
+                  Write-Host "SOURCE_TEST_PASS=$test RUN=$testRun"
                 }
-              } else {
-                Write-Host "SOURCE_TEST_PASS=$test"
               }
             }
             # Preserve the JSON array shape even when exactly one test fails.
@@ -428,6 +478,7 @@ jobs:
             $exe = Join-Path $PWD "dist\PrintVault\PrintVault.exe"
             if (-not (Test-Path $installer)) { throw "Installer missing: $installer" }
             if (-not (Test-Path $exe)) { throw "Application missing: $exe" }
+            Write-ModuleLock
             return @{ Version=$version; Installer=$installer; Exe=$exe }
           }
 
@@ -466,6 +517,21 @@ jobs:
             if ($null -ne $app -and $null -ne $app.Process -and -not $app.Process.HasExited) { $app.Process | Stop-Process -Force -ErrorAction SilentlyContinue }
             Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Write-Host "APPLICATION=CLOSED"
+          }
+
+          function Invoke-FinalApplicationSmoke($candidate, $libraryRoot) {
+            for ($smokeRun = 1; $smokeRun -le 2; $smokeRun++) {
+              Write-CycleStatus "FINAL_APP_SMOKE" "run=$smokeRun/2 version=$($candidate.Version)"
+              $app = $null
+              try {
+                $app = Start-FinalApp $candidate $libraryRoot
+                Write-Host "FINAL_APP_SMOKE_PASS=RUN_$smokeRun"
+              }
+              finally {
+                Close-PrintVault $app
+              }
+            }
+            Write-Host "FINAL_APP_SMOKE=PASS RUNS=2"
           }
 
           function Invoke-WholeLibrary {
@@ -703,8 +769,9 @@ jobs:
               Write-Host "PROMOTION_GUARD_CURRENT_SHA=$currentMainSha"
               if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
               Write-Host "VALIDATION=PASS_NO_CONFLICTS"
-              Write-CycleStatus "FINAL_APP_SMOKE" "version=$version"
-              $finalApp = Start-FinalApp $candidate $testLibraryRoot
+              Verify-ModuleLock
+              Invoke-FinalApplicationSmoke $candidate $testLibraryRoot
+              Verify-ModuleLock
 
               if ($publish) {
                 Write-CycleStatus "PUBLISH" "version=$version"
