@@ -9,11 +9,14 @@ EXPECTED = "mtheck01/mtheck01-PrintVault-3MF"
 
 # Match only the OLD repository identifiers. Do not use "PrintVault-3MF.git"
 # by itself because that suffix also exists in the current repository name.
+OLD_OWNER = "mtheck01"
+OLD_REPO = "PrintVault-3MF"
+OLD_HTTP = f"https://github.com/{OLD_OWNER}/{OLD_REPO}"
 STALE = (
-    "mtheck01/PrintVault-3MF",
-    "https://github.com/mtheck01/PrintVault-3MF",
-    "https://github.com/mtheck01/PrintVault-3MF.git",
-    "git@github.com:mtheck01/PrintVault-3MF.git",
+    f"{OLD_OWNER}/{OLD_REPO}",
+    OLD_HTTP,
+    f"{OLD_HTTP}.git",
+    f"git@github.com:{OLD_OWNER}/{OLD_REPO}.git",
 )
 
 
