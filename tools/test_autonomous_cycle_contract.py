@@ -5,6 +5,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
+    "queue: max",
     "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
@@ -34,6 +35,7 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 # A full-library cycle may legitimately exceed the 10-minute schedule interval.
 # A later scheduled poll must queue rather than cancel the active forensic run.
+assert "queue: max" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "cancel-in-progress: true" not in workflow
 
@@ -43,6 +45,9 @@ assert "AUTO_REPAIR: ${{ inputs.auto_repair || true }}" not in workflow
 assert "PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}" in workflow
 assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}" in workflow
 
+assert 'python ".\\tools\\forensic_repository_audit.py"' in workflow
+assert "FORENSIC_AUDIT_PASS=$auditPass/2" in workflow
+assert "FORENSIC_AUDIT_PRE_INTAKE=PASS" in workflow
 assert "MODULE_PASS=$pass/2" in workflow
 assert "Passes=2" in workflow
 assert "MODULE_LOCKS=CREATED" in workflow
