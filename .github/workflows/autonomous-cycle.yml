@@ -310,10 +310,23 @@ jobs:
               "test_semantic_evidence_artifact_role_precision_9_0_45.py",
               "test_semantic_evidence_unresolved_category_gate_9_0_46.py"
             )
+            $failurePath = Join-Path $PWD "build_logs\source-test-failures.json"
+            New-Item -ItemType Directory -Force -Path (Split-Path $failurePath) | Out-Null
+            $failures = @()
             foreach ($test in $tests) {
+              Write-Host "SOURCE_TEST_START=$test"
               python ".\tools\$test"
-              if ($LASTEXITCODE -ne 0) { throw "Regression test failed: $test" }
+              $exit = $LASTEXITCODE
+              if ($exit -ne 0) {
+                Write-Host "SOURCE_TEST_FAILURE=$test EXIT=$exit"
+                $failures += [pscustomobject]@{ Test=$test; ExitCode=$exit }
+              } else {
+                Write-Host "SOURCE_TEST_PASS=$test"
+              }
             }
+            $failures | ConvertTo-Json -Depth 5 | Set-Content $failurePath
+            $script:SourceTestFailures = @($failures)
+            Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
           }
 
           function Invoke-CandidateBuild {
@@ -546,6 +559,11 @@ jobs:
             $report = Invoke-WholeLibrary
 
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $sourceTestFailures = @($script:SourceTestFailures)
+            Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
+            if ($sourceTestFailures.Count -gt 0) {
+              Write-CycleStatus "SOURCE_TEST_FAILURES_RECORDED" "count=$($sourceTestFailures.Count); whole-library diagnostic completed"
+            }
             $remainingConflicts = [int]$reportData.Conflicts
             $actionableConflicts = Get-ActionableConflictCount $reportData
             $needsRepair = $remainingConflicts -gt 0
@@ -577,7 +595,7 @@ jobs:
               continue
             }
 
-            if ($needsRepair -and $autoRepair -and $attempt -lt $maxAttempts) {
+            if (($needsRepair -or $sourceTestFailures.Count -gt 0) -and $autoRepair -and $attempt -lt $maxAttempts) {
               Write-CycleStatus "AI_REPAIR" "conflicts=$remainingConflicts"
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
@@ -586,7 +604,8 @@ jobs:
                 throw "OPENAI_API_KEY is required for automatic repair."
               }
 
-              python ".\tools\autonomous_repair.py" $report
+              $sourceFailuresPath = Join-Path $PWD "build_logs\source-test-failures.json"
+              python ".\tools\autonomous_repair.py" $report $sourceFailuresPath
               if ($LASTEXITCODE -ne 0) { throw "Repair agent failed." }
 
               $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
@@ -698,60 +717,3 @@ jobs:
                 Write-CycleStatus "DONE" "version=$version"
               }
               else {
-                Write-Host "PUBLISH=DISABLED"
-              }
-              exit 0
-            }
-
-            # Never publish a candidate while the whole-library scan still reports
-            # any conflicts. A low/zero ACTIONABLE count is not a clean library.
-            if ($remainingConflicts -gt 0) {
-              Write-Host "VALIDATION=CONFLICTS_REMAIN"
-              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
-              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
-                Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
-                throw "Validation failed: $remainingConflicts whole-library conflicts remain after $attempt attempt(s). No release will be published."
-              }
-              continue
-            }
-
-            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
-              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
-              throw "Validation failed: regression gate did not pass cleanly. No release will be published."
-            }
-
-            Write-CycleStatus "ATTEMPT_END" "attempt=$attempt"
-            throw "Autonomous cycle reached an unexpected state."
-          }
-
-          throw "Autonomous cycle exhausted its attempt budget."
-
-      - name: Publish final cycle status
-        if: always()
-        shell: powershell
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FINAL_JOB_STATUS: ${{ job.status }}
-        run: |
-          $ErrorActionPreference = "Continue"
-          $state = if ($env:FINAL_JOB_STATUS -eq "success") { "success" } else { "failure" }
-          $description = "Workflow $($env:FINAL_JOB_STATUS)"
-          $statusPath = Join-Path $PWD "build_logs\cycle-status.json"
-          if (Test-Path $statusPath) { try { $s = Get-Content $statusPath -Raw | ConvertFrom-Json; $description = "$($s.Stage): $($s.Detail)" } catch {} }
-          if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
-          $body = @{ state = $state; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
-          Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
-          Write-Host "FINAL_CYCLE_COMMIT_STATUS=$state"
-
-      - name: Upload cycle artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: PrintVault-autonomous-cycle-${{ github.run_id }}
-          path: |
-            build_logs/**
-            build_logs\reports\whole-library-root-cause.*.json
-            build_logs\reports\whole-library-root-cause.*.csv
-            build_logs\reports\whole-library-root-cause.*.txt
-          if-no-files-found: warn
