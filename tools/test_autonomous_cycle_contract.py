@@ -5,7 +5,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "cancel-in-progress: true",
+    "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
     'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
@@ -32,8 +32,10 @@ assert "repair $report $expectedCatalog" in workflow or \
        'repair $report $expectedCatalog' in workflow, \
     "Missing autonomous repair invocation"
 
-assert "cancel-in-progress: false" not in workflow
-assert "cancel-in-progress: true" in workflow
+# A full-library cycle may legitimately exceed the 10-minute schedule interval.
+# A later scheduled poll must queue rather than cancel the active forensic run.
+assert "cancel-in-progress: false" in workflow
+assert "cancel-in-progress: true" not in workflow
 
 # Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
