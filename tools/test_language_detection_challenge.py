@@ -2,6 +2,7 @@ import sys
 import tempfile
 from pathlib import Path
 import subprocess
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -76,8 +77,15 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
 ''', encoding="utf-8")
     (td / "Program.cs").write_text(program, encoding="utf-8")
 
+    # Never allow an old referenced-project DLL to satisfy this challenge.
+    # Git checkout can restore source while leaving build outputs from an earlier
+    # revision on a self-hosted runner. Remove referenced outputs before compiling.
+    for project_root in (ROOT / "src/PrintVault.Infrastructure", ROOT / "src/PrintVault.Core"):
+        for output in ("bin", "obj"):
+            shutil.rmtree(project_root / output, ignore_errors=True)
+
     build = subprocess.run(
-        ["dotnet", "build", str(project), "--nologo", "-v:minimal"],
+        ["dotnet", "build", str(project), "--nologo", "--no-incremental", "-p:BuildProjectReferences=true", "-v:minimal"],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
