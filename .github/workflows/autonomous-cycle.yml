@@ -62,15 +62,6 @@ jobs:
           dotnet --version
           python --version
 
-      - name: Upload autonomous diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: printvault-autonomous-diagnostics-${{ github.run_number }}
-          path: build_logs/
-          if-no-files-found: warn
-          retention-days: 14
-
       - name: Run autonomous cycle
         shell: powershell
         env:
@@ -333,7 +324,10 @@ jobs:
                 Write-Host "SOURCE_TEST_PASS=$test"
               }
             }
-            $failures | ConvertTo-Json -Depth 5 | Set-Content $failurePath
+            # Preserve the JSON array shape even when exactly one test fails.
+            # ConvertTo-Json can unwrap a one-element collection when piped in
+            # Windows PowerShell, which breaks the repair-agent contract.
+            ConvertTo-Json -InputObject @($failures) -Depth 5 | Set-Content $failurePath
             $script:SourceTestFailures = @($failures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
           }
@@ -753,3 +747,13 @@ jobs:
           }
 
           throw "Autonomous cycle exhausted its attempt budget."
+      - name: Upload autonomous diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: printvault-autonomous-diagnostics-${{ github.run_number }}
+          path: build_logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
