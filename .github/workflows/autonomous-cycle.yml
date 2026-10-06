@@ -31,6 +31,7 @@ on:
 permissions:
   contents: write
   statuses: write
+  issues: write
 
 concurrency:
   # Required by the autonomous-chain contract; do not cancel an active validation cycle.
@@ -158,6 +159,26 @@ jobs:
           }
 
           git switch -c $branch
+
+          # Human engineering requests are durable GitHub issues. The runner claims
+          # one open [PrintVault-Autonomous] issue, generates a validated source
+          # patch, and then sends that patch through the exact same build/test/
+          # repair/whole-library/publish gates below. If no request exists, the
+          # normal scheduled validation cycle continues unchanged.
+          Write-CycleStatus "ENGINEERING_INTAKE" "checking for open autonomous engineering request"
+          $engineeringExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_engineering.py") (Join-Path $PWD "build_logs\autonomous-engineering.log") 900
+          if ($engineeringExit -ne 0) {
+            throw "Autonomous engineering intake failed with exit code $engineeringExit."
+          }
+          $engineeringJobPath = Join-Path $PWD "build_logs\autonomous-engineering-job.json"
+          if (Test-Path $engineeringJobPath) {
+            $engineeringJob = Get-Content $engineeringJobPath -Raw | ConvertFrom-Json
+            Write-Host "ENGINEERING_ISSUE_NUMBER=$($engineeringJob.issue)"
+            Write-Host "ENGINEERING_HANDOFF=PASS"
+          }
+          else {
+            Write-Host "ENGINEERING_JOB=NONE"
+          }
 
           function Publish-SourceRelease($version, $sourceSha, $installerPath) {
             $headers = @{
@@ -863,6 +884,21 @@ jobs:
 
                 Publish-SourceRelease $version $sourceSha $candidate.Installer
                 Write-Host "PROMOTED_VERSION=$version"
+                $engineeringJobPath = Join-Path $PWD "build_logs\autonomous-engineering-job.json"
+                if (Test-Path $engineeringJobPath) {
+                  $engineeringJob = Get-Content $engineeringJobPath -Raw | ConvertFrom-Json
+                  if ($null -ne $engineeringJob.issue) {
+                    $issueHeaders = @{
+                      Authorization = "Bearer $env:GITHUB_TOKEN"
+                      Accept = "application/vnd.github+json"
+                      "X-GitHub-Api-Version" = "2026-03-10"
+                      "User-Agent" = "PrintVault-Autonomous-Cycle"
+                    }
+                    $issueBody = @{ state = "closed"; state_reason = "completed" } | ConvertTo-Json
+                    Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/issues/$($engineeringJob.issue)" -Headers $issueHeaders -Method Patch -Body $issueBody -ContentType "application/json" | Out-Null
+                    Write-Host "ENGINEERING_ISSUE_CLOSED=PASS ISSUE=$($engineeringJob.issue)"
+                  }
+                }
                 Write-CycleStatus "DONE" "version=$version"
               }
               else {
