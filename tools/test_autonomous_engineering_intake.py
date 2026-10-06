@@ -34,6 +34,11 @@ required_agent = [
     "credit_balance_exhausted",
     "local_validate_existing_handoff",
     "ENGINEERING_FALLBACK=EXISTING_HANDOFF_CONTRACT_PASS",
+    "def validate_existing_translation_alias_patch(issue):",
+    "ENGINEERING_FALLBACK=EXISTING_TRANSLATION_ALIAS_PATCH",
+    "ENGINEERING_API_CALLS=0",
+    '"openai_requests": 0',
+    "TranslationAliasNormalizationModule",
 ]
 for marker in required_agent:
     assert marker in agent, f"autonomous engineering agent missing required guard/feature: {marker}"
