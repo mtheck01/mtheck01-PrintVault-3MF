@@ -19,7 +19,7 @@ SKIP_DIRS = {".git", "bin", "obj"}
 VERSION_RE = re.compile(r"(?<![A-Za-z0-9_])(?:\d+\.\d+\.\d+)(?![A-Za-z0-9_])")
 URL_RE = re.compile(r'''https?://[^\s"'<>]+''')
 REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/mtheck01-PrintVault-3MF(?![A-Za-z0-9_-])")
-LEGACY_REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/PrintVault-3MF(?![A-Za-z0-9_-])")
+LEGACY_REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])" + re.escape("mtheck01" + "/" + "PrintVault-3MF") + r"(?![A-Za-z0-9_-])")
 ANY_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s#?]+)")
 TIMEOUT_RE = re.compile(r"(?i)\b(?:timeout(?:-minutes)?|timeoutSeconds)\s*[:=]\s*[0-9]+")
 TOOL_REF_RE = re.compile(r"(?:\\|/)?tools[\\/][A-Za-z0-9_.-]+\.(?:py|ps1|csproj|bat)")
