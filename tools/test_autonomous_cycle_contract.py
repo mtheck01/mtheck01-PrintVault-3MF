@@ -80,4 +80,7 @@ assert 'Refusing to manufacture a release' in workflow
 assert 'SCHEDULE_VALIDATION_NEEDED=NO' in workflow
 assert 'SCHEDULE_VALIDATION_NEEDED=YES' in workflow
 assert 'git switch -c $branch' in workflow
+assert 'git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"' in workflow
+assert '--force-with-lease=refs/heads/$branch:$expectedBranchSha' in workflow
+assert 'Never use an unleased force push.' in workflow
 assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
