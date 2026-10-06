@@ -20,7 +20,7 @@ checks = {
     "korean glossary": '["자동차"]=' in svc,
     "mixed language detection": "mixed-language signal" in svc,
     "confidence bounded": "Math.Clamp" in svc,
-    "offline design": "network service" in svc,
+    "offline design": "does not call a network" in svc,
     "filename safety": "source filename" in svc,
     "stage consumes dedicated service": "LanguageIntelligenceService" in stage,
     "stage records confidence": "TranslationConfidence" in stage,
