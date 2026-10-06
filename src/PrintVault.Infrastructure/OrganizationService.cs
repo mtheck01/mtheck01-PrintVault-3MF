@@ -81,7 +81,7 @@ public sealed class OrganizationService
 
         var legacy = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "06_Cosplay", "08_Aviation", "09_Models", "10_Multi_Color", "Soap Holders", "test eng 8.6"
+            "06_Cosplay", "08_Aviation", "09_Models", "10_Multi_Color", "Soap Holders", "test eng 8.6", "Cosplay", "Aviation", "Aircraft", "Automotive", "Decor", "Decorative", "Figures", "Gaming", "Game Models", "Multi-Color", "Test Print", "Test Prints", "Other", "Needs Review"
         };
 
         var records = repo.GetAll().ToList();
