@@ -147,9 +147,25 @@ def request_model(prompt):
     return json.loads(text)
 
 def apply_edits(result):
+    action = result.get("action")
     edits = result.get("edits")
-    if not isinstance(edits, list) or not edits:
-        raise ValueError("No validated edits were returned.")
+    if action not in ("patch", "validate"):
+        raise ValueError("Model must return action=patch or action=validate.")
+    if not isinstance(edits, list):
+        raise ValueError("Model must return an edits array.")
+    if action == "validate" and edits:
+        raise ValueError("Validate-only jobs must not modify source.")
+    if action == "validate":
+        summary = result.get("summary", "")
+        if not summary or any(x in summary.lower() for x in ("cannot", "unable", "insufficient", "not enough context")):
+            raise ValueError("Validate-only result must contain a concrete successful rationale.")
+        (ROOT / "build_logs").mkdir(exist_ok=True)
+        (ROOT / "build_logs" / "autonomous-engineering-job.json").write_text(
+            json.dumps({"issue": ISSUE["number"], "title": ISSUE["title"],
+                        "model": MODEL, "action": "validate",
+                        "edited_paths": [], "edit_count": 0,
+                        "summary": summary}, indent=2), encoding="utf-8")
+        return [], summary
     originals = {}
     changed = []
     for i, e in enumerate(edits, 1):
@@ -221,7 +237,9 @@ REPOSITORY CONTEXT:
 {json.dumps(context, indent=2)}
 
 Return JSON with:
-{{"summary":"...", "edits":[{{"path":"...", "old":"...", "new":"..."}}]}}
+{{"action":"patch"|"validate", "summary":"...", "edits":[{{"path":"...", "old":"...", "new":"..."}}]}}
+
+Use action="validate" ONLY when the human request is explicitly asking to prove/verify an already implemented process. Use action="patch" for a request that requires code changes.
 
 Rules:
 - Make the smallest production-safe change that actually addresses the request.
