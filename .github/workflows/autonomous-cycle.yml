@@ -434,8 +434,26 @@ jobs:
 
           function Get-SourceFingerprint {
             $head = (git rev-parse HEAD).Trim()
+            # Include tracked working-tree diffs AND untracked source/configuration files.
+            # Generated build_logs/dist output is excluded because it is recreated by the
+            # cycle itself; VERSION is intentionally excluded because candidate versioning
+            # is controlled separately by Bump-PatchVersion.
             $diff = git diff --binary HEAD -- . ':(exclude)build_logs' ':(exclude)dist' ':(exclude)VERSION'
-            $payload = $head + [Environment]::NewLine + $diff
+            $status = git status --porcelain=v1 -z -- . ':(exclude)build_logs' ':(exclude)dist' ':(exclude)VERSION'
+            $untracked = @()
+            $statusParts = $status -split [char]0
+            foreach ($entry in $statusParts) {
+              if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+              $pathText = if ($entry.Length -gt 3) { $entry.Substring(3) } else { "" }
+              if ([string]::IsNullOrWhiteSpace($pathText)) { continue }
+              if ($entry.Substring(0,2) -match "[?AMDRCU]") {
+                $candidate = $pathText.Trim('"')
+                if (Test-Path $candidate -PathType Leaf) {
+                  $untracked += $candidate + [Environment]::NewLine + (Get-FileHash $candidate -Algorithm SHA256).Hash
+                }
+              }
+            }
+            $payload = $head + [Environment]::NewLine + $diff + [Environment]::NewLine + ($untracked -join [Environment]::NewLine)
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
             $hash = [System.Security.Cryptography.SHA256]::Create()
             try { return ([System.BitConverter]::ToString($hash.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant() }
