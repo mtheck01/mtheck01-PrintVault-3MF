@@ -120,16 +120,29 @@ public sealed class LanguageIntelligenceService
             })
             .ToArray();
 
-        // When mixed-language glossary evidence ties, the first substantive
-        // language evidence in the source text is the primary language. This
-        // avoids an arbitrary alphabetical tie-break and preserves the user's
-        // source ordering (for example, "汽车 자동차" => Chinese primary).
+        // Mixed-language evidence must come from two substantive language signals,
+        // not from the CJK script fallback bonus. When mixed evidence is present,
+        // the first substantive glossary language in the source text is authoritative.
+        // This prevents shorter nested glossary terms (for example Korean "차" inside
+        // "자동차") from overpowering an earlier Chinese term such as "汽车".
+        var substantive = glossaryScores.Where(x => x.Value > 0)
+            .OrderByDescending(x => x.Value)
+            .ToArray();
+        var mixed = substantive.Length >= 2 &&
+                    Math.Abs(substantive[0].Value - substantive[1].Value) <= 1;
+
         var language = glossaryEvidence.Length > 0
-            ? glossaryEvidence
-                .OrderByDescending(x => x.Score)
-                .ThenBy(x => x.FirstEvidenceIndex)
-                .ThenBy(x => x.Language, StringComparer.Ordinal)
-                .First().Language
+            ? (mixed
+                ? glossaryEvidence
+                    .OrderBy(x => x.FirstEvidenceIndex)
+                    .ThenByDescending(x => x.Score)
+                    .ThenBy(x => x.Language, StringComparer.Ordinal)
+                    .First().Language
+                : glossaryEvidence
+                    .OrderByDescending(x => x.Score)
+                    .ThenBy(x => x.FirstEvidenceIndex)
+                    .ThenBy(x => x.Language, StringComparer.Ordinal)
+                    .First().Language)
             : scores.Count == 0
                 ? "Unknown"
                 : scores.OrderByDescending(x => x.Value).ThenBy(x => x.Key, StringComparer.Ordinal).First().Key;
@@ -137,13 +150,6 @@ public sealed class LanguageIntelligenceService
         var topScore = scores.GetValueOrDefault(language);
         var secondScore = scores.Where(x => !string.Equals(x.Key, language, StringComparison.OrdinalIgnoreCase))
             .Select(x => x.Value).DefaultIfEmpty(0).Max();
-        // Mixed-language evidence must come from two substantive language signals,
-        // not from the CJK script fallback bonus.
-        var substantive = glossaryScores.Where(x => x.Value > 0)
-            .OrderByDescending(x => x.Value)
-            .ToArray();
-        var mixed = substantive.Length >= 2 &&
-                    Math.Abs(substantive[0].Value - substantive[1].Value) <= 1;
 
         var glossary = language switch
         {
