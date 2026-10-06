@@ -426,6 +426,81 @@ def local_validate_existing_handoff(issue):
                     "fallback": "existing_handoff_contract"} , indent=2), encoding="utf-8")
     return summary
 
+
+def validate_existing_translation_alias_patch(issue):
+    """Accept an already-applied Issue #10 patch without spending model credits.
+
+    This is deliberately deterministic: it only recognizes Issue #10, requires the
+    dedicated module and its production consumers, and runs the focused executable
+    module contract twice. It never fabricates a patch or skips downstream gates.
+    """
+    if issue.get("title") != "[PrintVault-Autonomous] Modularize translation and alias normalization":
+        return None
+
+    module = ROOT / "src" / "PrintVault.Infrastructure" / "TranslationAliasNormalizationModule.cs"
+    service = ROOT / "src" / "PrintVault.Infrastructure" / "LanguageIntelligenceService.cs"
+    entity = ROOT / "src" / "PrintVault.Infrastructure" / "MultilingualEntityService.cs"
+    test = ROOT / "tools" / "test_language_intelligence_module.py"
+    required = (module, service, entity, test)
+    if not all(path.exists() for path in required):
+        return None
+
+    source = module.read_text(encoding="utf-8", errors="replace")
+    service_text = service.read_text(encoding="utf-8", errors="replace")
+    entity_text = entity.read_text(encoding="utf-8", errors="replace")
+    if "class TranslationAliasNormalizationModule" not in source:
+        return None
+    if "TranslationAliasNormalizationModule.Translate" not in service_text:
+        return None
+    if "TranslationAliasNormalizationModule.Normalize" not in service_text:
+        return None
+    if "TranslationAliasNormalizationModule.CanonicalizeAlias" not in entity_text:
+        return None
+
+    for pass_number in range(1, 3):
+        check = run_text([sys.executable, str(test)])
+        if check.returncode != 0:
+            raise RuntimeError(
+                f"Existing Issue #10 patch focused test failed on pass {pass_number}: "
+                + (check.stdout + check.stderr)[-5000:]
+            )
+        print(f"ENGINEERING_EXISTING_PATCH_TEST=PASS PASS={pass_number}/2")
+
+    summary = (
+        "Issue #10 source patch already applied and validated deterministically. "
+        "TranslationAliasNormalizationModule is wired into language normalization and "
+        "canonical alias matching; focused module contract passed twice. No OpenAI "
+        "repair request was made. Downstream build/regression/whole-library/smoke/"
+        "promotion/release gates remain mandatory."
+    )
+    (ROOT / "build_logs").mkdir(exist_ok=True)
+    (ROOT / "build_logs" / "autonomous-engineering-job.json").write_text(
+        json.dumps({
+            "issue": issue["number"],
+            "title": issue["title"],
+            "model": MODEL,
+            "action": "validate",
+            "edited_paths": [],
+            "edit_count": 0,
+            "summary": summary,
+            "fallback": "existing_translation_alias_patch",
+            "openai_requests": 0
+        }, indent=2),
+        encoding="utf-8"
+    )
+    return summary
+
+existing_patch_summary = validate_existing_translation_alias_patch(ISSUE)
+if existing_patch_summary:
+    print("ENGINEERING_FALLBACK=EXISTING_TRANSLATION_ALIAS_PATCH")
+    print("ENGINEERING_PATCH=PASS")
+    print("ENGINEERING_EDITED_PATHS=")
+    print("ENGINEERING_API_CALLS=0")
+    print("ENGINEERING_SUMMARY=" + existing_patch_summary)
+    api("POST", f"/repos/{REPO}/issues/{ISSUE['number']}/comments",
+        {"body": "AUTONOMOUS_ENGINEERING_EXISTING_PATCH=PASS. Issue #10 source changes were validated locally twice; no OpenAI repair request was made. Downstream build, module-lock, whole-library, regression, smoke, promotion, and publication gates remain mandatory."})
+    sys.exit(0)
+
 context, terms = select_context(request)
 available_files = git_files()
 focus_paths = [
