@@ -32,5 +32,11 @@ if ($applyCount -lt 3) {
 if ($mainWindow -notmatch "LibraryEngine") {
     throw "Application UI is not wired to LibraryEngine."
 }
+if ($mainWindow -notmatch "ModelIntelligencePipeline") {
+    throw "Manual application analysis is not routed through ModelIntelligencePipeline."
+}
+if ($mainWindow -match "entityClassification\.Apply\(") {
+    throw "Legacy EntityClassificationService bypass remains in MainWindow analysis path."
+}
 
 Write-Host "PASS: modular intelligence boundaries are enforced."
