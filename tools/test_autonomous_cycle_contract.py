@@ -37,6 +37,14 @@ assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") <
 
 assert 'Install-Candidate' in workflow
 assert 'Start-FinalApp' in workflow
+assert 'Invoke-FinalApplicationSmoke' in workflow
+assert 'FINAL_APP_SMOKE=PASS RUNS=2' in workflow
+assert 'for ($testRun = 1; $testRun -le 2; $testRun++)' in workflow
+assert 'SOURCE_TEST_PASS=$test RUN=$testRun' in workflow
+assert 'Write-ModuleLock' in workflow
+assert 'Verify-ModuleLock' in workflow
+assert 'MODULE_LOCK_CREATED=PASS' in workflow
+assert 'MODULE_LOCK_VERIFIED=PASS' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
 assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
