@@ -34,7 +34,7 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 assert "cancel-in-progress: true" not in workflow
 
-assert "MODULE_PASS=\\$pass/2" in workflow
+assert "MODULE_PASS=$pass/2" in workflow
 assert "Passes=2" in workflow
 assert "MODULE_LOCKS=CREATED" in workflow
 assert "MODULE_LOCK_GATE=PASS" in workflow
