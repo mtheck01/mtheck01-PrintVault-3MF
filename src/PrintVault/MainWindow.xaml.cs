@@ -1103,7 +1103,7 @@ public partial class MainWindow : Window
         catch (Exception ex) { Error("Whole-library root-cause analysis failed", ex); }
         finally
         {
-            if (scanGate.CurrentCount == 0) scanGate.Release();
+            if (gateHeld) scanGate.Release();
         }
     }
 
