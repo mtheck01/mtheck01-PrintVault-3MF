@@ -5,14 +5,14 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "cancel-in-progress: false",
+    "cancel-in-progress: true",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
     'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
     'https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest',
-    'if ($latestReleaseSha -eq $startingMainSha) {',
-    'SCHEDULE_VALIDATION_NEEDED=NO',
-    'scheduled poll: main already matches latest published release',
+    '$_ .context -eq "printvault/whole-library-validation"',
+    'SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED',
+    'scheduled poll: exact main SHA $startingMainSha already has whole-library validation status',
     'Refusing to manufacture a release',
     "PROMOTION_GUARD_START_SHA=",
     "Promotion blocked: origin/main changed during validation.",
@@ -32,7 +32,8 @@ assert "repair $report $expectedCatalog" in workflow or \
        'repair $report $expectedCatalog' in workflow, \
     "Missing autonomous repair invocation"
 
-assert "cancel-in-progress: true" not in workflow
+assert "cancel-in-progress: false" not in workflow
+assert "cancel-in-progress: true" in workflow
 
 assert "MODULE_PASS=$pass/2" in workflow
 assert "Passes=2" in workflow
@@ -106,7 +107,8 @@ for test_name in current_modular_tests:
     assert test_name in workflow, f"Current modular regression test is not wired into autonomous cycle: {test_name}"
 
 assert 'Refusing to manufacture a release' in workflow
-assert 'SCHEDULE_VALIDATION_NEEDED=NO' in workflow
+assert 'SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED' in workflow
+assert 'WHOLE_LIBRARY_VALIDATION_STATUS=' in workflow
 assert 'SCHEDULE_VALIDATION_NEEDED=YES' in workflow
 assert 'git switch -c $branch' in workflow
 assert 'git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"' in workflow
