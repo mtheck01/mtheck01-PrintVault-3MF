@@ -350,7 +350,7 @@ jobs:
           }
 
           Write-CycleStatus "ENGINEERING_INTAKE" "checking for open autonomous engineering request"
-          $engineeringExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_engineering.py") (Join-Path $PWD "build_logs\autonomous-engineering.log") 900
+          # Zero-credit intake must fail fast if the runner cannot complete the GitHub-only issue check.\n          # It must never occupy the cycle for the full build timeout while no model call is permitted.\n          $engineeringExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_engineering.py") (Join-Path $PWD "build_logs\autonomous-engineering.log") 120
           if ($engineeringExit -ne 0) {
             throw "Autonomous engineering intake failed with exit code $engineeringExit."
           }
