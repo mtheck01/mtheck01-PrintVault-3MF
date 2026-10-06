@@ -524,6 +524,15 @@ if existing_patch_summary:
     sys.exit(0)
 
 context, terms = select_context(request)
+audit_path = ROOT / "build_logs" / "forensic-repository-audit.json"
+audit_report = {}
+if audit_path.exists():
+    try:
+        audit_report = json.loads(audit_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Existing forensic repository audit is unreadable: {exc}")
+if audit_report and audit_report.get("result") != "PASS":
+    raise RuntimeError("Forensic repository audit is not clean; refusing model repair intake.")
 available_files = git_files()
 focus_paths = [
     "src/PrintVault.Infrastructure/LanguageIntelligenceService.cs",
@@ -551,6 +560,9 @@ AUTHORITATIVE EXISTING FILES (existing target paths MUST be copied exactly from 
 
 ISSUE-FOCUSED FILES TO INSPECT FIRST:
 {json.dumps(focus_paths, indent=2)}
+
+FORENSIC REPOSITORY AUDIT:
+{json.dumps(audit_report, indent=2)}
 
 REPOSITORY CONTEXT:
 {json.dumps(context, indent=2)}
