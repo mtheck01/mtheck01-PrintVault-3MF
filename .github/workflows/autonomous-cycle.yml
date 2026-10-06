@@ -86,6 +86,13 @@ jobs:
           $maxAttempts = [int]$env:MAX_ATTEMPTS
           $autoRepair = $env:AUTO_REPAIR -eq "true"
           $publish = $env:PUBLISH_ON_PASS -eq "true"
+          # Pull-request validation is permanently non-publishing. A PR may build,
+          # install, scan, repair, and prove the chain, but it can never promote
+          # source or create a production release.
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request") {
+            $publish = $false
+            Write-Host "PR_PUBLISH_GUARD=PASS PUBLISH=false"
+          }
           $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
