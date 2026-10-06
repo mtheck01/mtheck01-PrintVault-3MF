@@ -37,6 +37,8 @@ required_agent = [
     "def validate_existing_translation_alias_patch(issue):",
     "ENGINEERING_FALLBACK=EXISTING_TRANSLATION_ALIAS_PATCH",
     "ENGINEERING_API_CALLS=0",
+    "PRINTVAULT_ZERO_CREDIT",
+    "ENGINEERING_ZERO_CREDIT_MODE=1",
     '"openai_requests": 0',
     "TranslationAliasNormalizationModule",
 ]
