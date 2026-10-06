@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 svc = (ROOT / "src/PrintVault.Infrastructure/LanguageIntelligenceService.cs").read_text(encoding="utf-8")
 stage = (ROOT / "src/PrintVault.Infrastructure/Intelligence/LanguageNormalizationStage.cs").read_text(encoding="utf-8")
 module = (ROOT / "src/PrintVault.Infrastructure/TranslationAliasNormalizationModule.cs").read_text(encoding="utf-8")
+entity = (ROOT / "src/PrintVault.Infrastructure/MultilingualEntityService.cs").read_text(encoding="utf-8")
 
 checks = {
     "dedicated language service": "class LanguageIntelligenceService" in svc,
@@ -22,7 +23,7 @@ checks = {
     "3d printing glossary": '["3D打印"]=' in module and '["打印模型"]=' in module,
     "japanese glossary": '["飛行機"]=' in module,
     "korean glossary": '["자동차"]=' in module,
-    "canonical alias boundary": "CanonicalizeAlias" in module and "CanonicalizeAlias" in svc,
+    "canonical alias boundary": "CanonicalizeAlias" in module and "CanonicalizeAlias" in entity,
     "mixed language detection": "mixed-language signal" in svc,
     "confidence bounded": "Math.Clamp" in svc,
     "offline design": "does not call a network" in svc,
