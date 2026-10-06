@@ -238,8 +238,8 @@ jobs:
             $proc.WaitForExit()
             $stdout = $stdoutTask.GetAwaiter().GetResult()
             $stderr = $stderrTask.GetAwaiter().GetResult()
-            Set-Content -Path $logPath -Value $stdout -NoNewline
-            Set-Content -Path $errPath -Value $stderr -NoNewline
+            Set-Content -Path $logPath -Value $stdout -NoNewline -Encoding UTF8
+            Set-Content -Path $errPath -Value $stderr -NoNewline -Encoding UTF8
 
             $exitCode = [int]$proc.ExitCode
             if (Test-Path $logPath) { Get-Content $logPath | ForEach-Object { Write-Host $_ } }
@@ -349,7 +349,7 @@ jobs:
             # Preserve the JSON array shape even when exactly one test fails.
             # ConvertTo-Json can unwrap a one-element collection when piped in
             # Windows PowerShell, which breaks the repair-agent contract.
-            ConvertTo-Json -InputObject @($failures) -Depth 5 | Set-Content $failurePath
+            ConvertTo-Json -InputObject @($failures) -Depth 5 | Set-Content -Path $failurePath -Encoding UTF8
             $script:SourceTestFailures = @($failures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
           }
