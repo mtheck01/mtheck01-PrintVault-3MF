@@ -76,14 +76,29 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
 ''', encoding="utf-8")
     (td / "Program.cs").write_text(program, encoding="utf-8")
 
-    result = subprocess.run(
-        ["dotnet", "run", "--project", str(project)],
+    build = subprocess.run(
+        ["dotnet", "build", str(project), "--nologo", "-v:minimal"],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
     )
+    print("LANGUAGE_CHALLENGE_BUILD_EXIT=" + str(build.returncode))
+    print(build.stdout, end="")
+    print(build.stderr, end="")
+    if build.returncode != 0:
+        raise SystemExit(build.returncode)
+
+    result = subprocess.run(
+        ["dotnet", "run", "--project", str(project), "--no-build", "--nologo"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+    print("LANGUAGE_CHALLENGE_RUN_EXIT=" + str(result.returncode))
     print(result.stdout, end="")
     print(result.stderr, end="")
     raise SystemExit(result.returncode)
