@@ -42,7 +42,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -686,18 +686,68 @@ jobs:
             if ($filesBefore -ne $filesAfter) { throw "Legacy taxonomy cleanup changed file count: before=$filesBefore after=$filesAfter." }
             Write-Host "LEGACY_TAXONOMY_VERIFIED=PASS FILES=$filesAfter"
 
+            Write-CycleStatus "LEGACY_TAXONOMY_REPEAT" "root=$testLibraryRoot"
+            $env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot
+            $cleanupRepeatLog = Join-Path $PWD "build_logs\test-library-cleanup-repeat.log"
+            $cleanupRepeatExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "cleanup", "") $cleanupRepeatLog 900
+            if ($cleanupRepeatExit -ne 0) { throw "Repeated legacy taxonomy cleanup failed with exit code $cleanupRepeatExit." }
+            $cleanupRepeatOutput = if (Test-Path $cleanupRepeatLog) { @(Get-Content $cleanupRepeatLog) } else { @() }
+            foreach ($requiredZero in @(
+              "LEGACY_CATEGORIES_REMAINING=0",
+              "LEGACY_TAGS_REMAINING=0",
+              "LEGACY_FOLDERS_REMAINING=0",
+              "LEGACY_REGISTRY_ENTRIES_REMAINING=0"
+            )) {
+              if (-not ($cleanupRepeatOutput -contains $requiredZero)) {
+                throw "Repeated taxonomy cleanup verification missing or nonzero: $requiredZero"
+              }
+            }
+            $repeatBefore = $cleanupRepeatOutput | Where-Object { $_ -match '^FILES_BEFORE=' } | Select-Object -Last 1
+            $repeatAfter = $cleanupRepeatOutput | Where-Object { $_ -match '^FILES_AFTER=' } | Select-Object -Last 1
+            if (-not $repeatBefore -or -not $repeatAfter) { throw "Repeated taxonomy cleanup did not report file-count preservation." }
+            if ([int](($repeatBefore -split '=',2)[1]) -ne [int](($repeatAfter -split '=',2)[1])) { throw "Repeated taxonomy cleanup changed file count." }
+            Write-Host "LEGACY_TAXONOMY_REPEAT=PASS"
+
+            Write-CycleStatus "INGEST_REPEAT" "root=$testLibraryRoot"
+            $env:PRINTVAULT_TEST_LIBRARY_ROOT = $testLibraryRoot
+            $scanRepeatLog = Join-Path $PWD "build_logs\test-library-scan-repeat.log"
+            $scanRepeatExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", $automationProject, "-c", "Release", "--no-build", "--", "scan", "", "Deep") $scanRepeatLog 900
+            if ($scanRepeatExit -ne 0) { throw "Repeated test-library ingestion failed with exit code $scanRepeatExit." }
+            $scanRepeatOutput = if (Test-Path $scanRepeatLog) { @(Get-Content $scanRepeatLog) } else { @() }
+            $scanRepeatCatalogLine = $scanRepeatOutput | Where-Object { $_ -match '^SCAN_DISCOVERED=' } | Select-Object -Last 1
+            if (-not $scanRepeatCatalogLine) { throw "Repeated test-library ingestion did not report SCAN_DISCOVERED." }
+
             $scanCatalogLine = $scanOutput | Where-Object { $_ -match '^SCAN_DISCOVERED=' } | Select-Object -Last 1
             if (-not $scanCatalogLine) { throw "Test-library ingestion did not report SCAN_DISCOVERED." }
             $expectedCatalog = [int](($scanCatalogLine -split '=',2)[1])
+            $repeatCatalog = [int](($scanRepeatCatalogLine -split '=',2)[1])
+            if ($expectedCatalog -ne $repeatCatalog) {
+              throw "Repeated test-library ingestion changed catalog size: first=$expectedCatalog repeat=$repeatCatalog."
+            }
             if ($expectedCatalog -lt $baseline.catalog) {
               throw "Test-library catalog regressed below baseline. Expected at least $($baseline.catalog), found $expectedCatalog."
             }
+            Remove-Item Env:PRINTVAULT_TEST_LIBRARY_ROOT -ErrorAction SilentlyContinue
             Write-Host "EXPECTED_CATALOG_AFTER_TEST_INGEST=$expectedCatalog"
+            Write-Host "INGEST_REPEAT=PASS CATALOG=$repeatCatalog"
 
             Write-CycleStatus "WHOLE_LIBRARY_DIAGNOSTIC"
             $report = Invoke-WholeLibrary
-
             $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $reportRepeat = Invoke-WholeLibrary
+            $reportRepeatData = Get-Content $reportRepeat -Raw | ConvertFrom-Json
+            foreach ($field in @("Catalog","Processed","Conflicts","AnalyzedConflicts","Failed")) {
+              if ([int]$reportData.$field -ne [int]$reportRepeatData.$field) {
+                throw "Repeated whole-library diagnostic changed field=$field first=$($reportData.$field) repeat=$($reportRepeatData.$field)."
+              }
+            }
+            $fingerprint1 = ConvertTo-Json -InputObject @($reportData.rows) -Depth 20 -Compress
+            $fingerprint2 = ConvertTo-Json -InputObject @($reportRepeatData.rows) -Depth 20 -Compress
+            $hash1 = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($fingerprint1)))
+            $hash2 = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($fingerprint2)))
+            if ($hash1 -ne $hash2) { throw "Repeated whole-library diagnostic produced different row evidence." }
+            Write-Host "WHOLE_LIBRARY_REPEAT=PASS FINGERPRINT=$hash1"
+
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             if ($sourceTestFailures.Count -gt 0) {
