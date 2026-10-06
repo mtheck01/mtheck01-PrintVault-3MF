@@ -124,6 +124,20 @@ def extract_text(data):
                 out.append(c.get("text", ""))
     return "".join(out)
 
+class QuotaExhausted(RuntimeError):
+    """Permanent billing/quota failure; never retry automatically."""
+    pass
+
+def mark_issue_api_quota_blocked(issue):
+    marker = "[AUTONOMOUS_ENGINEERING_BLOCKED:API_QUOTA]"
+    detail = api("GET", f"/repos/{REPO}/issues/{issue['number']}")
+    body = detail.get("body") or ""
+    if marker not in body:
+        new_body = body.rstrip() + "\n\n" + marker + "\n"
+        api("PATCH", f"/repos/{REPO}/issues/{issue['number']}", {"body": new_body})
+    api("POST", f"/repos/{REPO}/issues/{issue['number']}/comments",
+        {"body": "AUTONOMOUS_ENGINEERING_BLOCKED=API_QUOTA. No further OpenAI repair requests will be attempted until this block is explicitly cleared after API credits/quota are restored."})
+
 def request_model(prompt):
     payload = {
         "model": MODEL,
@@ -140,9 +154,9 @@ def request_model(prompt):
         method="POST",
     )
 
-    # A 429 is a transport/rate-limit failure, not a model-validation failure.
-    # Retry it here with bounded exponential backoff so the outer engineering
-    # attempt budget is not burned by three immediate identical requests.
+    # Distinguish transient rate limiting from permanent quota exhaustion.
+    # A quota failure must never be retried because it cannot succeed until
+    # billing/quota is restored and repeated calls only burn time/resources.
     last_429 = None
     for transport_attempt in range(1, 5):
         try:
@@ -156,6 +170,8 @@ def request_model(prompt):
             body = exc.read().decode("utf-8", errors="replace")
             if exc.code != 429:
                 raise RuntimeError(f"OpenAI API HTTP {exc.code}: {body[:4000]}")
+            if "insufficient_quota" in body or "credit_balance_exhausted" in body:
+                raise QuotaExhausted(f"OpenAI API HTTP 429: quota exhausted: {body[:4000]}")
             retry_after = exc.headers.get("Retry-After")
             try:
                 delay = float(retry_after) if retry_after else float(2 ** (transport_attempt - 1))
@@ -245,8 +261,14 @@ if not ISSUE:
     print("ENGINEERING_JOB=NONE")
     sys.exit(0)
 
-print(f"ENGINEERING_JOB=CLAIMED ISSUE={ISSUE['number']}")
 detail = api("GET", f"/repos/{REPO}/issues/{ISSUE['number']}")
+blocked_marker = "[AUTONOMOUS_ENGINEERING_BLOCKED:API_QUOTA]"
+if blocked_marker in (detail.get("body") or ""):
+    print(f"ENGINEERING_JOB=BLOCKED_API_QUOTA ISSUE={ISSUE['number']}")
+    print("ENGINEERING_API_CALLS=0")
+    sys.exit(0)
+
+print(f"ENGINEERING_JOB=CLAIMED ISSUE={ISSUE['number']}")
 request = (detail.get("title","") + "\n\n" + detail.get("body","")).strip()
 def local_validate_existing_handoff(issue):
     """Validate the already-implemented autonomous handoff when model credits are unavailable.
@@ -318,6 +340,12 @@ for attempt in range(1, 4):
         print("ENGINEERING_SUMMARY=" + summary)
         api("POST", f"/repos/{REPO}/issues/{ISSUE['number']}/comments",
             {"body": "Autonomous engineering job claimed. A validated source patch was generated; the build/test/repair gates are now running."})
+        sys.exit(0)
+    except QuotaExhausted as exc:
+        last_error = str(exc)
+        print("ENGINEERING_PATCH=BLOCKED_API_QUOTA " + last_error, file=sys.stderr)
+        mark_issue_api_quota_blocked(ISSUE)
+        print("ENGINEERING_API_CALLS=1")
         sys.exit(0)
     except Exception as exc:
         last_error = str(exc)
