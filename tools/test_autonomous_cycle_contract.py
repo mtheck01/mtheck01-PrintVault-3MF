@@ -35,6 +35,11 @@ assert "repair $report $expectedCatalog" in workflow or \
 assert "cancel-in-progress: false" not in workflow
 assert "cancel-in-progress: true" in workflow
 
+# Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
+assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
+assert "AUTO_REPAIR: ${{ inputs.auto_repair || true }}" not in workflow
+assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}" in workflow
+
 assert "MODULE_PASS=$pass/2" in workflow
 assert "Passes=2" in workflow
 assert "MODULE_LOCKS=CREATED" in workflow
