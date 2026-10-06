@@ -116,7 +116,7 @@ def apply_edits(result):
 
     diff = subprocess.run(
         ["git", "diff", "--", *changed],
-        cwd=ROOT, text=True, capture_output=True
+        cwd=ROOT, text=True, encoding="utf-8", errors="replace", capture_output=True
     )
     if diff.returncode != 0:
         for rel, original in originals.items():
