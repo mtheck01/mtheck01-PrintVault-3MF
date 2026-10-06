@@ -20,6 +20,9 @@ required_agent = [
     "HTTP 429",
     "Retry-After",
     "ENGINEERING_MODEL_RATE_LIMIT",
+    "credit_balance_exhausted",
+    "local_validate_existing_handoff",
+    "ENGINEERING_FALLBACK=EXISTING_HANDOFF_CONTRACT_PASS",
 ]
 for marker in required_agent:
     assert marker in agent, f"autonomous engineering agent missing required guard/feature: {marker}"
