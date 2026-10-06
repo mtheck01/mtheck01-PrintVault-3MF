@@ -53,7 +53,7 @@ assert 'Repeated whole-library diagnostic produced different row evidence.' in w
 assert 'PR_PUBLISH_GUARD=PASS PUBLISH=false' in workflow
 assert '$env:GITHUB_EVENT_NAME -eq "pull_request"' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
-assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
+assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.rfind('Invoke-FinalApplicationSmoke')
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=' in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
 assert 'CleanupLegacyTaxonomy' in (ROOT / "src" / "PrintVault.Infrastructure" / "OrganizationService.cs").read_text(encoding="utf-8")
