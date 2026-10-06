@@ -717,3 +717,30 @@ jobs:
                 Write-CycleStatus "DONE" "version=$version"
               }
               else {
+                Write-Host "PUBLISH=DISABLED"
+              }
+              exit 0
+            }
+
+            # Never publish a candidate while the whole-library scan still reports
+            # any conflicts. A low/zero ACTIONABLE count is not a clean library.
+            if ($remainingConflicts -gt 0) {
+              Write-Host "VALIDATION=CONFLICTS_REMAIN"
+              Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
+              if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+                Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+                throw "Validation failed: $remainingConflicts whole-library conflicts remain after $attempt attempt(s). No release will be published."
+              }
+              continue
+            }
+
+            if (-not $autoRepair -or $attempt -eq $maxAttempts) {
+              Write-Host "AUTONOMOUS_REPAIR=EXHAUSTED"
+              throw "Validation failed: regression gate did not pass cleanly. No release will be published."
+            }
+
+            Write-CycleStatus "ATTEMPT_END" "attempt=$attempt"
+            throw "Autonomous cycle reached an unexpected state."
+          }
+
+          throw "Autonomous cycle exhausted its attempt budget."
