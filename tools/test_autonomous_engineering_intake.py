@@ -19,7 +19,6 @@ required_agent = [
     "create=true",
     "def normalize_edit_path(path):",
     "def validate_edit_set(result):",
-    "Edit 1 duplicates another edit target:",
     "MODEL_ATTEMPTS",
     "validate_edit_set(result)",
     "absolute and outside repository",
@@ -83,6 +82,14 @@ assert validate_edit_set({
     "edits": [{"path": existing, "old": unique_token, "new": unique_token}]
 })
 
+assert validate_edit_set({
+    "action": "patch",
+    "edits": [
+        {"path": existing, "old": unique_token, "new": unique_token + " /*NEXT*/"},
+        {"path": existing, "old": unique_token + " /*NEXT*/", "new": unique_token},
+    ],
+})
+
 for bad in [
     {"action": "patch", "edits": [{"path": "C:/outside/repo.cs", "old": "x", "new": "y"}]},
     {"action": "patch", "edits": [{"path": "../outside.cs", "old": "x", "new": "y"}]},
@@ -91,8 +98,7 @@ for bad in [
     {"action": "patch", "edits": [{"path": existing, "old": "__PRINTVAULT_NO_SUCH_TEXT__", "new": "y"}]},
     {"action": "patch", "edits": [{"path": existing, "old": "using", "new": "y"}]},
     {"action": "patch", "edits": [
-        {"path": existing, "old": unique_token, "new": unique_token},
-        {"path": existing, "old": "namespace", "new": "namespace"}
+        {"path": existing, "old": "__PRINTVAULT_NO_SUCH_TEXT__", "new": "x"},
     ]},
 ]:
     try:
