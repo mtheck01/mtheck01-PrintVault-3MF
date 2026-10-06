@@ -281,7 +281,7 @@ jobs:
             return (Get-Content ".\VERSION" -Raw).Trim()
           }
 
-          function Invoke-ExternalWithHeartbeat($filePath, [string[]]$arguments, $logPath, $timeoutSeconds = 900) {
+          function Invoke-ExternalWithHeartbeat($filePath, [string[]]$arguments, $logPath, $timeoutSeconds = 300) {
             $errPath = "$logPath.err"
             Remove-Item $logPath,$errPath -Force -ErrorAction SilentlyContinue
             Write-Host "EXTERNAL_START=$filePath"
@@ -322,9 +322,11 @@ jobs:
               Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsed PID=$($proc.Id)"
               Write-CycleStatus "EXTERNAL_RUNNING" "$filePath elapsed=$elapsed"
               if ($elapsed -ge $timeoutSeconds) {
+                Write-Warning "EXTERNAL_TIMEOUT=$filePath PID=$($proc.Id) elapsed=$elapsed; terminating process tree."
                 try { $proc.Kill() } catch {}
-                $proc.WaitForExit()
-                throw "External process timed out after $timeoutSeconds seconds: $filePath"
+                try { $proc.WaitForExit(10000) | Out-Null } catch {}
+                try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | ForEach-Object { Write-Host "EXTERNAL_KILL=$_"} } catch { Write-Warning "Process-tree termination failed: $($_.Exception.Message)" }
+                throw "External process timed out after $timeoutSeconds seconds: $filePath (process tree terminated)"
               }
             }
 
@@ -826,8 +828,8 @@ jobs:
               }
 
               $sourceFailuresPath = Join-Path $PWD "build_logs\source-test-failures.json"
-              python ".\tools\autonomous_repair.py" $report $sourceFailuresPath
-              if ($LASTEXITCODE -ne 0) { throw "Repair agent failed." }
+              $repairExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_repair.py", $report, $sourceFailuresPath) (Join-Path $PWD "build_logs\autonomous-repair.log") 300
+              if ($repairExit -ne 0) { throw "Repair agent failed with exit code $repairExit." }
 
               $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
               if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
@@ -845,8 +847,8 @@ jobs:
             }
 
             if ($gate -eq "PASS" -and -not $needsRepair -and $sourceTestFailures.Count -eq 0) {
-              $validatedSha = (git rev-parse HEAD).Trim()
-              Publish-WholeLibraryValidationStatus $validatedSha "two-pass whole-library validation passed; processed=$($reportData.Processed) conflicts=$($reportData.Conflicts) failures=$($reportData.Failed)"
+              # Publish validation proof only after promotion/revalidation so it belongs
+              # to the exact SHA that reaches main.
               git fetch origin main --prune
               $currentMainSha = (git rev-parse origin/main).Trim()
               Write-Host "PROMOTION_GUARD_START_SHA=$startingMainSha"
@@ -942,6 +944,7 @@ jobs:
                 }
 
                 $sourceSha = (git rev-parse HEAD).Trim()
+                Publish-WholeLibraryValidationStatus $sourceSha "two-pass whole-library validation passed on promoted SHA; processed=$($reportData.Processed) conflicts=$($reportData.Conflicts) failures=$($reportData.Failed)"
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
                 if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
 
