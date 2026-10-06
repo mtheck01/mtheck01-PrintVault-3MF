@@ -101,6 +101,36 @@ jobs:
           $startingMainSha = (git rev-parse origin/main).Trim()
           Write-Host "STARTING_MAIN_SHA=$startingMainSha"
 
+          function Write-CycleStatus($stage, $detail = "") {
+            $statusDir = Join-Path $PWD "build_logs"
+            New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
+            $status = [pscustomobject]@{
+              TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+              RunId = $env:GITHUB_RUN_ID
+              Attempt = $script:CurrentAttempt
+              Stage = $stage
+              Detail = $detail
+              ProcessId = $PID
+            }
+            $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-status.json")
+            Write-Host "CYCLE_RUN_ID=$env:GITHUB_RUN_ID"
+            Write-Host "CYCLE_STAGE=$stage DETAIL=$detail"
+
+            # Publish live stage through commit status instead of relying on Actions log blobs.
+            if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
+              $statusState = if ($stage -eq "DONE") { "success" } elseif ($stage -eq "FAILED") { "failure" } else { "pending" }
+              $description = "$stage" + $(if ([string]::IsNullOrWhiteSpace($detail)) { "" } else { ": $detail" })
+              if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
+              $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
+              $body = @{ state = $statusState; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
+              try {
+                Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+                Write-Host "CYCLE_COMMIT_STATUS=$statusState"
+              } catch { Write-Warning "Unable to publish cycle commit status: $($_.Exception.Message)" }
+            }
+          }
+
+
           # Scheduled runs exist only to catch commits that were created through
           # an API path that did not emit a push event. A scheduled run must NEVER
           # manufacture a new patch version or release when main is already at the
@@ -184,35 +214,6 @@ jobs:
 
           function Get-Version {
             return (Get-Content ".\VERSION" -Raw).Trim()
-          }
-
-          function Write-CycleStatus($stage, $detail = "") {
-            $statusDir = Join-Path $PWD "build_logs"
-            New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
-            $status = [pscustomobject]@{
-              TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
-              RunId = $env:GITHUB_RUN_ID
-              Attempt = $script:CurrentAttempt
-              Stage = $stage
-              Detail = $detail
-              ProcessId = $PID
-            }
-            $status | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-status.json")
-            Write-Host "CYCLE_RUN_ID=$env:GITHUB_RUN_ID"
-            Write-Host "CYCLE_STAGE=$stage DETAIL=$detail"
-
-            # Publish live stage through commit status instead of relying on Actions log blobs.
-            if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
-              $statusState = if ($stage -eq "DONE") { "success" } elseif ($stage -eq "FAILED") { "failure" } else { "pending" }
-              $description = "$stage" + $(if ([string]::IsNullOrWhiteSpace($detail)) { "" } else { ": $detail" })
-              if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
-              $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
-              $body = @{ state = $statusState; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
-              try {
-                Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
-                Write-Host "CYCLE_COMMIT_STATUS=$statusState"
-              } catch { Write-Warning "Unable to publish cycle commit status: $($_.Exception.Message)" }
-            }
           }
 
           function Invoke-ExternalWithHeartbeat($filePath, [string[]]$arguments, $logPath, $timeoutSeconds = 900) {
