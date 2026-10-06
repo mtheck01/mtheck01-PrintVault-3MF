@@ -68,6 +68,8 @@ assert 'Install-Candidate' in workflow
 assert 'Start-FinalApp' in workflow
 assert 'Close-PrintVault $finalApp' in workflow
 assert 'FINAL_APP_SMOKE_CLOSED=PASS' in workflow
+assert 'Cleanup PrintVault process' in workflow
+assert 'PRINTVAULT_PROCESS_CLEANUP=PASS' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
 assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
