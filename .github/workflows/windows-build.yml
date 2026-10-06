@@ -52,6 +52,10 @@ jobs:
           }
           Write-Host "Inno Setup compiler: $iscc"
 
+      - name: Validate repository identity
+        shell: pwsh
+        run: python ".\\tools\\test_repository_identity.py"
+
       - name: Release preflight
         shell: pwsh
         run: |
