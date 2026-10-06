@@ -8,9 +8,10 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+SOURCE_FAILURES = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 MODEL = os.environ.get("OPENAI_REPAIR_MODEL", "gpt-5.6-sol")
 if not REPORT or not REPORT.exists():
-    raise SystemExit("Usage: autonomous_repair.py <report.json>")
+    raise SystemExit("Usage: autonomous_repair.py <report.json> [source-test-failures.json]")
 
 api_key = os.environ.get("OPENAI_API_KEY")
 if not api_key:
@@ -19,6 +20,15 @@ if not api_key:
 report = json.loads(REPORT.read_text(encoding="utf-8"))
 if report.get("Failures", report.get("failed", 0)) not in (0, None):
     raise SystemExit("Refusing repair from a failed analysis run.")
+
+source_failures = []
+if SOURCE_FAILURES and SOURCE_FAILURES.exists():
+    try:
+        source_failures = json.loads(SOURCE_FAILURES.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid source-test failure report: {exc}")
+if not isinstance(source_failures, list):
+    raise SystemExit("Source-test failure report must contain a JSON array.")
 
 paths = [
     "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs",
@@ -46,6 +56,9 @@ a regression test when appropriate. Do not modify VERSION; the orchestrator owns
 
 Current whole-library report:
 """ + json.dumps(report, indent=2) + """
+
+Independent source-test failures recorded before the whole-library diagnostic:
+""" + json.dumps(source_failures, indent=2) + """
 
 Relevant source:
 """ + json.dumps(source, indent=2)
