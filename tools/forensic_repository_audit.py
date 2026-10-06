@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CURRENT_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 EXPECTED_REPO = "mtheck01/mtheck01-PrintVault-3MF"
+ALLOWED_EXTERNAL_REPOS = {"mtheck01/PrintVault-Updates"}
 
 TEXT_EXTENSIONS = {
     ".py", ".cs", ".csproj", ".xaml", ".xml", ".json", ".md", ".txt", ".ps1",
@@ -89,9 +90,13 @@ def main():
                 "type": "github-repository-url", "path": rel,
                 "line": line_number(text, match.start()),
                 "value": repo_value,
-                "classification": "current" if repo_value.lower() == EXPECTED_REPO.lower() else "repository-mismatch"
+                "classification": (
+                    "current" if repo_value.lower() == EXPECTED_REPO.lower()
+                    else "allowed-external" if repo_value.lower() in {x.lower() for x in ALLOWED_EXTERNAL_REPOS}
+                    else "repository-mismatch"
+                )
             })
-            if repo_value.lower() != EXPECTED_REPO.lower() and repo_value.lower().startswith("mtheck01/"):
+            if repo_value.lower() not in {EXPECTED_REPO.lower(), *(x.lower() for x in ALLOWED_EXTERNAL_REPOS)}:
                 failures.append({
                     "type": "repository-identity", "path": rel,
                     "line": line_number(text, match.start()),
@@ -151,7 +156,15 @@ def main():
             "Invoke-WholeLibrary -Pass 2",
             "WHOLE_LIBRARY_TWO_PASS=PASS",
             "PROMOTION_GUARD_START_SHA=",
-            "Promotion blocked: origin/main changed during validation."
+            "Promotion blocked: origin/main changed during validation.",
+            "Install-Candidate",
+            "Start-FinalApp",
+            "Close-PrintVault",
+            "LEGACY_TAXONOMY_CLEANUP",
+            "FINAL_APP_SMOKE",
+            "Publish-WholeLibraryValidationStatus",
+            "Publish-SourceRelease",
+            "Upload autonomous diagnostics"
         ]
         for item in required:
             if item not in w:
