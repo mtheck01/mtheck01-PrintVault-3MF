@@ -121,3 +121,5 @@ assert 'git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"' in w
 assert '--force-with-lease=refs/heads/${branch}:${expectedBranchSha}' in workflow
 assert 'Never use an unleased force push.' in workflow
 assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
+assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
+assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
