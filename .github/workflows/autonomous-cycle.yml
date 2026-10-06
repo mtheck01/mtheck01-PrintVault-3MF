@@ -740,7 +740,17 @@ jobs:
                       git commit -m "${version}: autonomous revalidation after main update"
                       if ($LASTEXITCODE -ne 0) { throw "Promotion revalidation commit failed." }
                     }
-                    git push origin "HEAD:refs/heads/$branch"
+                    # Revalidation rebases the candidate branch, so its remote tip may
+                    # legitimately be an older candidate from the same run. Replace only
+                    # that run-owned branch, and only if its current remote SHA is the one
+                    # we just fetched. Never use an unleased force push.
+                    git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>$null
+                    if ($LASTEXITCODE -eq 0) {
+                      $expectedBranchSha = (git rev-parse "refs/remotes/origin/$branch").Trim()
+                      git push origin "HEAD:refs/heads/$branch" "--force-with-lease=refs/heads/$branch:$expectedBranchSha"
+                    } else {
+                      git push origin "HEAD:refs/heads/$branch"
+                    }
                     if ($LASTEXITCODE -ne 0) { throw "Revalidated candidate branch push failed." }
                     $sourceSha = (git rev-parse HEAD).Trim()
                     git fetch origin main --prune
