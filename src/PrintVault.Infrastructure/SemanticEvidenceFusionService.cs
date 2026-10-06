@@ -321,7 +321,7 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, Math.Min(90, roleConfidence - 5));
             classification = Math.Max(classification, roleConfidence);
             basis = $"Object role evidence: {role.Label}";
-            evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits)}");
+            evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits ?? Array.Empty<string>())}");
         }
         else if (hasGeneralizedArtifactRole)
         {
@@ -345,8 +345,8 @@ public sealed class SemanticEvidenceFusionService
             // keychain. The source-derived analyzer describes the printable artifact; the
             // named entity describes the depicted subject.
             category = analyzerCategory;
-            type = model.SemanticType;
-            subtype = model.Subtype;
+            type = model.SemanticType ?? string.Empty;
+            subtype = model.Subtype ?? string.Empty;
             family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
             var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
             classification = Math.Max(classification, analyzerConfidence);
@@ -385,8 +385,8 @@ public sealed class SemanticEvidenceFusionService
             // overriding a file-level semantic result such as HueForge, Keychains, Workshop,
             // or another source-derived domain.
             category = analyzerCategory;
-            type = model.SemanticType;
-            subtype = model.Subtype;
+            type = model.SemanticType ?? string.Empty;
+            subtype = model.Subtype ?? string.Empty;
             family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
             var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
             classification = Math.Max(classification, analyzerConfidence);
