@@ -33,6 +33,18 @@ assert "repair $report $expectedCatalog" in workflow or \
     "Missing autonomous repair invocation"
 
 assert "cancel-in-progress: true" not in workflow
+
+assert "MODULE_PASS=\\$pass/2" in workflow
+assert "Passes=2" in workflow
+assert "MODULE_LOCKS=CREATED" in workflow
+assert "MODULE_LOCK_GATE=PASS" in workflow
+assert "Get-SourceFingerprint" in workflow
+assert "Whole-library reproducibility gate failed" in workflow
+assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
+assert "Invoke-WholeLibrary -Pass 1" in workflow
+assert "Invoke-WholeLibrary -Pass 2" in workflow
+assert "expected 39, found" in workflow
+assert "timeout-minutes: 120" in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
 
 assert 'Install-Candidate' in workflow
