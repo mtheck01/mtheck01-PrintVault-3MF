@@ -393,8 +393,7 @@ jobs:
                 $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($test)
                 Write-Host "SOURCE_TEST_START=$test PASS=$pass"
                 $testLog = Join-Path $PWD ("build_logs\\source-test-" + $moduleName + "-pass" + $pass + ".log")
-                python ".\\tools\\$test" *> $testLog
-                $exit = $LASTEXITCODE
+                $exit = Invoke-ExternalWithHeartbeat "python" @(".\\tools\\$test") $testLog 300
                 if (Test-Path $testLog) {
                   Get-Content $testLog | ForEach-Object { Write-Host $_ }
                 }
@@ -442,6 +441,7 @@ jobs:
             ConvertTo-Json -InputObject @($failures) -Depth 5 | Set-Content -Path $failurePath -Encoding UTF8
             $script:SourceTestFailures = @($failures)
             $script:SourceModuleLocks = @($locks)
+            $script:SourceModuleCount = $tests.Count
             $script:SourceFingerprint = $fingerprintAfter
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
             Write-Host "SOURCE_MODULE_LOCK_COUNT=$($script:SourceModuleLocks.Count)"
