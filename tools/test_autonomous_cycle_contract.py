@@ -8,6 +8,12 @@ required = [
     "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
+    'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
+    'https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest',
+    'if ($latestReleaseSha -eq $startingMainSha) {',
+    'SCHEDULE_VALIDATION_NEEDED=NO',
+    'scheduled poll: main already matches latest published release',
+    'Refusing to manufacture a release',
     "PROMOTION_GUARD_START_SHA=",
     "Promotion blocked: origin/main changed during validation.",
     "Invoke-WholeLibrary",
@@ -69,3 +75,9 @@ assert 'LEGACY_FOLDERS_REMAINING=0' in workflow
 assert 'FILES_BEFORE=' in workflow and 'FILES_AFTER=' in workflow
 assert 'Legacy taxonomy cleanup failed' in workflow
 assert 'Test-library organization failed' not in workflow
+
+assert 'Refusing to manufacture a release' in workflow
+assert 'SCHEDULE_VALIDATION_NEEDED=NO' in workflow
+assert 'SCHEDULE_VALIDATION_NEEDED=YES' in workflow
+assert 'git switch -c $branch' in workflow
+assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
