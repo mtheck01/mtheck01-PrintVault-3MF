@@ -34,9 +34,10 @@ permissions:
   issues: write
 
 concurrency:
-  # Required by the autonomous-chain contract; do not cancel an active validation cycle.
+  # A newer main commit or scheduled validation supersedes a stale cycle.
+  # The exact-SHA validation gate prevents cancellation from creating false greens.
   group: printvault-autonomous-cycle
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cycle:
@@ -688,8 +689,8 @@ jobs:
             Write-Host "================ ATTEMPT $attempt / $maxAttempts ================"
             if ($attempt -eq 1) {
               # Never validate a candidate under an already-published version.
-              # 9.0.65 is already released; the first autonomous candidate is
-              # therefore the next patch version, 9.0.66.
+              # The candidate version is derived from the repository's current
+              # release state; do not hard-code a historical version in the controller.
               $version = Bump-PatchVersion
               Write-Host "INITIAL_VERSION_BUMP=PASS"
             }
