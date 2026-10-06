@@ -691,7 +691,7 @@ jobs:
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             $currentFingerprint = Get-SourceFingerprint
-            if ($script:SourceModuleLocks.Count -ne 41) {
+            if ($script:SourceModuleLocks.Count -ne 39) {
               throw "Module lock ledger is incomplete: expected 39, found $($script:SourceModuleLocks.Count)."
             }
             foreach ($lock in $script:SourceModuleLocks) {
