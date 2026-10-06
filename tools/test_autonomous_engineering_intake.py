@@ -18,6 +18,8 @@ required_agent = [
     "AUTHORITATIVE EXISTING FILES",
     "create=true",
     "def normalize_edit_path(path):",
+    "def validate_edit_set(result):",
+    "Edit 1 duplicates another edit target:",
     "absolute and outside repository",
     "Edit path escapes repository",
     "git diff --no-index",
@@ -46,4 +48,58 @@ for marker in required_workflow:
     assert marker in workflow, f"autonomous workflow missing intake integration: {marker}"
 
 assert "VERSION" in agent and "build_logs" in agent
+print("AUTONOMOUS_ENGINEERING_INTAKE_CONTRACT=PASS")
+
+
+# Behavioral patch-boundary tests. Extract only the pure validators from the
+# production agent so this test never calls GitHub or OpenAI.
+module = ast.parse(agent)
+wanted = [
+    node for node in module.body
+    if isinstance(node, ast.FunctionDef) and node.name in {"normalize_edit_path", "validate_edit_set"}
+]
+namespace = {
+    "Path": Path,
+    "re": __import__("re"),
+    "ROOT": ROOT,
+    "ALLOWED_ROOTS": ("src/", "tools/", "tests/", "automation/"),
+    "BLOCKED_NAMES": {"VERSION", "build_logs"},
+}
+exec(compile(ast.Module(body=wanted, type_ignores=[]), str(agent_path), "exec"), namespace)
+normalize_edit_path = namespace["normalize_edit_path"]
+validate_edit_set = namespace["validate_edit_set"]
+
+existing = "src/PrintVault.Infrastructure/LanguageIntelligenceService.cs"
+existing_text = (ROOT / existing).read_text(encoding="utf-8", errors="replace")
+unique_token = "public sealed class LanguageIntelligenceService"
+
+assert validate_edit_set({
+    "action": "patch",
+    "edits": [{"path": existing, "old": unique_token, "new": unique_token}]
+})
+
+for bad in [
+    {"action": "patch", "edits": [{"path": "C:/outside/repo.cs", "old": "x", "new": "y"}]},
+    {"action": "patch", "edits": [{"path": "../outside.cs", "old": "x", "new": "y"}]},
+    {"action": "patch", "edits": [{"path": existing, "create": True, "old": "", "new": "x"}]},
+    {"action": "patch", "edits": [{"path": "src/does-not-exist.cs", "old": "x", "new": "y"}]},
+    {"action": "patch", "edits": [{"path": existing, "old": "__PRINTVAULT_NO_SUCH_TEXT__", "new": "y"}]},
+    {"action": "patch", "edits": [{"path": existing, "old": "using", "new": "y"}]},
+    {"action": "patch", "edits": [
+        {"path": existing, "old": unique_token, "new": unique_token},
+        {"path": existing, "old": "namespace", "new": "namespace"}
+    ]},
+]:
+    try:
+        validate_edit_set(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"Unsafe patch was accepted: {bad}")
+
+# Absolute paths inside the checkout normalize safely; outside paths do not.
+inside = str((ROOT / existing).resolve())
+assert normalize_edit_path(inside) == existing
+
+print("AUTONOMOUS_PATCH_BOUNDARY_BEHAVIOR=PASS")
 print("AUTONOMOUS_ENGINEERING_INTAKE_CONTRACT=PASS")
