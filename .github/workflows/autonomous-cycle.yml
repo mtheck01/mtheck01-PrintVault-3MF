@@ -315,11 +315,24 @@ jobs:
             $failures = @()
             foreach ($test in $tests) {
               Write-Host "SOURCE_TEST_START=$test"
-              python ".\tools\$test"
+              $testLog = Join-Path $PWD ("build_logs\\source-test-" + [System.IO.Path]::GetFileNameWithoutExtension($test) + ".log")
+              python ".\tools\$test" *> $testLog
               $exit = $LASTEXITCODE
+              if (Test-Path $testLog) {
+                Get-Content $testLog | ForEach-Object { Write-Host $_ }
+              }
               if ($exit -ne 0) {
                 Write-Host "SOURCE_TEST_FAILURE=$test EXIT=$exit"
-                $failures += [pscustomobject]@{ Test=$test; ExitCode=$exit }
+                $diagnostics = if (Test-Path $testLog) { (Get-Content $testLog -Raw) } else { "" }
+                if ($diagnostics.Length -gt 12000) {
+                  $diagnostics = $diagnostics.Substring($diagnostics.Length - 12000)
+                }
+                $failures += [pscustomobject]@{
+                  Test=$test
+                  ExitCode=$exit
+                  LogPath=$testLog
+                  Diagnostics=$diagnostics
+                }
               } else {
                 Write-Host "SOURCE_TEST_PASS=$test"
               }
