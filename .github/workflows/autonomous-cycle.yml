@@ -165,21 +165,6 @@ jobs:
           # patch, and then sends that patch through the exact same build/test/
           # repair/whole-library/publish gates below. If no request exists, the
           # normal scheduled validation cycle continues unchanged.
-          Write-CycleStatus "ENGINEERING_INTAKE" "checking for open autonomous engineering request"
-          $engineeringExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_engineering.py") (Join-Path $PWD "build_logs\autonomous-engineering.log") 900
-          if ($engineeringExit -ne 0) {
-            throw "Autonomous engineering intake failed with exit code $engineeringExit."
-          }
-          $engineeringJobPath = Join-Path $PWD "build_logs\autonomous-engineering-job.json"
-          if (Test-Path $engineeringJobPath) {
-            $engineeringJob = Get-Content $engineeringJobPath -Raw | ConvertFrom-Json
-            Write-Host "ENGINEERING_ISSUE_NUMBER=$($engineeringJob.issue)"
-            Write-Host "ENGINEERING_HANDOFF=PASS"
-          }
-          else {
-            Write-Host "ENGINEERING_JOB=NONE"
-          }
-
           function Publish-SourceRelease($version, $sourceSha, $installerPath) {
             $headers = @{
               Authorization = "Bearer $env:GITHUB_TOKEN"
@@ -297,6 +282,22 @@ jobs:
             $proc.Dispose()
             return $exitCode
           }
+
+          Write-CycleStatus "ENGINEERING_INTAKE" "checking for open autonomous engineering request"
+          $engineeringExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_engineering.py") (Join-Path $PWD "build_logs\autonomous-engineering.log") 900
+          if ($engineeringExit -ne 0) {
+            throw "Autonomous engineering intake failed with exit code $engineeringExit."
+          }
+          $engineeringJobPath = Join-Path $PWD "build_logs\autonomous-engineering-job.json"
+          if (Test-Path $engineeringJobPath) {
+            $engineeringJob = Get-Content $engineeringJobPath -Raw | ConvertFrom-Json
+            Write-Host "ENGINEERING_ISSUE_NUMBER=$($engineeringJob.issue)"
+            Write-Host "ENGINEERING_HANDOFF=PASS"
+          }
+          else {
+            Write-Host "ENGINEERING_JOB=NONE"
+          }
+
 
           function Find-TestLibraryRoot {
             # The autonomous test harness is allowed to touch ONLY the dedicated
