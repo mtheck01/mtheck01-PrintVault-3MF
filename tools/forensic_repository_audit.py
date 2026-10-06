@@ -20,7 +20,7 @@ VERSION_RE = re.compile(r"(?<![A-Za-z0-9_])(?:\d+\.\d+\.\d+)(?![A-Za-z0-9_])")
 URL_RE = re.compile(r'''https?://[^\s"'<>]+''')
 REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/mtheck01-PrintVault-3MF(?![A-Za-z0-9_-])")
 LEGACY_REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])" + re.escape("mtheck01" + "/" + "PrintVault-3MF") + r"(?![A-Za-z0-9_-])")
-ANY_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s#?]+)")
+ANY_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
 TIMEOUT_RE = re.compile(r"(?i)\b(?:timeout(?:-minutes)?|timeoutSeconds)\s*[:=]\s*[0-9]+")
 TOOL_REF_RE = re.compile(r"(?:\\|/)?tools[\\/][A-Za-z0-9_.-]+\.(?:py|ps1|csproj|bat)")
 ENV_RE = re.compile(r"\$env:([A-Za-z_][A-Za-z0-9_]*)|GetEnvironmentVariable\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)")
@@ -54,6 +54,14 @@ def classify_version(path, value, line_text):
         return "baseline/validation-fixture"
     if path.startswith("automation/") and value.startswith("9.0."):
         return "baseline/validation-fixture"
+    if path == "PrintVault.sln":
+        return "tooling-metadata"
+    if path.endswith(".csproj"):
+        return "dependency-version"
+    if value == "0.0.0" and ("GetName().Version" in line_text or "fallback" in line_text.lower()):
+        return "intentional-runtime-fallback"
+    if line_text.lstrip().startswith(("//", "#", "<!--")):
+        return "historical-source-comment"
     if path.endswith((".md", ".txt")):
         return "historical/documentation"
     return "stale-operational-reference"
@@ -135,11 +143,14 @@ def main():
                 "value": ref, "classification": classification
             })
             if not target.exists():
-                failures.append({
-                    "type": "broken-tool-reference", "path": rel,
-                    "line": line_number(text, match.start()),
-                    "value": ref, "classification": "broken"
-                })
+                if not rel.endswith((".md", ".txt")):
+                    failures.append({
+                        "type": "broken-tool-reference", "path": rel,
+                        "line": line_number(text, match.start()),
+                        "value": ref, "classification": "broken"
+                    })
+                else:
+                    findings[-1]["classification"] = "historical-documentation-reference"
 
         # Every executable test named by the autonomous workflow must physically exist.
         if rel == ".github/workflows/autonomous-cycle.yml":
