@@ -14,8 +14,51 @@ if not REPORT or not REPORT.exists():
     raise SystemExit("Usage: autonomous_repair.py <report.json> [source-test-failures.json]")
 
 api_key = os.environ.get("OPENAI_API_KEY")
+TOKEN = os.environ.get("GITHUB_TOKEN")
+REPO = os.environ.get("GITHUB_REPOSITORY", "mtheck01/PrintVault-3MF")
 if not api_key:
     raise SystemExit("OPENAI_API_KEY is required for autonomous repair.")
+if not TOKEN:
+    raise SystemExit("GITHUB_TOKEN is required for autonomous repair.")
+
+class QuotaExhausted(RuntimeError):
+    pass
+
+def github_api(method, path, payload=None):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = Request(
+        "https://api.github.com" + path,
+        data=data,
+        headers={
+            "Authorization": "Bearer " + TOKEN,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2026-03-10",
+            "User-Agent": "PrintVault-Autonomous-Repair",
+            "Content-Type": "application/json",
+        },
+        method=method,
+    )
+    with urlopen(req, timeout=60) as response:
+        return json.load(response)
+
+def mark_api_quota_blocked():
+    marker = "[AUTONOMOUS_ENGINEERING_BLOCKED:API_QUOTA]"
+    q = __import__("urllib.parse").parse.quote(
+        f'repo:{REPO} is:issue is:open in:title "[PrintVault-Autonomous]"'
+    )
+    result = github_api("GET", f"/search/issues?q={q}")
+    items = result.get("items", [])
+    if not items:
+        return
+    items.sort(key=lambda x: x.get("created_at", ""))
+    issue = items[0]
+    detail = github_api("GET", f"/repos/{REPO}/issues/{issue['number']}")
+    body = detail.get("body") or ""
+    if marker not in body:
+        github_api("PATCH", f"/repos/{REPO}/issues/{issue['number']}",
+                   {"body": body.rstrip() + "\n\n" + marker + "\n"})
+    github_api("POST", f"/repos/{REPO}/issues/{issue['number']}/comments",
+               {"body": "AUTONOMOUS_REPAIR_BLOCKED=API_QUOTA. No further OpenAI repair requests will be attempted until API credits/quota are restored."})
 
 report = json.loads(REPORT.read_text(encoding="utf-8"))
 if report.get("Failures", report.get("failed", 0)) not in (0, None):
@@ -195,6 +238,8 @@ def request_repair(request_prompt):
             data = json.load(response)
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 429 and ("insufficient_quota" in body or "credit_balance_exhausted" in body):
+            raise QuotaExhausted(f"OpenAI API HTTP 429: quota exhausted: {body[:4000]}")
         print(f"REPAIR_API_HTTP_ERROR={exc.code}", file=sys.stderr)
         print(body[:12000], file=sys.stderr)
         raise SystemExit(f"OpenAI Responses API returned HTTP {exc.code}.")
@@ -231,6 +276,10 @@ for repair_attempt in range(1, 4):
         result = request_repair(retry_prompt)
         apply_edits(result)
         break
+    except QuotaExhausted as exc:
+        print(f"REPAIR_API_QUOTA_BLOCKED={exc}", file=sys.stderr)
+        mark_api_quota_blocked()
+        raise SystemExit(75)
     except (ValueError, KeyError) as exc:
         last_error = str(exc)
         print(f"PATCH_RESPONSE=INVALID ERROR={last_error}", file=sys.stderr)
