@@ -747,7 +747,7 @@ jobs:
                     git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>$null
                     if ($LASTEXITCODE -eq 0) {
                       $expectedBranchSha = (git rev-parse "refs/remotes/origin/$branch").Trim()
-                      git push origin "HEAD:refs/heads/$branch" "--force-with-lease=refs/heads/$branch:$expectedBranchSha"
+                      git push origin "HEAD:refs/heads/$branch" "--force-with-lease=refs/heads/$branch:${expectedBranchSha}"
                     } else {
                       git push origin "HEAD:refs/heads/$branch"
                     }
