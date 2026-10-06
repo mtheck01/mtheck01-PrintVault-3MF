@@ -1,3 +1,4 @@
+using PrintVault.Core;
 using System;
 using System.IO;
 using System.Windows;
