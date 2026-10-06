@@ -195,12 +195,13 @@ def request_model(prompt):
 def normalize_edit_path(path):
     """Convert model paths to canonical repository-relative POSIX paths.
 
-    Accept an absolute runner path only when it resolves inside this checkout;
-    reject absolute paths outside the repository and all traversal escapes.
+    Absolute runner paths are accepted only when they resolve inside this
+    checkout. Absolute paths outside the checkout and all traversal escapes
+    are rejected before any file is touched.
     """
     if not isinstance(path, str) or not path.strip():
         raise ValueError(f"Edit path must be a non-empty string: {path!r}")
-    raw = path.strip().replace("\\\\", "/")
+    raw = path.strip().replace("\\", "/")
     root = ROOT.resolve().as_posix().rstrip("/")
     raw_cmp = raw.lower() if re.match(r"^[A-Za-z]:/", raw) else raw
     root_cmp = root.lower() if re.match(r"^[A-Za-z]:/", root) else root
@@ -221,7 +222,56 @@ def normalize_edit_path(path):
         raise ValueError(f"Edit path is outside allowed roots: {path!r}")
     return result
 
+def validate_edit_set(result):
+    """Validate a model patch completely without modifying the checkout."""
+    if not isinstance(result, dict):
+        raise ValueError(f"Model response must be a JSON object; got {type(result).__name__}.")
+    action = result.get("action")
+    edits = result.get("edits")
+    if action not in ("patch", "validate"):
+        raise ValueError("Model must return action=patch or action=validate.")
+    if not isinstance(edits, list):
+        raise ValueError("Model must return an edits array.")
+    if action == "validate" and edits:
+        raise ValueError("Validate-only jobs must not modify source.")
+
+    seen = set()
+    normalized_edits = []
+    for i, edit in enumerate(edits, 1):
+        if not isinstance(edit, dict):
+            raise ValueError(f"Edit {i} must be an object.")
+        path = normalize_edit_path(edit.get("path"))
+        if path in seen:
+            raise ValueError(f"Edit {i} duplicates another edit target: {path}")
+        seen.add(path)
+        if Path(path).name in BLOCKED_NAMES or "build_logs" in Path(path).parts:
+            raise ValueError(f"Edit {i} targets a blocked path: {path}")
+
+        target = ROOT / path
+        create = edit.get("create", False) is True
+        old = edit.get("old")
+        new = edit.get("new")
+        if create:
+            if old != "":
+                raise ValueError(f"Create edit {i} must use old=''.")
+            if not isinstance(new, str) or not new.strip():
+                raise ValueError(f"Create edit {i} must contain non-empty UTF-8 file contents.")
+            if target.exists():
+                raise ValueError(f"Create edit {i} targets an existing file: {path}")
+        else:
+            if not isinstance(old, str) or not isinstance(new, str):
+                raise ValueError(f"Edit {i} must contain string old/new values.")
+            if not target.exists():
+                raise ValueError(f"Missing edit target: {path}")
+            current = target.read_text(encoding="utf-8", errors="replace")
+            occurrences = current.count(old)
+            if occurrences != 1:
+                raise ValueError(f"Edit {i} requires exactly one match in {path}; found {occurrences}.")
+        normalized_edits.append((path, create))
+    return normalized_edits
+
 def apply_edits(result):
+    validate_edit_set(result)
     if not isinstance(result, dict):
         raise ValueError(f"Model response must be a JSON object; got {type(result).__name__}.")
     action = result.get("action")
@@ -417,7 +467,13 @@ Rules:
 """
 
 last_error = ""
-for attempt in range(1, 4):
+try:
+    configured_attempts = int(os.environ.get("MAX_ATTEMPTS", "3"))
+except ValueError:
+    configured_attempts = 3
+MODEL_ATTEMPTS = max(1, min(configured_attempts, 5))
+
+for attempt in range(1, MODEL_ATTEMPTS + 1):
     print(f"ENGINEERING_MODEL_ATTEMPT={attempt}/3")
     try:
         if last_error:
@@ -450,4 +506,4 @@ for attempt in range(1, 4):
                     {"body": "Autonomous engineering intake validated the existing handoff contract locally because the repair-model account has no API credits. No source patch was fabricated; downstream build/test/whole-library/promotion/release gates remain mandatory."})
                 sys.exit(0)
 
-raise SystemExit("Autonomous engineering agent could not produce a validated patch after 3 attempts.")
+raise SystemExit(f"Autonomous engineering agent could not produce a validated patch after {MODEL_ATTEMPTS} attempts.")
