@@ -161,22 +161,39 @@ jobs:
               $latestReleaseSha = [string]$latestRelease.target_commitish
               Write-Host "SCHEDULE_LATEST_RELEASE=$($latestRelease.tag_name) TARGET=$latestReleaseSha"
 
-              # Open autonomous engineering issues are queued work. Do not short-circuit
-              # a scheduled poll merely because main already matches the latest release.
+              # A published release is NOT proof that the exact current main SHA
+              # has passed the engineering validation suite. The scheduled poll may
+              # short-circuit only when GitHub has an explicit success status for this
+              # exact SHA from the whole-library validation gate.
               $issueQuery = [System.Uri]::EscapeDataString("repo:$env:GITHUB_REPOSITORY is:issue is:open in:title `"[PrintVault-Autonomous]`"")
               $openEngineeringIssues = Invoke-RestMethod -Uri "https://api.github.com/search/issues?q=$issueQuery&per_page=10" -Headers $headers -Method Get
               $engineeringIssueCount = [int]$openEngineeringIssues.total_count
               Write-Host "SCHEDULE_OPEN_ENGINEERING_ISSUES=$engineeringIssueCount"
+
+              $validationStatuses = @()
+              try {
+                $validationStatuses = @(Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/$startingMainSha/statuses?per_page=100" -Headers $headers -Method Get)
+              } catch {
+                throw "Unable to inspect validation status for exact main SHA $startingMainSha. Refusing to short-circuit: $($_.Exception.Message)"
+              }
+              $wholeLibraryValidated = @($validationStatuses | Where-Object {
+                $_.context -eq "printvault/whole-library-validation" -and
+                $_.state -eq "success" -and
+                $_.sha -eq $startingMainSha
+              }).Count -gt 0
+              Write-Host "WHOLE_LIBRARY_VALIDATION_STATUS=$([string]$wholeLibraryValidated.ToString().ToUpperInvariant())"
+              Write-Host "WHOLE_LIBRARY_VALIDATION_SHA=$startingMainSha"
+
               if ($engineeringIssueCount -gt 0) {
                 Write-Host "SCHEDULE_VALIDATION_NEEDED=YES_ENGINEERING_ISSUE"
               }
-              elseif ($latestReleaseSha -eq $startingMainSha) {
-                Write-Host "SCHEDULE_VALIDATION_NEEDED=NO"
-                Write-CycleStatus "DONE" "scheduled poll: main already matches latest published release $($latestRelease.tag_name)"
+              elseif ($wholeLibraryValidated) {
+                Write-Host "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED"
+                Write-CycleStatus "DONE" "scheduled poll: exact main SHA $startingMainSha already has whole-library validation status"
                 exit 0
               }
               else {
-                Write-Host "SCHEDULE_VALIDATION_NEEDED=YES"
+                Write-Host "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED"
               }
             } catch {
               throw "Unable to resolve latest published release during scheduled validation. Refusing to manufacture a release: $($_.Exception.Message)"
@@ -241,6 +258,23 @@ jobs:
             if ($verifiedAsset.Count -ne 1) { throw "Source release installer asset verification failed." }
             Write-Host "SOURCE_RELEASE_VERIFICATION=PASS"
             Write-Host "SOURCE_RELEASE_URL=$($verify.html_url)"
+          }
+
+          function Publish-WholeLibraryValidationStatus($sourceSha, $detail) {
+            $headers = @{
+              Authorization = "Bearer $env:GITHUB_TOKEN"
+              Accept = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2026-03-10"
+              "User-Agent" = "PrintVault-Autonomous-Cycle"
+            }
+            $body = @{
+              state = "success"
+              context = "printvault/whole-library-validation"
+              description = $detail
+              target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            } | ConvertTo-Json
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$sourceSha" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+            Write-Host "WHOLE_LIBRARY_VALIDATION_STATUS=PASS SHA=$sourceSha"
           }
 
           function Get-Version {
@@ -811,6 +845,8 @@ jobs:
             }
 
             if ($gate -eq "PASS" -and -not $needsRepair -and $sourceTestFailures.Count -eq 0) {
+              $validatedSha = (git rev-parse HEAD).Trim()
+              Publish-WholeLibraryValidationStatus $validatedSha "two-pass whole-library validation passed; processed=$($reportData.Processed) conflicts=$($reportData.Conflicts) failures=$($reportData.Failed)"
               git fetch origin main --prune
               $currentMainSha = (git rev-parse origin/main).Trim()
               Write-Host "PROMOTION_GUARD_START_SHA=$startingMainSha"
