@@ -23,8 +23,19 @@ if report.get("Failures", report.get("failed", 0)) not in (0, None):
 
 source_failures = []
 if SOURCE_FAILURES and SOURCE_FAILURES.exists():
+    raw = SOURCE_FAILURES.read_bytes()
+    decoded = None
+    decode_errors = []
+    for encoding in ("utf-8-sig", "utf-8", "utf-16", "cp1252"):
+        try:
+            decoded = raw.decode(encoding)
+            break
+        except UnicodeDecodeError as exc:
+            decode_errors.append(f"{encoding}: {exc}")
+    if decoded is None:
+        raise SystemExit("Unable to decode source-test failure report: " + "; ".join(decode_errors))
     try:
-        source_failures = json.loads(SOURCE_FAILURES.read_text(encoding="utf-8"))
+        source_failures = json.loads(decoded)
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Invalid source-test failure report: {exc}")
 if not isinstance(source_failures, list):
