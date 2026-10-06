@@ -29,3 +29,9 @@ if analyzer_pos >= lexical_pos:
     raise SystemExit("SEMANTIC EVIDENCE 9.0.42 ARBITRATION AUDIT FAILED: lexical promotion precedes analyzer arbitration")
 
 print("SEMANTIC EVIDENCE 9.0.42 ARBITRATION AUDIT PASSED")
+
+
+# Regression: when a named entity is recognized without source-derived analyzer evidence,
+# fusion must retain the entity category instead of assigning the empty analyzerCategory.
+assert "category = entity.Category;" in fusion
+assert 'basis = "Named entity evidence"' in fusion
