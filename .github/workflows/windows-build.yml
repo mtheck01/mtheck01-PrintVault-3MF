@@ -70,6 +70,10 @@ jobs:
         shell: pwsh
         run: python ".\tools\test_release_preflight_contract.py"
 
+      - name: Test test_autonomous_cycle_contract
+        shell: pwsh
+        run: python ".\tools\test_autonomous_cycle_contract.py"
+
       - name: Test test_source_integrity
         shell: pwsh
         run: python ".\tools\test_source_integrity.py"
