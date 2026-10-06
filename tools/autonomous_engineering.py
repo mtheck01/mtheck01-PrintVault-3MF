@@ -192,6 +192,35 @@ def request_model(prompt):
                 time.sleep(delay)
     raise RuntimeError(last_429 or "OpenAI API HTTP 429: rate limit persisted after retries.")
 
+def normalize_edit_path(path):
+    """Convert model paths to canonical repository-relative POSIX paths.
+
+    Accept an absolute runner path only when it resolves inside this checkout;
+    reject absolute paths outside the repository and all traversal escapes.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"Edit path must be a non-empty string: {path!r}")
+    raw = path.strip().replace("\\\\", "/")
+    root = ROOT.resolve().as_posix().rstrip("/")
+    raw_cmp = raw.lower() if re.match(r"^[A-Za-z]:/", raw) else raw
+    root_cmp = root.lower() if re.match(r"^[A-Za-z]:/", root) else root
+    if raw_cmp == root_cmp or raw_cmp.startswith(root_cmp + "/"):
+        normalized = raw[len(root):].lstrip("/")
+    elif re.match(r"^[A-Za-z]:/", raw) or raw.startswith("/"):
+        raise ValueError(f"Edit path is absolute and outside repository: {path!r}")
+    else:
+        normalized = raw
+
+    candidate = (ROOT / normalized).resolve()
+    try:
+        relative = candidate.relative_to(ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"Edit path escapes repository: {path!r}") from exc
+    result = relative.as_posix()
+    if not result.startswith(ALLOWED_ROOTS):
+        raise ValueError(f"Edit path is outside allowed roots: {path!r}")
+    return result
+
 def apply_edits(result):
     if not isinstance(result, dict):
         raise ValueError(f"Model response must be a JSON object; got {type(result).__name__}.")
@@ -222,8 +251,7 @@ def apply_edits(result):
         if not isinstance(edit, dict):
             raise ValueError(f"Edit {i} must be an object.")
         path, old, new = edit.get("path"), edit.get("old"), edit.get("new")
-        if not isinstance(path, str) or not path.startswith(ALLOWED_ROOTS):
-            raise ValueError(f"Edit {i} targets a disallowed path: {path!r}")
+        path = normalize_edit_path(path)
         if Path(path).name in BLOCKED_NAMES or "build_logs" in Path(path).parts:
             raise ValueError(f"Edit {i} targets a blocked path: {path}")
 
