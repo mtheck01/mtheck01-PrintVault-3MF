@@ -1047,6 +1047,12 @@ jobs:
           }
 
           throw "Autonomous cycle exhausted its attempt budget."
+      - name: Cleanup PrintVault process
+        if: always()
+        shell: powershell
+        run: |
+          Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Write-Host "PRINTVAULT_PROCESS_CLEANUP=PASS"
       - name: Upload autonomous diagnostics
         if: always()
         uses: actions/upload-artifact@v4
