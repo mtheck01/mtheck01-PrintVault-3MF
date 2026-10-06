@@ -352,7 +352,7 @@ public sealed class SmartCategoryReconciliationService
         var reason = string.Join("; ", top.Value.Evidence.Take(4));
         var finalConfidence = (int)Math.Round(confidence);
         var decision = finalConfidence >= 95 ? "AUTO" : "REVIEW";
-        return new SmartCategorySuggestion(model.Path, model.Name ?? Path.GetFileName(model.Path), model.Category, top.Key,
+        return new SmartCategorySuggestion(model.Path ?? string.Empty, model.Name ?? Path.GetFileName(model.Path ?? string.Empty), model.Category, top.Key,
             finalConfidence, reason, model.IntelligenceReason ?? string.Empty, false, decision);
     }
 
