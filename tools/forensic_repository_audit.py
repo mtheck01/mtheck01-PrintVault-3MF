@@ -143,7 +143,7 @@ def main():
 
         # Every executable test named by the autonomous workflow must physically exist.
         if rel == ".github/workflows/autonomous-cycle.yml":
-            for test_name in re.findall(r'"(test_[A-Za-z0-9_.-]+\\.py)"', text):
+            for test_name in re.findall(r'"(test_[A-Za-z0-9_.-]+\.py)"', text):
                 test_path = ROOT / "tools" / test_name
                 line = line_number(text, text.find(test_name))
                 findings.append({
