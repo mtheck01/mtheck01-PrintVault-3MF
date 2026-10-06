@@ -52,6 +52,15 @@ jobs:
           persist-credentials: true
           clean: true
 
+      - name: Validate repository identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:GITHUB_REPOSITORY -ne "mtheck01/mtheck01-PrintVault-3MF") {
+            throw "Repository identity mismatch: GITHUB_REPOSITORY=$env:GITHUB_REPOSITORY"
+          }
+          python ".\tools\test_repository_identity.py"
+
       - name: Validate runner
         shell: powershell
         run: |
