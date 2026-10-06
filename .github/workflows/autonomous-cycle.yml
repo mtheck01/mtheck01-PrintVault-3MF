@@ -298,7 +298,10 @@ jobs:
             # gives us the actual OS exit code deterministically.
             $argumentString = ($arguments | ForEach-Object {
               $arg = [string]$_
-              if ($arg -match '\\s') {
+              # Quote any argument containing whitespace or shell-sensitive characters.
+              # The previous regex used a double backslash and failed to match ordinary spaces,
+              # which broke paths such as D:\\3d print files when crossing the process boundary.
+              if ($arg -match '\s' -or $arg -match '[&|;<>]') {
                 '"' + $arg.Replace('"','\"') + '"'
               } else {
                 $arg
@@ -830,6 +833,11 @@ jobs:
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
               Write-Host "REMAINING_CONFLICTS=$remainingConflicts"
 
+              # Defense-in-depth: zero-credit mode must never reach the AI repair boundary,
+              # even if a future change accidentally enables $autoRepair in this branch.
+              if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {
+                throw "AI repair boundary reached while PRINTVAULT_ZERO_CREDIT=1. Refusing any OpenAI request."
+              }
               if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
                 throw "OPENAI_API_KEY is required for automatic repair."
               }
