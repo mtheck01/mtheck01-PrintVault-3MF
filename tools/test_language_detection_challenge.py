@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 import subprocess
 import shutil
+import hashlib
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +33,28 @@ var cases = new[]
     ("ZH-PRINT", "3D打印模型", "Chinese", false),
 };
 
+var loadedAssembly = typeof(LanguageIntelligenceService).Assembly;
+var loadedPath = loadedAssembly.Location;
+var loadedHash = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(loadedPath))).ToLowerInvariant();
+var expectedHash = Environment.GetEnvironmentVariable("PRINTVAULT_EXPECTED_INFRA_HASH") ?? "";
+var expectedPath = Environment.GetEnvironmentVariable("PRINTVAULT_EXPECTED_INFRA_PATH") ?? "";
+Console.WriteLine($"LANGUAGE_CHALLENGE_EXPECTED_ASSEMBLY={expectedPath}");
+Console.WriteLine($"LANGUAGE_CHALLENGE_EXPECTED_ASSEMBLY_HASH={expectedHash}");
+Console.WriteLine($"LANGUAGE_CHALLENGE_LOADED_ASSEMBLY={loadedPath}");
+Console.WriteLine($"LANGUAGE_CHALLENGE_LOADED_ASSEMBLY_HASH={loadedHash}");
+Console.WriteLine($"LANGUAGE_CHALLENGE_LOADED_ASSEMBLY_VERSION={loadedAssembly.GetName().Version}");
+Console.WriteLine($"LANGUAGE_CHALLENGE_LOADED_ASSEMBLY_MVID={loadedAssembly.ManifestModule.ModuleVersionId}");
+if (!string.IsNullOrWhiteSpace(expectedHash) && !string.Equals(loadedHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=FAIL_HASH_MISMATCH");
+    Environment.Exit(2);
+}
+if (!string.IsNullOrWhiteSpace(expectedPath) && !string.Equals(Path.GetFullPath(loadedPath), Path.GetFullPath(expectedPath), StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=FAIL_PATH_MISMATCH");
+    Environment.Exit(2);
+}
+Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=PASS");
 var service = new LanguageIntelligenceService();
 var failures = 0;
 
@@ -77,15 +101,18 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
 ''', encoding="utf-8")
     (td / "Program.cs").write_text(program, encoding="utf-8")
 
-    # Never allow an old referenced-project DLL to satisfy this challenge.
-    # Git checkout can restore source while leaving build outputs from an earlier
-    # revision on a self-hosted runner. Remove referenced outputs before compiling.
-    for project_root in (ROOT / "src/PrintVault.Infrastructure", ROOT / "src/PrintVault.Core"):
-        for output in ("bin", "obj"):
-            shutil.rmtree(project_root / output, ignore_errors=True)
+    # The runner is self-hosted. Remove every source/tool bin and obj tree,
+    # then perform a true Rebuild so no prior assembly can participate.
+    for project_root in (ROOT / "src", ROOT / "tools"):
+        if not project_root.exists():
+            continue
+        for output in project_root.rglob("bin"):
+            shutil.rmtree(output, ignore_errors=True)
+        for output in project_root.rglob("obj"):
+            shutil.rmtree(output, ignore_errors=True)
 
     build = subprocess.run(
-        ["dotnet", "build", str(project), "--nologo", "--no-incremental", "-p:BuildProjectReferences=true", "-v:minimal"],
+        ["dotnet", "build", str(project), "--nologo", "-t:Rebuild", "-p:BuildProjectReferences=true", "-p:UseSharedCompilation=false", "-v:minimal"],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
@@ -98,13 +125,29 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
     if build.returncode != 0:
         raise SystemExit(build.returncode)
 
+    challenge_dll = td / "bin" / "Debug" / "net8.0-windows" / "Challenge.dll"
+    if not challenge_dll.is_file():
+        raise RuntimeError(f"Challenge output missing after rebuild: {challenge_dll}")
+
+    infra_dll = ROOT / "src" / "PrintVault.Infrastructure" / "bin" / "Debug" / "net8.0-windows" / "PrintVault.Infrastructure.dll"
+    if not infra_dll.is_file():
+        raise RuntimeError(f"Infrastructure output missing after rebuild: {infra_dll}")
+
+    expected_hash = hashlib.sha256(infra_dll.read_bytes()).hexdigest()
+    print("LANGUAGE_CHALLENGE_EXPECTED_INFRA_DLL=" + str(infra_dll))
+    print("LANGUAGE_CHALLENGE_EXPECTED_INFRA_HASH=" + expected_hash)
+
+    # Execute the exact rebuilt challenge DLL.
     result = subprocess.run(
-        ["dotnet", "run", "--project", str(project), "--no-build", "--nologo"],
+        ["dotnet", str(challenge_dll)],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        env={**os.environ,
+             "PRINTVAULT_EXPECTED_INFRA_HASH": expected_hash,
+             "PRINTVAULT_EXPECTED_INFRA_PATH": str(infra_dll)},
     )
     print("LANGUAGE_CHALLENGE_RUN_EXIT=" + str(result.returncode))
     print(result.stdout, end="")
