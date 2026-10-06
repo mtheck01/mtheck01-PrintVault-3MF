@@ -223,7 +223,12 @@ def normalize_edit_path(path):
     return result
 
 def validate_edit_set(result):
-    """Validate a model patch completely without modifying the checkout."""
+    """Validate a model patch completely without modifying the checkout.
+
+    This is the hard boundary between an LLM response and the filesystem.
+    Every path, create/modify mode, exact-match precondition, and sequential
+    interaction is checked against an in-memory working copy first.
+    """
     if not isinstance(result, dict):
         raise ValueError(f"Model response must be a JSON object; got {type(result).__name__}.")
     action = result.get("action")
@@ -235,15 +240,13 @@ def validate_edit_set(result):
     if action == "validate" and edits:
         raise ValueError("Validate-only jobs must not modify source.")
 
-    seen = set()
+    simulated = {}
+    created = set()
     normalized_edits = []
     for i, edit in enumerate(edits, 1):
         if not isinstance(edit, dict):
             raise ValueError(f"Edit {i} must be an object.")
         path = normalize_edit_path(edit.get("path"))
-        if path in seen:
-            raise ValueError(f"Edit {i} duplicates another edit target: {path}")
-        seen.add(path)
         if Path(path).name in BLOCKED_NAMES or "build_logs" in Path(path).parts:
             raise ValueError(f"Edit {i} targets a blocked path: {path}")
 
@@ -251,22 +254,30 @@ def validate_edit_set(result):
         create = edit.get("create", False) is True
         old = edit.get("old")
         new = edit.get("new")
+
         if create:
             if old != "":
                 raise ValueError(f"Create edit {i} must use old=''.")
             if not isinstance(new, str) or not new.strip():
                 raise ValueError(f"Create edit {i} must contain non-empty UTF-8 file contents.")
-            if target.exists():
+            if target.exists() or path in simulated or path in created:
                 raise ValueError(f"Create edit {i} targets an existing file: {path}")
+            simulated[path] = new
+            created.add(path)
         else:
             if not isinstance(old, str) or not isinstance(new, str):
                 raise ValueError(f"Edit {i} must contain string old/new values.")
-            if not target.exists():
-                raise ValueError(f"Missing edit target: {path}")
-            current = target.read_text(encoding="utf-8", errors="replace")
-            occurrences = current.count(old)
+            if path in created:
+                raise ValueError(f"Edit {i} modifies a file created earlier in the same patch: {path}")
+            if path not in simulated:
+                if not target.exists():
+                    raise ValueError(f"Missing edit target: {path}")
+                simulated[path] = target.read_text(encoding="utf-8", errors="replace")
+            occurrences = simulated[path].count(old)
             if occurrences != 1:
                 raise ValueError(f"Edit {i} requires exactly one match in {path}; found {occurrences}.")
+            simulated[path] = simulated[path].replace(old, new, 1)
+
         normalized_edits.append((path, create))
     return normalized_edits
 
