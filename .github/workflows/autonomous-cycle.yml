@@ -34,10 +34,12 @@ permissions:
   issues: write
 
 concurrency:
-  # A newer main commit or scheduled validation supersedes a stale cycle.
-  # The exact-SHA validation gate prevents cancellation from creating false greens.
+  # The full library lifecycle can legitimately run longer than the 10-minute
+  # schedule interval. Never cancel an active engineering cycle just because the
+  # next scheduled poll starts; queue the newest validation instead. The promotion
+  # guard already rejects a stale main SHA before publishing.
   group: printvault-autonomous-cycle
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   cycle:
