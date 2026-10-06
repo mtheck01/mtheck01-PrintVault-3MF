@@ -378,7 +378,7 @@ Rules:
 - Make the smallest production-safe change that actually addresses the request.
 - Each old block must be exact and unique.
 - NEVER invent an existing target path. Existing edit paths must be copied verbatim from AUTHORITATIVE EXISTING FILES.
-- If the modular boundary requires a genuinely new file, use {"path":"src/...","create":true,"old":"","new":"<complete UTF-8 contents>"}; create=true is the only allowed way to create a new file.
+- If the modular boundary requires a genuinely new file, use {{"path":"src/...","create":true,"old":"","new":"<complete UTF-8 contents>"}}; create=true is the only allowed way to create a new file.
 - A create=true path must be under an allowed root and must not already exist.
 - Do not modify VERSION, build_logs, secrets, or generated artifacts.
 - Do not weaken/delete tests or lower gates just to obtain a pass.
