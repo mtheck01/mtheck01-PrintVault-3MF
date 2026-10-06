@@ -42,7 +42,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
-    timeout-minutes: 30
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -326,6 +326,16 @@ jobs:
             return $next
           }
 
+          function Get-SourceFingerprint {
+            $head = (git rev-parse HEAD).Trim()
+            $diff = git diff --binary HEAD -- . ':(exclude)build_logs' ':(exclude)dist' ':(exclude)VERSION'
+            $payload = $head + [Environment]::NewLine + $diff
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+            $hash = [System.Security.Cryptography.SHA256]::Create()
+            try { return ([System.BitConverter]::ToString($hash.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant() }
+            finally { $hash.Dispose() }
+          }
+
           function Invoke-SourceTests {
             $tests = @(
               "test_release_preflight_contract.py",
@@ -368,39 +378,73 @@ jobs:
               "test_smart_category_review.py",
               "test_whole_library_entity_coverage_v1.py"
             )
-            $failurePath = Join-Path $PWD "build_logs\source-test-failures.json"
+            $failurePath = Join-Path $PWD "build_logs\\source-test-failures.json"
+            $lockPath = Join-Path $PWD "build_logs\\module-locks.json"
             New-Item -ItemType Directory -Force -Path (Split-Path $failurePath) | Out-Null
             $failures = @()
-            foreach ($test in $tests) {
-              Write-Host "SOURCE_TEST_START=$test"
-              $testLog = Join-Path $PWD ("build_logs\\source-test-" + [System.IO.Path]::GetFileNameWithoutExtension($test) + ".log")
-              python ".\tools\$test" *> $testLog
-              $exit = $LASTEXITCODE
-              if (Test-Path $testLog) {
-                Get-Content $testLog | ForEach-Object { Write-Host $_ }
-              }
-              if ($exit -ne 0) {
-                Write-Host "SOURCE_TEST_FAILURE=$test EXIT=$exit"
-                $diagnostics = if (Test-Path $testLog) { (Get-Content $testLog -Raw) } else { "" }
-                if ($diagnostics.Length -gt 12000) {
-                  $diagnostics = $diagnostics.Substring($diagnostics.Length - 12000)
+            $locks = @()
+            $fingerprintBefore = Get-SourceFingerprint
+
+            # Every module is independently exercised twice. A module is not locked
+            # until both passes succeed against the exact same source fingerprint.
+            for ($pass = 1; $pass -le 2; $pass++) {
+              Write-Host "MODULE_PASS=$pass/2"
+              foreach ($test in $tests) {
+                $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($test)
+                Write-Host "SOURCE_TEST_START=$test PASS=$pass"
+                $testLog = Join-Path $PWD ("build_logs\\source-test-" + $moduleName + "-pass" + $pass + ".log")
+                python ".\\tools\\$test" *> $testLog
+                $exit = $LASTEXITCODE
+                if (Test-Path $testLog) {
+                  Get-Content $testLog | ForEach-Object { Write-Host $_ }
                 }
-                $failures += [pscustomobject]@{
-                  Test=$test
-                  ExitCode=$exit
-                  LogPath=$testLog
-                  Diagnostics=$diagnostics
+                if ($exit -ne 0) {
+                  Write-Host "SOURCE_TEST_FAILURE=$test PASS=$pass EXIT=$exit"
+                  $diagnostics = if (Test-Path $testLog) { (Get-Content $testLog -Raw) } else { "" }
+                  if ($diagnostics.Length -gt 12000) {
+                    $diagnostics = $diagnostics.Substring($diagnostics.Length - 12000)
+                  }
+                  $failures += [pscustomobject]@{
+                    Test=$test
+                    Pass=$pass
+                    ExitCode=$exit
+                    LogPath=$testLog
+                    Diagnostics=$diagnostics
+                  }
+                } else {
+                  Write-Host "SOURCE_TEST_PASS=$test PASS=$pass"
                 }
-              } else {
-                Write-Host "SOURCE_TEST_PASS=$test"
               }
             }
-            # Preserve the JSON array shape even when exactly one test fails.
-            # ConvertTo-Json can unwrap a one-element collection when piped in
-            # Windows PowerShell, which breaks the repair-agent contract.
+
+            $fingerprintAfter = Get-SourceFingerprint
+            if ($fingerprintAfter -ne $fingerprintBefore) {
+              throw "Source changed while module tests were running. Refusing to create module locks."
+            }
+
+            if ($failures.Count -eq 0) {
+              foreach ($test in $tests) {
+                $locks += [pscustomobject]@{
+                  Module=[System.IO.Path]::GetFileNameWithoutExtension($test)
+                  Test=$test
+                  Passes=2
+                  Fingerprint=$fingerprintAfter
+                  LockedUtc=(Get-Date).ToUniversalTime().ToString("o")
+                }
+              }
+              ConvertTo-Json -InputObject @($locks) -Depth 5 | Set-Content -Path $lockPath -Encoding UTF8
+              Write-Host "MODULE_LOCKS=CREATED COUNT=$($locks.Count) PASSES=2 FINGERPRINT=$fingerprintAfter"
+            } else {
+              Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
+              Write-Host "MODULE_LOCKS=NOT_CREATED FAILURES=$($failures.Count)"
+            }
+
             ConvertTo-Json -InputObject @($failures) -Depth 5 | Set-Content -Path $failurePath -Encoding UTF8
             $script:SourceTestFailures = @($failures)
+            $script:SourceModuleLocks = @($locks)
+            $script:SourceFingerprint = $fingerprintAfter
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
+            Write-Host "SOURCE_MODULE_LOCK_COUNT=$($script:SourceModuleLocks.Count)"
           }
 
           function Invoke-CandidateBuild {
@@ -470,7 +514,8 @@ jobs:
           }
 
           function Invoke-WholeLibrary {
-            Write-CycleStatus "WHOLE_LIBRARY_START"
+            param([int]$Pass = 1)
+            Write-CycleStatus "WHOLE_LIBRARY_START" "pass=$Pass"
             $reportDir = Join-Path $env:APPDATA "PrintVault\reports"
             New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
             $artifactDir = Join-Path $PWD "build_logs\reports"
@@ -489,7 +534,7 @@ jobs:
             if ($buildExit -ne 0) { throw "Whole-library automation build failed with exit code $buildExit." }
 
             Write-Host "WHOLE_LIBRARY=RUN"
-            Write-CycleStatus "WHOLE_LIBRARY_RUN" "rootcause"
+            Write-CycleStatus "WHOLE_LIBRARY_RUN" "rootcause pass=$Pass"
             $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 900
             if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
 
@@ -629,12 +674,32 @@ jobs:
             }
             Write-Host "EXPECTED_CATALOG_AFTER_TEST_INGEST=$expectedCatalog"
 
-            Write-CycleStatus "WHOLE_LIBRARY_DIAGNOSTIC"
-            $report = Invoke-WholeLibrary
+            Write-CycleStatus "WHOLE_LIBRARY_DIAGNOSTIC" "two-pass reproducibility gate"
+            $report1 = Invoke-WholeLibrary -Pass 1
+            $report2 = Invoke-WholeLibrary -Pass 2
 
-            $reportData = Get-Content $report -Raw | ConvertFrom-Json
+            $reportData = Get-Content $report1 -Raw | ConvertFrom-Json
+            $reportData2 = Get-Content $report2 -Raw | ConvertFrom-Json
+            if ($reportData.Catalog -ne $reportData2.Catalog -or
+                $reportData.Processed -ne $reportData2.Processed -or
+                $reportData.Conflicts -ne $reportData2.Conflicts -or
+                $reportData.Failed -ne $reportData2.Failed) {
+              throw "Whole-library reproducibility gate failed: pass1 and pass2 disagree."
+            }
+            Write-Host "WHOLE_LIBRARY_TWO_PASS=PASS CATALOG=$($reportData.Catalog) PROCESSED=$($reportData.Processed) CONFLICTS=$($reportData.Conflicts)"
+            $report = $report2
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
+            $currentFingerprint = Get-SourceFingerprint
+            if ($script:SourceModuleLocks.Count -ne 41) {
+              throw "Module lock ledger is incomplete: expected 41, found $($script:SourceModuleLocks.Count)."
+            }
+            foreach ($lock in $script:SourceModuleLocks) {
+              if ($lock.Passes -lt 2 -or $lock.Fingerprint -ne $currentFingerprint) {
+                throw "Module lock invalid for $($lock.Module)."
+              }
+            }
+            Write-Host "MODULE_LOCK_GATE=PASS COUNT=$($script:SourceModuleLocks.Count) FINGERPRINT=$currentFingerprint"
             if ($sourceTestFailures.Count -gt 0) {
               Write-CycleStatus "SOURCE_TEST_FAILURES_RECORDED" "count=$($sourceTestFailures.Count); whole-library diagnostic completed"
             }
