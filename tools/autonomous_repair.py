@@ -15,7 +15,7 @@ if not REPORT or not REPORT.exists():
 
 api_key = os.environ.get("OPENAI_API_KEY")
 TOKEN = os.environ.get("GITHUB_TOKEN")
-REPO = os.environ.get("GITHUB_REPOSITORY", "mtheck01/PrintVault-3MF")
+REPO = os.environ.get("GITHUB_REPOSITORY", "mtheck01/mtheck01-PrintVault-3MF")
 if not api_key:
     raise SystemExit("OPENAI_API_KEY is required for autonomous repair.")
 if not TOKEN:
