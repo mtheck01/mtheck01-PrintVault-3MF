@@ -36,9 +36,10 @@ permissions:
 concurrency:
   # The full library lifecycle can legitimately run longer than the 10-minute
   # schedule interval. Never cancel an active engineering cycle just because the
-  # next scheduled poll starts; queue the newest validation instead. The promotion
-  # guard already rejects a stale main SHA before publishing.
+  # next scheduled poll starts. Queue pending validations instead of silently
+  # replacing them; the promotion guard rejects a stale main SHA before publishing.
   group: printvault-autonomous-cycle
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -354,6 +355,16 @@ jobs:
             return $exitCode
           }
 
+          Write-CycleStatus "FORENSIC_AUDIT" "repository-wide deterministic inventory before engineering intake"
+          for ($auditPass = 1; $auditPass -le 2; $auditPass++) {
+            Write-Host "FORENSIC_AUDIT_PASS=$auditPass/2"
+            python ".\tools\forensic_repository_audit.py"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Forensic repository audit failed before engineering intake on pass $auditPass."
+            }
+          }
+          Write-Host "FORENSIC_AUDIT_PRE_INTAKE=PASS"
+
           Write-CycleStatus "ENGINEERING_INTAKE" "checking for open autonomous engineering request"
           # Zero-credit intake must fail fast if the runner cannot complete the GitHub-only issue check.
           # It must never occupy the cycle for the full build timeout while no model call is permitted.
@@ -546,7 +557,11 @@ jobs:
           function Invoke-CandidateBuild {
             powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
             python ".\tools\static_audit.py"
+            python ".\tools\forensic_repository_audit.py"
+            if ($LASTEXITCODE -ne 0) { throw "Forensic repository audit failed after candidate source changes." }
             Invoke-SourceTests
+            python ".\tools\forensic_repository_audit.py"
+            if ($LASTEXITCODE -ne 0) { throw "Forensic repository audit failed after module verification." }
             $candidateBuildLog = Join-Path $PWD "build_logs\\candidate-build.log"
             New-Item -ItemType Directory -Force -Path (Split-Path $candidateBuildLog) | Out-Null
             Write-Host "CANDIDATE_BUILD_LOG=$candidateBuildLog"
