@@ -123,7 +123,7 @@ jobs:
               }
               Write-Host "SCHEDULE_VALIDATION_NEEDED=YES"
             } catch {
-              Write-Warning "Unable to resolve latest published release; scheduled validation will proceed fail-open for detection: $($_.Exception.Message)"
+              throw "Unable to resolve latest published release during scheduled validation. Refusing to manufacture a release: $($_.Exception.Message)"
             }
           }
 
