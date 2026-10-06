@@ -1,9 +1,9 @@
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
-svc=(root/"src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs").read_text()
-challenge=(root/"src/PrintVault.Infrastructure/SemanticEvidenceFusionChallengeService.cs").read_text()
-window=(root/"src/PrintVault/SemanticEvidenceFusionChallengeWindow.cs").read_text()
-xaml=(root/"src/PrintVault/MainWindow.xaml").read_text()
+svc=(root/"src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs").read_text(encoding="utf-8")
+challenge=(root/"src/PrintVault.Infrastructure/SemanticEvidenceFusionChallengeService.cs").read_text(encoding="utf-8")
+window=(root/"src/PrintVault/SemanticEvidenceFusionChallengeWindow.cs").read_text(encoding="utf-8")
+xaml=(root/"src/PrintVault/MainWindow.xaml").read_text(encoding="utf-8")
 checks=[
  ("fusion service exists", "public sealed class SemanticEvidenceFusionService" in svc),
  ("named entity is strongest evidence", "Named entity:" in svc and "entity.Confidence" in svc),
