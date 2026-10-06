@@ -32,6 +32,7 @@ if not isinstance(source_failures, list):
 
 paths = [
     "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs",
+    "src/PrintVault.Infrastructure/LanguageIntelligenceService.cs",
     "src/PrintVault.Infrastructure/EntityClassificationService.cs",
     "src/PrintVault.Infrastructure/WholeLibraryRootCauseAnalysisService.cs",
     "src/PrintVault.Infrastructure/ThreeMfAnalyzer.cs",
@@ -45,7 +46,7 @@ for rel in paths:
         source[rel] = p.read_text(encoding="utf-8", errors="replace")[:60000]
 
 prompt = """You are the autonomous repair engineer for PrintVault 3MF.
-Repair only a demonstrated semantic regression. Do not reset/delete the library.
+Repair only a demonstrated semantic regression or source-test failure. Treat every listed source-test failure as a first-class repair target; do not substitute an unrelated whole-library repair. Do not reset/delete the library.
 Do not weaken tests, lower thresholds merely to make counts look better, or change
 stored classifications directly. Preserve the dimensional architecture:
 subject identity, artifact/function, and catalog category are separate.
