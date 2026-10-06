@@ -1,8 +1,8 @@
-# 9.0.22 — Whole-Library Entity Coverage V1
+# PrintVault 3MF
 
-See `WHOLE_LIBRARY_ENTITY_COVERAGE_V1.md` for the coverage fix and verification scope.
+Current release version is defined exclusively by the repository's `VERSION` file.
 
-# PrintVault 3MF 9.0.17
+See `WHOLE_LIBRARY_ENTITY_COVERAGE_V1.md` for the whole-library entity coverage scope.
 
 PrintVault is a native Windows 3MF library manager focused on safe organization and model intelligence.
 
