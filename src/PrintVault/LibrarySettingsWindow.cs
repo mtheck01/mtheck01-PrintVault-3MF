@@ -14,7 +14,7 @@ public sealed class LibrarySettingsWindow : Window
 
     public LibrarySettingsWindow(string current)
     {
-        Title = "PrintVault 8.6 — Library Settings";
+        Title = $"PrintVault {AppVersion.Version} — Library Settings";
         Width = 620; Height = 270; MinWidth = 620; MinHeight = 270;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
@@ -25,7 +25,7 @@ public sealed class LibrarySettingsWindow : Window
         root.Children.Add(new TextBlock { Text = "LIBRARY SELECTION", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0,0,0,12) });
         root.Children.Add(new TextBlock { Text = "Current library", Foreground = new SolidColorBrush(Color.FromRgb(170,185,205)) });
         root.Children.Add(new TextBlock { Text = current, Margin = new Thickness(0,4,0,18), TextWrapping = TextWrapping.Wrap });
-        root.Children.Add(new TextBlock { Text = "The 8.6 Engineering build will not select or scan D:\\3d print files.", Foreground = new SolidColorBrush(Color.FromRgb(255,205,120)), Margin = new Thickness(0,0,0,18) });
+        root.Children.Add(new TextBlock { Text = $"The {AppVersion.Version} Engineering build will not select or scan D:\\3d print files.", Foreground = new SolidColorBrush(Color.FromRgb(255,205,120)), Margin = new Thickness(0,0,0,18) });
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var change = new Button { Content = "Change Library", Width = 125, Margin = new Thickness(0,0,8,0), Padding = new Thickness(10,7,10,7) };
