@@ -45,6 +45,10 @@ assert 'Write-ModuleLock' in workflow
 assert 'Verify-ModuleLock' in workflow
 assert 'MODULE_LOCK_CREATED=PASS' in workflow
 assert 'MODULE_LOCK_VERIFIED=PASS' in workflow
+assert 'LEGACY_TAXONOMY_REPEAT=PASS' in workflow
+assert 'INGEST_REPEAT=PASS' in workflow
+assert 'WHOLE_LIBRARY_REPEAT=PASS' in workflow
+assert 'Repeated whole-library diagnostic produced different row evidence.' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
 assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
