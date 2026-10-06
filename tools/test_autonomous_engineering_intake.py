@@ -20,6 +20,8 @@ required_agent = [
     "def normalize_edit_path(path):",
     "def validate_edit_set(result):",
     "Edit 1 duplicates another edit target:",
+    "MODEL_ATTEMPTS",
+    "validate_edit_set(result)",
     "absolute and outside repository",
     "Edit path escapes repository",
     "git diff --no-index",
@@ -42,6 +44,9 @@ required_workflow = [
     "tools\\autonomous_engineering.py",
     "ENGINEERING_INTAKE",
     "ENGINEERING_HANDOFF=PASS",
+    "Deterministic autonomous intake preflight",
+    "AUTONOMOUS_INTAKE_PREFLIGHT_PASS=$pass/2",
+    "AUTONOMOUS_INTAKE_PREFLIGHT=PASS",
     "ENGINEERING_ISSUE_CLOSED=PASS",
 ]
 for marker in required_workflow:
