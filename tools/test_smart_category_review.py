@@ -1,9 +1,9 @@
 from pathlib import Path
 root=Path(__file__).parents[1]
-svc=(root/'src/PrintVault.Infrastructure/SmartCategoryReconciliationService.cs').read_text()
-models=(root/'src/PrintVault.Core/Models.cs').read_text()
-ui=(root/'src/PrintVault/MainWindow.xaml.cs').read_text()
-xaml=(root/'src/PrintVault/MainWindow.xaml').read_text()
+svc=(root/'src/PrintVault.Infrastructure/SmartCategoryReconciliationService.cs').read_text(encoding='utf-8')
+models=(root/'src/PrintVault.Core/Models.cs').read_text(encoding='utf-8')
+ui=(root/'src/PrintVault/MainWindow.xaml.cs').read_text(encoding='utf-8')
+xaml=(root/'src/PrintVault/MainWindow.xaml').read_text(encoding='utf-8')
 checks={
  'metadata-only service': 'never moves files' in svc and 'repo.Upsert(model)' in svc,
  'protected overrides': 'CategoryOverride' in svc and 'Protected' in svc,
@@ -16,7 +16,7 @@ checks={
  'review UI': 'SmartCategoryReviewWindow' in ui and 'SmartCategoryReview_Click' in ui,
  'undo UI': 'UndoSmartCategoryReview_Click' in ui,
  'menu': 'Smart Category Review' in xaml,
- 'duplicate manager grid': 'MinWidth = 900' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text() and 'HorizontalContentAlignment = HorizontalAlignment.Stretch' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text(),
+ 'duplicate manager grid': 'MinWidth = 900' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text(encoding='utf-8') and 'HorizontalContentAlignment = HorizontalAlignment.Stretch' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text(),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed: raise SystemExit('SMART CATEGORY REVIEW TEST FAILED: '+', '.join(failed))
