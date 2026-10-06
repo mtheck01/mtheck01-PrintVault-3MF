@@ -18,7 +18,8 @@ SKIP_DIRS = {".git", "bin", "obj", "build_logs", "dist"}
 
 VERSION_RE = re.compile(r"(?<![A-Za-z0-9_])(?:\d+\.\d+\.\d+)(?![A-Za-z0-9_])")
 URL_RE = re.compile(r'''https?://[^\s"'<>]+''')
-REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/(?:mtheck01-PrintVault-3MF|PrintVault-3MF)(?![A-Za-z0-9_-])")
+REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/mtheck01-PrintVault-3MF(?![A-Za-z0-9_-])")
+LEGACY_REPO_RE = re.compile(r"(?<![A-Za-z0-9_-])mtheck01/PrintVault-3MF(?![A-Za-z0-9_-])")
 ANY_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s#?]+)")
 TIMEOUT_RE = re.compile(r"(?i)\b(?:timeout(?:-minutes)?|timeoutSeconds)\s*[:=]\s*[0-9]+")
 TOOL_REF_RE = re.compile(r"(?:\\|/)?tools[\\/][A-Za-z0-9_.-]+\.(?:py|ps1|csproj|bat)")
@@ -102,6 +103,13 @@ def main():
                     "line": line_number(text, match.start()),
                     "value": repo_value, "classification": "repository-mismatch"
                 })
+
+        for match in LEGACY_REPO_RE.finditer(text):
+            failures.append({
+                "type": "repository-identity", "path": rel,
+                "line": line_number(text, match.start()),
+                "value": match.group(0), "classification": "legacy-repository-reference"
+            })
 
         for match in REPO_RE.finditer(text):
             findings.append({
