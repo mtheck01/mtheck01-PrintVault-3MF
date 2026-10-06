@@ -10,7 +10,7 @@ required = [
     "$startingMainSha = (git rev-parse origin/main).Trim()",
     'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
     'https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest',
-    '$_ .context -eq "printvault/whole-library-validation"',
+    '$_.context -eq "printvault/whole-library-validation" -and',
     'SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED',
     'scheduled poll: exact main SHA $startingMainSha already has whole-library validation status',
     'Refusing to manufacture a release',
