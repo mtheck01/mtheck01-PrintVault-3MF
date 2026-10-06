@@ -98,6 +98,7 @@ jobs:
           # auto_repair=true.
           MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}
           AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}
+          PRINTVAULT_ZERO_CREDIT: ${{ github.event_name == 'workflow_dispatch' && false || true }}
           PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}
         run: |
           $ErrorActionPreference = "Stop"
