@@ -176,7 +176,7 @@ public partial class MainWindow : Window
     private static bool IsLegacyCategory(string? category)
         => category?.Trim() switch
         {
-            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" => true,
+            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" or "Cosplay" or "Aviation" or "Aircraft" or "Automotive" or "Decor" or "Decorative" or "Figures" or "Gaming" or "Game Models" or "Multi-Color" or "Test Print" or "Test Prints" or "Other" or "Needs Review" => true,
             _ => false
         };
 
