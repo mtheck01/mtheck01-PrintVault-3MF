@@ -397,7 +397,8 @@ jobs:
               "test_semantic_relationship_integration_9_0_20.py",
               "test_smart_category_engine.py",
               "test_smart_category_review.py",
-              "test_whole_library_entity_coverage_v1.py"
+              "test_whole_library_entity_coverage_v1.py",
+              "test_autonomous_engineering_intake.py"
             )
             $failurePath = Join-Path $PWD "build_logs\\source-test-failures.json"
             $lockPath = Join-Path $PWD "build_logs\\module-locks.json"
@@ -712,8 +713,8 @@ jobs:
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             $currentFingerprint = Get-SourceFingerprint
-            if ($script:SourceModuleLocks.Count -ne 39) {
-              throw "Module lock ledger is incomplete: expected 39, found $($script:SourceModuleLocks.Count)."
+            if ($script:SourceModuleLocks.Count -ne 40) {
+              throw "Module lock ledger is incomplete: expected 40, found $($script:SourceModuleLocks.Count)."
             }
             foreach ($lock in $script:SourceModuleLocks) {
               if ($lock.Passes -lt 2 -or $lock.Fingerprint -ne $currentFingerprint) {
