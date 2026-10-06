@@ -86,7 +86,7 @@ jobs:
           $maxAttempts = [int]$env:MAX_ATTEMPTS
           $autoRepair = $env:AUTO_REPAIR -eq "true"
           $publish = $env:PUBLISH_ON_PASS -eq "true"
-          $expectedCatalog = 1758
+          $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
 
