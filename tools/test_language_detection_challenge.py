@@ -49,12 +49,10 @@ if (!string.IsNullOrWhiteSpace(expectedHash) && !string.Equals(loadedHash, expec
     Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=FAIL_HASH_MISMATCH");
     Environment.Exit(2);
 }
-if (!string.IsNullOrWhiteSpace(expectedPath) && !string.Equals(Path.GetFullPath(loadedPath), Path.GetFullPath(expectedPath), StringComparison.OrdinalIgnoreCase))
-{
-    Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=FAIL_PATH_MISMATCH");
-    Environment.Exit(2);
-}
-Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=PASS");
+// ProjectReference normally copies the dependency into the challenge output
+// directory, so the runtime path is expected to differ from the source build path.
+// The byte-for-byte SHA-256 comparison is the authoritative provenance check.
+Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=PASS_HASH");
 var service = new LanguageIntelligenceService();
 var failures = 0;
 
