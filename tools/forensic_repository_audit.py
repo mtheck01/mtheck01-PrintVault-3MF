@@ -14,7 +14,7 @@ TEXT_EXTENSIONS = {
     ".py", ".cs", ".csproj", ".xaml", ".xml", ".json", ".md", ".txt", ".ps1",
     ".bat", ".cmd", ".yml", ".yaml", ".props", ".sln", ".iss", ".config"
 }
-SKIP_DIRS = {".git", "bin", "obj", "build_logs", "dist"}
+SKIP_DIRS = {".git", "bin", "obj"}
 
 VERSION_RE = re.compile(r"(?<![A-Za-z0-9_])(?:\d+\.\d+\.\d+)(?![A-Za-z0-9_])")
 URL_RE = re.compile(r'''https?://[^\s"'<>]+''')
@@ -127,12 +127,36 @@ def main():
 
         for match in TOOL_REF_RE.finditer(text):
             ref = match.group(0).replace("\\", "/").lstrip("./")
-            if not (ROOT / ref).exists():
+            target = ROOT / ref
+            classification = "current" if target.exists() else "broken"
+            findings.append({
+                "type": "tool-reference", "path": rel,
+                "line": line_number(text, match.start()),
+                "value": ref, "classification": classification
+            })
+            if not target.exists():
                 failures.append({
                     "type": "broken-tool-reference", "path": rel,
                     "line": line_number(text, match.start()),
                     "value": ref, "classification": "broken"
                 })
+
+        # Every executable test named by the autonomous workflow must physically exist.
+        if rel == ".github/workflows/autonomous-cycle.yml":
+            for test_name in re.findall(r'"(test_[A-Za-z0-9_.-]+\\.py)"', text):
+                test_path = ROOT / "tools" / test_name
+                line = line_number(text, text.find(test_name))
+                findings.append({
+                    "type": "workflow-test-reference", "path": rel,
+                    "line": line, "value": f"tools/{test_name}",
+                    "classification": "current" if test_path.exists() else "broken"
+                })
+                if not test_path.exists():
+                    failures.append({
+                        "type": "broken-test-reference", "path": rel,
+                        "line": line, "value": f"tools/{test_name}",
+                        "classification": "broken"
+                    })
 
         for match in TIMEOUT_RE.finditer(text):
             findings.append({
