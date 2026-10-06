@@ -747,8 +747,10 @@ jobs:
                 throw "Repeated whole-library diagnostic changed field=$field first=$($reportData.$field) repeat=$($reportRepeatData.$field)."
               }
             }
-            $fingerprint1 = ConvertTo-Json -InputObject @($reportData.rows) -Depth 20 -Compress
-            $fingerprint2 = ConvertTo-Json -InputObject @($reportRepeatData.rows) -Depth 20 -Compress
+            $fingerprintRows1 = @($reportData.rows | Sort-Object Id)
+            $fingerprintRows2 = @($reportRepeatData.rows | Sort-Object Id)
+            $fingerprint1 = ConvertTo-Json -InputObject $fingerprintRows1 -Depth 20 -Compress
+            $fingerprint2 = ConvertTo-Json -InputObject $fingerprintRows2 -Depth 20 -Compress
             $hash1 = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($fingerprint1)))
             $hash2 = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($fingerprint2)))
             if ($hash1 -ne $hash2) { throw "Repeated whole-library diagnostic produced different row evidence." }
