@@ -206,7 +206,7 @@ public sealed class MultilingualEntityService
     public MultilingualEntityMatch? Recognize(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
-        var normalized = text.Trim().ToLowerInvariant();
+        var normalized = TranslationAliasNormalizationModule.CanonicalizeAlias(text) ?? string.Empty;
         var matches = Rules
             .Select(rule => (rule, phrase: rule.Phrases.FirstOrDefault(p => ContainsPhrase(normalized, p))))
             .Where(x => x.phrase is not null)
