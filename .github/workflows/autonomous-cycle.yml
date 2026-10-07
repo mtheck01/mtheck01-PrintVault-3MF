@@ -4,8 +4,9 @@ on:
   push:
     branches: [main]
   schedule:
-    # Poll frequently enough to pick up API-created commits that do not emit push workflow events.
-    - cron: "*/10 * * * *"
+    # Safety poll for API-created commits that do not emit push workflow events.
+    # Push events remain the primary trigger; this poll is only a backstop.
+    - cron: "*/15 * * * *"
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -34,12 +35,11 @@ permissions:
   issues: write
 
 concurrency:
-  # The full library lifecycle can legitimately run longer than the 10-minute
-  # schedule interval. Never cancel an active engineering cycle just because the
-  # next scheduled poll starts. Queue pending validations instead of silently
-  # replacing them; the promotion guard rejects a stale main SHA before publishing.
+  # Exactly one cycle may run and at most one pending cycle may wait.
+  # A scheduled poll is a safety net, not a backlog generator. Never cancel the
+  # active engineering cycle, but replace obsolete pending polls with the newest one.
   group: printvault-autonomous-cycle
-  queue: max
+  queue: single
   cancel-in-progress: false
 
 jobs:
@@ -201,6 +201,26 @@ jobs:
                 exit 0
               }
               else {
+                # A failed scheduled validation does not change main. Re-running the
+                # exact same SHA every 10/15 minutes cannot repair anything in zero-credit
+                # mode; it only burns runner time and creates a misleading backlog.
+                # Treat a completed prior run for this exact SHA as a terminal scheduled
+                # attempt. A human can explicitly retry with workflow_dispatch.
+                $encodedSha = [System.Uri]::EscapeDataString($startingMainSha)
+                $priorRunsUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/autonomous-cycle.yml/runs?head_sha=$encodedSha&per_page=100"
+                $priorRuns = @(Invoke-RestMethod -Uri $priorRunsUri -Headers $headers -Method Get)
+                $priorCompletedRuns = @($priorRuns.workflow_runs | Where-Object {
+                  $_.id -ne [int64]$env:GITHUB_RUN_ID -and
+                  $_.status -eq "completed"
+                })
+                Write-Host "SCHEDULE_PRIOR_COMPLETED_RUNS_FOR_SHA=$($priorCompletedRuns.Count)"
+                if ($priorCompletedRuns.Count -gt 0) {
+                  $latestPrior = $priorCompletedRuns | Sort-Object -Property updated_at -Descending | Select-Object -First 1
+                  Write-Host "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED"
+                  Write-Host "SCHEDULE_PRIOR_RUN=$($latestPrior.run_number) CONCLUSION=$($latestPrior.conclusion) UPDATED=$($latestPrior.updated_at)"
+                  Write-CycleStatus "SKIPPED" "scheduled poll: exact main SHA $startingMainSha already has completed autonomous run #$($latestPrior.run_number); explicit dispatch required to retry"
+                  exit 0
+                }
                 Write-Host "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED"
               }
             } catch {
