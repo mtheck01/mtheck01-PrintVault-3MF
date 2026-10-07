@@ -353,14 +353,26 @@ public sealed class LibraryEngine : ILibraryEngine
     private static bool IsBuiltInOrUnresolved(string? category)
         => string.IsNullOrWhiteSpace(category) ||
            string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+           IsLegacyCategory(category) ||
            BuiltInCategories.All.Contains(category.Trim(), StringComparer.OrdinalIgnoreCase);
 
     private static bool IsLegacyCategory(string? category)
-        => category?.Trim() switch
-        {
-            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" or "Cosplay" or "Aviation" or "Aircraft" or "Automotive" or "Decor" or "Decorative" or "Figures" or "Gaming" or "Game Models" or "Multi-Color" or "Test Print" or "Test Prints" or "Other" or "Needs Review" => true,
-            _ => false
-        };
+    {
+        if (string.IsNullOrWhiteSpace(category)) return false;
+        var value = category.Trim();
+        if (value is "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "11_Test_Print" or
+            "Soap Holders" or "test eng 8.6" or "Cosplay" or "Aviation" or "Aircraft" or "Automotive" or
+            "Decor" or "Decorative" or "Figures" or "Gaming" or "Game Models" or "Multi-Color" or
+            "Test Print" or "Test Prints" or "Other" or "Needs Review")
+            return true;
+
+        // Older libraries also encoded the taxonomy as numbered folder names
+        // (for example 11_Test_Print). Treat every numbered taxonomy folder as
+        // legacy so it cannot be mistaken for user intent and preserved forever.
+        var i = 0;
+        while (i < value.Length && char.IsDigit(value[i])) i++;
+        return i > 0 && i < value.Length && value[i] is '_' or '-' or ' ';
+    }
 
     private static bool IsCustomCategory(string? category)
         => !string.IsNullOrWhiteSpace(category) &&
