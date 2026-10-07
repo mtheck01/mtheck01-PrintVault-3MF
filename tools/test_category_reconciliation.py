@@ -1,6 +1,8 @@
 from pathlib import Path
 root=Path(__file__).parents[1]
 svc=(root/'src/PrintVault.Infrastructure/CategoryReconciliationService.cs').read_text()
+engine=(root/'src/PrintVault.Infrastructure/LibraryEngine.cs').read_text()
+automation=(root/'tools/PrintVault.Automation/Program.cs').read_text()
 ui=(root/'src/PrintVault/MainWindow.xaml.cs').read_text()
 xaml=(root/'src/PrintVault/MainWindow.xaml').read_text()
 checks={
@@ -15,6 +17,8 @@ checks={
  'dedicated UI': 'CategoryReconciliationWindow' in ui and 'ReconcileCategories_Click' in ui,
  'smart cleanup invokes reconciliation': 'ReconcileCategories(showIfClean: true)' in ui,
  'dedicated menu action': 'Reconcile Categories' in xaml and 'Undo Last Category Reconciliation' in xaml,
+ 'numbered legacy taxonomy recognized by production engine': '11_Test_Print' in engine and 'IsLegacyCategory(category)' in engine,
+ 'numbered legacy taxonomy recognized by repair command': '11_Test_Print' in automation and 'IsLegacyCategory(model.Category)' in automation,
  'canonical targets': all(x in svc for x in (
         '"multicolor" => "Uncategorized"',
         '"testprint" => "Uncategorized"',
