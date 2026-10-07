@@ -15,7 +15,14 @@ checks={
  'dedicated UI': 'CategoryReconciliationWindow' in ui and 'ReconcileCategories_Click' in ui,
  'smart cleanup invokes reconciliation': 'ReconcileCategories(showIfClean: true)' in ui,
  'dedicated menu action': 'Reconcile Categories' in xaml and 'Undo Last Category Reconciliation' in xaml,
- 'canonical targets': 'Multi-Color' in svc and 'Test Prints' in svc and 'Aviation' in svc and 'Cosplay' in svc,
+ 'canonical targets': all(x in svc for x in (
+        '"multicolor" => "Uncategorized"',
+        '"testprint" => "Uncategorized"',
+        '"testprints" => "Uncategorized"',
+        '"aviation" => "Vehicles"',
+        '"aircraft" => "Vehicles"',
+        '"cosplay" => "Figures & Characters"',
+    )),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed: raise SystemExit('CATEGORY RECONCILIATION TEST FAILED: '+', '.join(failed))
