@@ -34,9 +34,9 @@ public sealed class ModelIntelligencePipeline
     }
 
     /// <summary>
-    /// Forensic analysis is read-only: it uses the same canonical stage graph as
-    /// production, while explicitly excluding only the stage whose responsibility
-    /// is production classification mutation.
+    /// Forensic analysis is read-only: it uses the exact same canonical stage graph
+    /// as production. Category mutation is performed only by EvidenceArbitrationStage,
+    /// so there is no separate production-only classification stage to skip.
     /// </summary>
     public ModelIntelligenceStageResult Analyze(ModelRecord source)
     {
