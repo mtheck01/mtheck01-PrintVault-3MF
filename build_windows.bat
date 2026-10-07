@@ -213,7 +213,7 @@ goto :fail
 
 :fail
 echo. >> "%LOG%"
-echo BUILD FAILED - inspect build_logs\build_output.log >> "%LOG%"
+echo BUILD FAILED - compiler diagnostics follow >> "%LOG%"
 echo.
 echo BUILD FAILED
 echo Full log: %LOG%
