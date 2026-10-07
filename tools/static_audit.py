@@ -41,7 +41,7 @@ checks = [
     ('SelectionChanged="Models_SelectionChanged"' in xaml, "selection changed event missing"),
     ("void Models_SelectionChanged" in code, "selection changed handler missing"),
     ("PreviousCategory" in (ROOT / "src/PrintVault.Infrastructure/OrganizationService.cs").read_text(), "undo metadata contract missing"),
-    ("ReparsePoint" in (ROOT / "src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(), "reparse-point protection missing"),
+    ("ReparsePoint" in (ROOT / "src/PrintVault.Infrastructure/LibraryFileDiscovery.cs").read_text(), "reparse-point protection missing from discovery module"),
     ("LibraryConsolidationService" in code and "UndoConsolidation_Click" in code, "smart consolidation integration missing"),
     ("CategoryReconciliationService" in code and "ReconcileCategories_Click" in code, "category reconciliation integration missing"),
     ("UndoCategoryReconciliation_Click" in code, "category reconciliation undo integration missing"),
