@@ -35,18 +35,29 @@ public sealed class ModelIntelligencePipeline
     }
 
     /// <summary>
-    /// Forensic analysis remains read-only and skips the production classification mutation stage.
+    /// Forensic analysis is read-only: it uses the same canonical stage graph as
+    /// production, while explicitly excluding only the stage whose responsibility
+    /// is production classification mutation.
     /// </summary>
     public ModelIntelligenceStageResult Analyze(ModelRecord source)
     {
+        ArgumentNullException.ThrowIfNull(source);
+
         var model = Clone(source);
         var context = new ModelIntelligenceContext(model);
-        new LanguageNormalizationStage().Execute(context);
-        new EntityRecognitionStage().Execute(context);
-        new SemanticFusionStage().Execute(context);
+
+        foreach (var stage in stages)
+        {
+            if (stage is EntityClassificationStage)
+                continue;
+
+            stage.Execute(context);
+        }
+
         context.StageEvidence.Add(context.Fusion is null
             ? "EVIDENCE:NONE"
             : $"EVIDENCE:{context.Fusion.EvidenceQuality}:{(context.Fusion.ReviewRequired ? "REVIEW" : "STABLE")}");
+
         return new ModelIntelligenceStageResult(
             model, context.Entity,
             context.Fusion ?? throw new InvalidOperationException("Semantic fusion stage did not produce a result."),
@@ -68,5 +79,4 @@ public sealed class ModelIntelligencePipeline
         OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
         TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence
     };
-
 }
