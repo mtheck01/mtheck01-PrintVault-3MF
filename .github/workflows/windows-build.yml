@@ -198,7 +198,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PrintVault-${{ hashFiles('VERSION') }}
+          name: PrintVault-${{ hashFiles('VERSION') }}-diagnostics
           path: |
             dist/installer/*.exe
             dist/PrintVault/PrintVault.exe
