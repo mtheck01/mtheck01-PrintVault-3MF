@@ -7,7 +7,6 @@ pipeline = (ROOT / "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs")
 stage_root = ROOT / "src/PrintVault.Infrastructure/Intelligence"
 
 language = (stage_root / "LanguageNormalizationStage.cs").read_text(encoding="utf-8")
-entity_classification = (stage_root / "EntityClassificationStage.cs").read_text(encoding="utf-8")
 entity_recognition = (stage_root / "EntityRecognitionStage.cs").read_text(encoding="utf-8")
 semantic_fusion = (stage_root / "SemanticFusionStage.cs").read_text(encoding="utf-8")
 arbitration = (stage_root / "EvidenceArbitrationStage.cs").read_text(encoding="utf-8")
@@ -25,15 +24,18 @@ assert 'intelligencePipeline.Apply(m);' in engine
 
 # Each intelligence responsibility has an explicit stage boundary.
 assert 'new LanguageNormalizationStage()' in pipeline
-assert 'new EntityClassificationStage()' in pipeline
+assert 'new EntityClassificationStage()' not in pipeline
+assert 'EntityClassificationService' not in pipeline
 assert 'new EntityRecognitionStage()' in pipeline
 assert 'new SemanticFusionStage()' in pipeline
 assert 'new EvidenceArbitrationStage()' in pipeline
 assert 'foreach (var stage in stages)' in pipeline
+assert 'if (stage is EntityClassificationStage)' not in pipeline
 
 # Stage contracts prove that responsibilities are no longer embedded in the orchestrator.
 assert 'service.Apply(context.Model);' in language
-assert 'service.Apply(context.Model);' in entity_classification
+assert 'AddTag(context.Model.SuggestedTags' in entity_recognition
+assert 'AddTag(context.Model.Tags' in entity_recognition
 assert 'service.Recognize(context.Model);' in entity_recognition
 assert 'service.Fuse(context.Model, context.Entity);' in semantic_fusion
 assert 'var actionable =' in arbitration
