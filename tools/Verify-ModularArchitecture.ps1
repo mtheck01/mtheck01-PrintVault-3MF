@@ -2,6 +2,9 @@ $ErrorActionPreference = "Stop"
 
 $pipeline = Get-Content "src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs" -Raw
 $engine = Get-Content "src/PrintVault.Infrastructure/LibraryEngine.cs" -Raw
+$discovery = Get-Content "src/PrintVault.Infrastructure/LibraryFileDiscovery.cs" -Raw
+$duplicateGroups = Get-Content "src/PrintVault.Infrastructure/DuplicateGroupBuilder.cs" -Raw
+
 $mainWindow = Get-Content "src/PrintVault/MainWindow.xaml.cs" -Raw
 
 $requiredPipeline = @(
@@ -61,5 +64,16 @@ if ($mainWindow -match "entityClassification\.Apply\(") {
     throw "Legacy EntityClassificationService bypass remains in MainWindow analysis path."
 }
 
+
+if ($engine -notmatch 'LibraryFileDiscovery fileDiscovery') { throw "LibraryEngine must depend on the canonical LibraryFileDiscovery boundary." }
+if ($engine -notmatch 'DuplicateGroupBuilder duplicateGroups') { throw "LibraryEngine must depend on the canonical DuplicateGroupBuilder boundary." }
+if ($engine -match 'SafeEnumerate3Mf') { throw "LibraryEngine must not own filesystem traversal; use LibraryFileDiscovery." }
+if ($engine -match 'GroupBy\(x => x\.Hash') { throw "LibraryEngine must not own duplicate-group derivation; use DuplicateGroupBuilder." }
+if ($discovery -notmatch 'Discover3MfFiles') { throw "LibraryFileDiscovery must expose Discover3MfFiles." }
+if ($discovery -notmatch 'ReparsePoint') { throw "LibraryFileDiscovery must retain reparse-point protection." }
+if ($duplicateGroups -notmatch 'GroupBy\(x => x\.Hash') { throw "DuplicateGroupBuilder must own deterministic hash grouping." }
+if ($duplicateGroups -notmatch 'Math\.Min\(12') { throw "DuplicateGroupBuilder must retain the canonical group-id truncation rule." }
+
+Write-Host "PASS: modular library boundaries are enforced."
 Write-Host "PASS: modular intelligence boundaries are enforced."
 Write-Host "PASS: forensic analysis uses the canonical stage graph."
