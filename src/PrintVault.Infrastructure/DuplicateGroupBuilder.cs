@@ -1,3 +1,5 @@
+using PrintVault.Core;
+
 namespace PrintVault.Infrastructure;
 
 /// <summary>
