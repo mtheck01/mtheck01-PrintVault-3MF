@@ -44,7 +44,6 @@ public sealed class EntitySemanticRegressionChallengeService
 {
     private readonly LibraryRepository production;
     private readonly MultilingualEntityService entities = new();
-    private readonly EntityClassificationService classifier = new();
 
     private sealed record ExpectedCase(string Id, string Description, string[] Phrases, string Entity, string Domain, string Category, string Subtype, bool Fixture = false);
 
@@ -165,9 +164,10 @@ public sealed class EntitySemanticRegressionChallengeService
         var entity = entities.Recognize(model);
         if (entity is not null)
         {
-            model.Category = "Uncategorized";
+            // Entity recognition is now a canonical modular stage. The regression
+            // challenge must not depend on the retired monolithic classifier service.
+            model.Category = entity.Category;
             model.CategoryOverride = false;
-            classifier.Apply(model);
         }
 
         var passed = entity is not null
