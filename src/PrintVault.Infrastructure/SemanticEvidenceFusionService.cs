@@ -376,6 +376,26 @@ public sealed class SemanticEvidenceFusionService
                 basis = "Source-derived analyzer semantics";
             }
         }
+        else if (entity is not null && IsContextualEntityWithArtifactCue(entity, best))
+        {
+            // A setting/landmark entity can identify the world or location referenced by
+            // the model without identifying the printable artifact itself. For example,
+            // "Hogwarts dragon" contains a real named entity (Hogwarts -> Buildings), but
+            // the printed object is the dragon figure. In this case the high-precision
+            // artifact cue is the correct catalog category and the named entity is retained
+            // as contextual evidence rather than allowed to promote its domain category.
+            var cue = best.Cue;
+            category = cue.Category;
+            type = cue.Type;
+            subtype = cue.Subtype;
+            family = cue.Family;
+            var cueConfidence = Math.Min(92, 58 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
+            classification = Math.Max(classification, cueConfidence);
+            identity = Math.Max(identity, Math.Min(88, cueConfidence));
+            basis = "Artifact lexical evidence + contextual named entity";
+            evidence.Add($"Contextual named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
+            evidence.Add($"Artifact cue outranks contextual entity category: {string.Join(", ", best.Hits)} -> {cue.Category}");
+        }
         else if (entity is not null)
         {
             // A recognized named entity is an independent identity/classification channel.
@@ -597,6 +617,24 @@ public sealed class SemanticEvidenceFusionService
         return new SemanticEvidenceFusionResult(category, type, subtype, family,
             Math.Clamp(identity, 0, 100), Math.Clamp(classification, 0, 100), quality, basis, review,
             evidence.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
+    private static bool IsContextualEntityWithArtifactCue(
+        MultilingualEntityMatch entity,
+        ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
+          string[] Hits) best)
+    {
+        if (best.Hits.Length == 0) return false;
+        if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
+        // by a model whose actual printable subject is a figure. Only treat the entity as
+        // contextual when its own subtype identifies a setting/structure/landmark; a normal
+        // building model still wins through the building lexical cue.
+        if (!string.Equals(entity.Category, "Buildings", StringComparison.OrdinalIgnoreCase)) return false;
+        return entity.Subtype.Contains("Building", StringComparison.OrdinalIgnoreCase) ||
+               entity.Subtype.Contains("Landmark", StringComparison.OrdinalIgnoreCase) ||
+               entity.Subtype.Contains("Castle", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string InferType(string category, string subtype)
