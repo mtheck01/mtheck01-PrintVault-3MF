@@ -8,6 +8,8 @@ public sealed class LibraryEngine : ILibraryEngine
     private readonly LibraryRepository repo = new();
     private readonly ThreeMfAnalyzer analyzer = new();
     private readonly ModelIntelligencePipeline intelligencePipeline = new();
+    private readonly LibraryFileDiscovery fileDiscovery = new();
+    private readonly DuplicateGroupBuilder duplicateGroups = new();
     public LibraryRepository Repository => repo;
 
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
@@ -20,10 +22,7 @@ public sealed class LibraryEngine : ILibraryEngine
             Environment.GetEnvironmentVariable("PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"),
             "1",
             StringComparison.OrdinalIgnoreCase);
-        var files = rootList
-            .SelectMany(SafeEnumerate3Mf)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var files = fileDiscovery.Discover3MfFiles(rootList);
 
         progress?.Report(new ScanProgress("Indexing", files.Length, 0, 0, 0, files.Length == 0 ? 100 : 0));
 
@@ -126,14 +125,7 @@ public sealed class LibraryEngine : ILibraryEngine
         var models = result.Where(x => x is not null).Select(x => x!).ToList();
 
         // Rebuild duplicate groups from scratch so resolved duplicates do not retain stale group IDs.
-        foreach (var m in models) m.DuplicateGroup = "";
-        foreach (var group in models.Where(x => !string.IsNullOrEmpty(x.Hash))
-                     .GroupBy(x => x.Hash, StringComparer.OrdinalIgnoreCase)
-                     .Where(g => g.Count() > 1))
-        {
-            var id = group.Key[..Math.Min(12, group.Key.Length)];
-            foreach (var m in group) m.DuplicateGroup = id;
-        }
+        duplicateGroups.Rebuild(models);
 
         repo.SaveAll(models, stale);
         return models.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -147,9 +139,7 @@ public sealed class LibraryEngine : ILibraryEngine
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var files = rootList.SelectMany(SafeEnumerate3Mf)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var files = fileDiscovery.Discover3MfFiles(rootList);
 
         var previous = repo.GetAllMap();
         progress?.Report(new ScanProgress("Rebuilding", files.Length, 0, 0, 0, files.Length == 0 ? 100 : 0));
@@ -251,14 +241,7 @@ public sealed class LibraryEngine : ILibraryEngine
 
         token.ThrowIfCancellationRequested();
         var models = result.Where(x => x is not null).Select(x => x!).ToList();
-        foreach (var m in models) m.DuplicateGroup = "";
-        foreach (var group in models.Where(x => !string.IsNullOrEmpty(x.Hash))
-                     .GroupBy(x => x.Hash, StringComparer.OrdinalIgnoreCase)
-                     .Where(g => g.Count() > 1))
-        {
-            var id = group.Key[..Math.Min(12, group.Key.Length)];
-            foreach (var m in group) m.DuplicateGroup = id;
-        }
+        duplicateGroups.Rebuild(models);
 
         // SaveAll with the old path set removes records for files that no longer exist.
         repo.SaveAll(models, new HashSet<string>(previous.Keys, StringComparer.OrdinalIgnoreCase));
@@ -396,31 +379,6 @@ public sealed class LibraryEngine : ILibraryEngine
         }
         catch { }
         return null;
-    }
-
-    private static IEnumerable<string> SafeEnumerate3Mf(string root)
-    {
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            var dir = pending.Pop();
-            try
-            {
-                var info = new DirectoryInfo(dir);
-                if ((info.Attributes & FileAttributes.ReparsePoint) != 0 && !string.Equals(Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                    continue;
-            }
-            catch { continue; }
-
-            string[] files;
-            try { files = Directory.GetFiles(dir, "*.3mf", SearchOption.TopDirectoryOnly); } catch { files = Array.Empty<string>(); }
-            foreach (var file in files) yield return file;
-
-            string[] dirs;
-            try { dirs = Directory.GetDirectories(dir); } catch { dirs = Array.Empty<string>(); }
-            foreach (var child in dirs) pending.Push(child);
-        }
     }
 
     private static async Task<string> HashAsync(string path, CancellationToken ct)
