@@ -5,6 +5,14 @@ namespace PrintVault.Infrastructure;
 /// </summary>
 public sealed class DuplicateGroupBuilder
 {
+    public int CountDuplicateGroups(IEnumerable<ModelRecord> models)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        return models.Where(x => !string.IsNullOrEmpty(x.Hash))
+            .GroupBy(x => x.Hash, StringComparer.OrdinalIgnoreCase)
+            .Count(g => g.Count() > 1);
+    }
+
     public void Rebuild(IList<ModelRecord> models)
     {
         ArgumentNullException.ThrowIfNull(models);
