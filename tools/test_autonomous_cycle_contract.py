@@ -5,7 +5,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "queue: max",
+    "queue: single",
     "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
@@ -35,9 +35,15 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 # A full-library cycle may legitimately exceed the 10-minute schedule interval.
 # A later scheduled poll must queue rather than cancel the active forensic run.
-assert "queue: max" in workflow
+assert "queue: single" in workflow
+assert "queue: max" not in workflow
 assert "cancel-in-progress: false" in workflow
 assert "cancel-in-progress: true" not in workflow
+assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
+assert "actions/workflows/autonomous-cycle.yml/runs?head_sha=" in workflow
+assert 'explicit dispatch required to retry' in workflow
+assert '$_.status -eq "completed"' in workflow
+assert '$_.id -ne [int64]$env:GITHUB_RUN_ID' in workflow
 
 # Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
