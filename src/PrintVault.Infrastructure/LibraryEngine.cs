@@ -328,7 +328,7 @@ public sealed class LibraryEngine : ILibraryEngine
     {
         token.ThrowIfCancellationRequested();
         var all = repo.GetAll();
-        var dup = all.Where(x => !string.IsNullOrEmpty(x.Hash)).GroupBy(x => x.Hash, StringComparer.OrdinalIgnoreCase).Count(g => g.Count() > 1);
+        var dup = duplicateGroups.CountDuplicateGroups(all);
         return Task.FromResult(new LibraryStats(all.Count, all.Count(m => m.Favorite), dup, all.Count(m => m.IntelligenceScore < .5), all.Sum(m => m.Size), all.Count(m => !m.HasThumbnail)));
     }
 
