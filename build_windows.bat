@@ -217,6 +217,10 @@ echo BUILD FAILED - compiler diagnostics follow >> "%LOG%"
 echo.
 echo BUILD FAILED
 echo Full log: %LOG%
+echo.
+echo ---------------- BUILD LOG ----------------
+type "%LOG%"
+echo ---------------- END BUILD LOG ----------------
 echo The window will remain open.
 echo.
 if /I "%PRINTVAULT_CI%"=="1" exit /b 1
