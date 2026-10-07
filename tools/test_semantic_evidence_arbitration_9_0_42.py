@@ -12,6 +12,8 @@ checks = [
     ("final aviation gate cannot override strong analyzer", "if (aviationConvergence && !strongSourceDerivedAnalyzer)" in fusion),
     ("analyzer family has deterministic fallback", "InferFamily(analyzerCategory)" in fusion),
     ("confidence calibration remains present", "value * 100.0" in fusion),
+    ("contextual setting entities cannot override figure artifact cues", "IsContextualEntityWithArtifactCue" in fusion and "Artifact lexical evidence + contextual named entity" in fusion),
+    ("Hogwarts-style building entity is treated as contextual for figures", "entity.Subtype.Contains(\"Castle\"" in fusion and "best.Cue.Category, \"Figures & Characters\"" in fusion),
 ]
 
 failed = [name for name, ok in checks if not ok]
@@ -35,3 +37,4 @@ print("SEMANTIC EVIDENCE 9.0.42 ARBITRATION AUDIT PASSED")
 # fusion must retain the entity category instead of assigning the empty analyzerCategory.
 assert "category = entity.Category;" in fusion
 assert 'basis = "Named entity evidence"' in fusion
+\n# Regression: a named setting entity must not override a high-precision artifact subject cue.\nassert "Contextual named entity:" in fusion\nassert "Artifact cue outranks contextual entity category:" in fusion\n
