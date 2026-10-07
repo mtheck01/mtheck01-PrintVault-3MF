@@ -24,16 +24,16 @@ public sealed class LibraryEngine : ILibraryEngine
             StringComparison.OrdinalIgnoreCase);
         var files = fileDiscovery.Discover3MfFiles(rootList);
 
-        progress?.Report(new ScanProgress("Indexing", files.Length, 0, 0, 0, files.Length == 0 ? 100 : 0));
+        progress?.Report(new ScanProgress("Indexing", files.Count, 0, 0, 0, files.Count == 0 ? 100 : 0));
 
         var existing = repo.GetAllMap();
-        var result = new ModelRecord?[files.Length];
+        var result = new ModelRecord?[files.Count];
         var stale = new HashSet<string>(existing.Keys, StringComparer.OrdinalIgnoreCase);
         var n = 0;
         var indexed = 0;
         var failed = 0;
 
-        await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions
+        await Parallel.ForEachAsync(Enumerable.Range(0, files.Count), new ParallelOptions
         {
             MaxDegreeOfParallelism = autonomousClassificationOnly ? Math.Clamp(Environment.ProcessorCount, 2, 6) : Math.Clamp(Environment.ProcessorCount, 4, 12),
             CancellationToken = token
@@ -115,8 +115,8 @@ public sealed class LibraryEngine : ILibraryEngine
             finally
             {
                 var processed = Interlocked.Increment(ref n);
-                var pct = processed * 100 / Math.Max(1, files.Length);
-                progress?.Report(new ScanProgress("Indexing", files.Length, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct));
+                var pct = processed * 100 / Math.Max(1, files.Count);
+                progress?.Report(new ScanProgress("Indexing", files.Count, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct));
             }
         });
 
@@ -142,15 +142,15 @@ public sealed class LibraryEngine : ILibraryEngine
         var files = fileDiscovery.Discover3MfFiles(rootList);
 
         var previous = repo.GetAllMap();
-        progress?.Report(new ScanProgress("Rebuilding", files.Length, 0, 0, 0, files.Length == 0 ? 100 : 0));
-        var result = new ModelRecord?[files.Length];
+        progress?.Report(new ScanProgress("Rebuilding", files.Count, 0, 0, 0, files.Count == 0 ? 100 : 0));
+        var result = new ModelRecord?[files.Count];
         var n = 0;
         var indexed = 0;
         var failed = 0;
         var reclassified = 0;
         var preservedCustom = 0;
 
-        await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions
+        await Parallel.ForEachAsync(Enumerable.Range(0, files.Count), new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 12),
             CancellationToken = token
@@ -234,8 +234,8 @@ public sealed class LibraryEngine : ILibraryEngine
             finally
             {
                 var processed = Interlocked.Increment(ref n);
-                var pct = processed * 100 / Math.Max(1, files.Length);
-                progress?.Report(new ScanProgress("Rebuilding", files.Length, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct));
+                var pct = processed * 100 / Math.Max(1, files.Count);
+                progress?.Report(new ScanProgress("Rebuilding", files.Count, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct));
             }
         });
 
@@ -248,7 +248,7 @@ public sealed class LibraryEngine : ILibraryEngine
         var persisted = repo.GetAll();
         if (persisted.Count != models.Count)
             throw new InvalidOperationException($"Rebuild reconciliation failed: produced {models.Count:N0} records but database read-back returned {persisted.Count:N0}.");
-        return new LibraryRebuildResult(models.Count, reclassified, preservedCustom, failed, files.Length);
+        return new LibraryRebuildResult(models.Count, reclassified, preservedCustom, failed, files.Count);
     }
 
     public async Task<(int Models, int Reclassified, int Failed)> ReconcileCategoriesAsync(
