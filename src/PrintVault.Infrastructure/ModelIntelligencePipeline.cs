@@ -18,7 +18,6 @@ public sealed class ModelIntelligencePipeline
     private readonly IModelIntelligenceStage[] stages =
     {
         new LanguageNormalizationStage(),
-        new EntityClassificationStage(),
         new EntityRecognitionStage(),
         new SemanticFusionStage(),
         new EvidenceArbitrationStage()
@@ -47,12 +46,7 @@ public sealed class ModelIntelligencePipeline
         var context = new ModelIntelligenceContext(model);
 
         foreach (var stage in stages)
-        {
-            if (stage is EntityClassificationStage)
-                continue;
-
             stage.Execute(context);
-        }
 
         context.StageEvidence.Add(context.Fusion is null
             ? "EVIDENCE:NONE"
