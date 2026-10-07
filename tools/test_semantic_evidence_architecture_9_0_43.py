@@ -51,3 +51,9 @@ assert 'result.ClassificationConfidence >= 60' in arbitration
 assert 'result.EvidenceQuality >= 25' in arbitration
 
 print("PASS: 9.0.43 modular semantic architecture gate")
+
+# Duplicate derivation is a single-owner boundary: statistics and rebuilds both flow through DuplicateGroupBuilder.
+duplicates = (ROOT / "src/PrintVault.Infrastructure/DuplicateGroupBuilder.cs").read_text(encoding="utf-8")
+assert "CountDuplicateGroups" in duplicates
+assert "duplicateGroups.CountDuplicateGroups(all)" in engine
+assert "GroupBy(x => x.Hash" not in engine
