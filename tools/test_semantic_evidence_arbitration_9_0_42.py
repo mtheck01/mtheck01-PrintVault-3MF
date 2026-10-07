@@ -37,4 +37,7 @@ print("SEMANTIC EVIDENCE 9.0.42 ARBITRATION AUDIT PASSED")
 # fusion must retain the entity category instead of assigning the empty analyzerCategory.
 assert "category = entity.Category;" in fusion
 assert 'basis = "Named entity evidence"' in fusion
-\n# Regression: a named setting entity must not override a high-precision artifact subject cue.\nassert "Contextual named entity:" in fusion\nassert "Artifact cue outranks contextual entity category:" in fusion\n
+
+# Regression: a named setting entity must not override a high-precision artifact subject cue.
+assert "Contextual named entity:" in fusion
+assert "Artifact cue outranks contextual entity category:" in fusion
