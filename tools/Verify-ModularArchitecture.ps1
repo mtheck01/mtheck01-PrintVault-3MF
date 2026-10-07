@@ -9,7 +9,6 @@ $mainWindow = Get-Content "src/PrintVault/MainWindow.xaml.cs" -Raw
 
 $requiredPipeline = @(
     "new LanguageNormalizationStage()",
-    "new EntityClassificationStage()",
     "new EntityRecognitionStage()",
     "new SemanticFusionStage()",
     "new EvidenceArbitrationStage()"
