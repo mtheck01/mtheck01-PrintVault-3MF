@@ -17,6 +17,28 @@ foreach ($token in $requiredPipeline) {
     }
 }
 
+# Production and forensic analysis must share the same stage graph. Forensic
+# analysis may skip only the production classification mutation stage; it must
+# not instantiate a second, partial pipeline that can drift independently.
+if ($pipeline -notmatch "foreach \(var stage in stages\)") {
+    throw "Canonical stage graph is not iterated by the intelligence pipeline."
+}
+if ($pipeline -notmatch "if \(stage is EntityClassificationStage\)") {
+    throw "Forensic analysis does not explicitly isolate the production classification mutation stage."
+}
+if ($pipeline -match "new LanguageNormalizationStage\(\)\.Execute\(context\)") {
+    throw "Forensic analysis contains a direct stage instantiation and bypasses the canonical stage graph."
+}
+if ($pipeline -match "new EntityRecognitionStage\(\)\.Execute\(context\)") {
+    throw "Forensic analysis contains a direct stage instantiation and bypasses the canonical stage graph."
+}
+if ($pipeline -match "new SemanticFusionStage\(\)\.Execute\(context\)") {
+    throw "Forensic analysis contains a direct stage instantiation and bypasses the canonical stage graph."
+}
+if ($pipeline -match "new EvidenceArbitrationStage\(\)\.Execute\(context\)") {
+    throw "Forensic analysis contains a direct stage instantiation and bypasses the canonical stage graph."
+}
+
 if ($engine -match "entityClassification\.Apply\(") {
     throw "Legacy EntityClassificationService bypass remains in LibraryEngine."
 }
@@ -40,3 +62,4 @@ if ($mainWindow -match "entityClassification\.Apply\(") {
 }
 
 Write-Host "PASS: modular intelligence boundaries are enforced."
+Write-Host "PASS: forensic analysis uses the canonical stage graph."
