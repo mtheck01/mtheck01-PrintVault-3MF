@@ -51,36 +51,57 @@ public sealed class ComponentAwareGeometryResolver
     private static (long V, long T) Walk(string modelPath, int id, Dictionary<string, ModelPart> models, Dictionary<int, List<string>> global, Dictionary<string, List<string>> relationships, HashSet<(string Path, int Id)> seen, int depth, ref int refs, ref int unresolved, ref int cycles)
     {
         if (depth > MaxDepth) return (0, 0);
-        if (!seen.Add((modelPath, id))) { cycles++; return (0, 0); }
-        if (!models.TryGetValue(modelPath, out var model) || !model.Objects.TryGetValue(id, out var obj)) { unresolved++; return (0, 0); }
 
-        long v = obj.Vertices, t = obj.Triangles;
-        foreach (var target in obj.Components)
+        var key = (modelPath, id);
+        // Track only the current recursion stack, not every node visited by sibling
+        // branches. The same component can legitimately be instantiated multiple times;
+        // a global visited set incorrectly classified shared references as cycles and
+        // under-counted reachable geometry.
+        if (!seen.Add(key)) { cycles++; return (0, 0); }
+
+        try
         {
-            refs++;
-            if (model.Objects.ContainsKey(target))
-            {
-                var nested = Walk(modelPath, target, models, global, relationships, seen, depth + 1, ref refs, ref unresolved, ref cycles);
-                v += nested.V; t += nested.T;
-                continue;
-            }
-
-            var candidates = global.TryGetValue(target, out var paths)
-                ? paths.Where(p => !string.Equals(p, modelPath, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-                : new List<string>();
-            if (candidates.Count == 1 && RelationshipAllows(modelPath, candidates[0], relationships))
-            {
-                var targetPath = candidates[0];
-                var nested = Walk(targetPath, target, models, global, relationships, seen, depth + 1, ref refs, ref unresolved, ref cycles);
-                v += nested.V; t += nested.T;
-            }
-            else if (candidates.Count == 1)
+            if (!models.TryGetValue(modelPath, out var model) || !model.Objects.TryGetValue(id, out var obj))
             {
                 unresolved++;
+                return (0, 0);
             }
-            else if (candidates.Count == 0) unresolved++;
+
+            long v = obj.Vertices, t = obj.Triangles;
+            foreach (var target in obj.Components)
+            {
+                refs++;
+                if (model.Objects.ContainsKey(target))
+                {
+                    var nested = Walk(modelPath, target, models, global, relationships, seen, depth + 1, ref refs, ref unresolved, ref cycles);
+                    v += nested.V; t += nested.T;
+                    continue;
+                }
+
+                var candidates = global.TryGetValue(target, out var paths)
+                    ? paths.Where(p => !string.Equals(p, modelPath, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                    : new List<string>();
+                if (candidates.Count == 1 && RelationshipAllows(modelPath, candidates[0], relationships))
+                {
+                    var targetPath = candidates[0];
+                    var nested = Walk(targetPath, target, models, global, relationships, seen, depth + 1, ref refs, ref unresolved, ref cycles);
+                    v += nested.V; t += nested.T;
+                }
+                else if (candidates.Count == 1)
+                {
+                    unresolved++;
+                }
+                else if (candidates.Count == 0)
+                {
+                    unresolved++;
+                }
+            }
+            return (v, t);
         }
-        return (v, t);
+        finally
+        {
+            seen.Remove(key);
+        }
     }
 
     private static bool RelationshipAllows(string source, string target, Dictionary<string, List<string>> relationships)
