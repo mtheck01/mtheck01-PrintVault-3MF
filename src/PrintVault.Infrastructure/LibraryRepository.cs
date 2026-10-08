@@ -258,7 +258,7 @@ Name=$n,Category=$c,Size=$s,ModifiedUtc=$d,ThumbnailPath=$t,Favorite=$f,Tags=$ta
     {
         var destination = string.IsNullOrWhiteSpace(destinationPath)
             ? Path.Combine(Path.GetDirectoryName(db) ?? Environment.CurrentDirectory,
-                $"library.backup.{DateTime.UtcNow:yyyyMMdd-HHmmss}.db")
+                $"library.backup.{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.db")
             : Path.GetFullPath(destinationPath);
         var directory = Path.GetDirectoryName(destination);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
