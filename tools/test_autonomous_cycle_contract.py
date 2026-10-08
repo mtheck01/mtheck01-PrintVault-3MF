@@ -157,6 +157,6 @@ assert "explicit dispatch required to retry" not in workflow
 
 # Repository identity is fail-closed. The old repository path that caused connector
 # 404s must never re-enter the autonomous chain.
-legacy_repo = "mtheck01/PrintVault-3MF"
+legacy_repo = "mtheck01/" + "PrintVault-3MF"
 assert legacy_repo not in workflow
 assert "mtheck01/mtheck01-PrintVault-3MF" in workflow
