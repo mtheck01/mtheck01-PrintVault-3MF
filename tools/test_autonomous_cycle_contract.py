@@ -6,7 +6,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 required = [
     "concurrency:",
     "queue: single",
-    "cancel-in-progress: false",
+    "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
     'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
@@ -37,7 +37,7 @@ assert "repair $report $expectedCatalog" in workflow or \
 # A later scheduled poll must queue rather than cancel the active forensic run.
 assert "queue: single" in workflow
 assert "queue: max" not in workflow
-assert 'cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}' in workflow
+assert "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}" in workflow
 assert "cancel-in-progress: false" not in workflow
 assert "cancel-in-progress: true" not in workflow
 assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
