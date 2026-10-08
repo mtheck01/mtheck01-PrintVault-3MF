@@ -67,6 +67,13 @@ assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "WHOLE_LIBRARY_GATE_CLEAN=TRUE" in workflow
 assert "WHOLE_LIBRARY_GATE_CLEAN=FALSE" in workflow
 assert "if ($r.Conflicts -eq 0 -and $r.AnalyzedConflicts -eq 0 -and $actionable -eq 0)" in workflow
+assert "git push origin \"HEAD:refs/heads/main\" \"--force-with-lease=refs/heads/main:$promotionBase\"" not in workflow
+assert 'git push origin "HEAD:refs/heads/main"' in workflow
+assert "Promotion revalidation failed after main changed" in workflow
+assert "PROMOTION_RECHECK_TWO_PASS=PASS" in workflow
+assert "FINAL_APP_SMOKE_PROMOTED=PASS" in workflow
+assert "SCAN_FAILED=" in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
+assert "SCAN_ACCOUNTING=PASS" in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
 assert "expected 40, found" in workflow
