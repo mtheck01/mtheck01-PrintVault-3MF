@@ -111,7 +111,18 @@ public sealed class LibraryEngine : ILibraryEngine
                 Interlocked.Increment(ref indexed);
             }
             catch (OperationCanceledException) { throw; }
-            catch { Interlocked.Increment(ref failed); }
+            catch
+            {
+                // A transient per-file analysis/enrichment failure must never turn
+                // an existing catalog record into a "stale" record. Preserve the
+                // last known record while reporting the failure so the next scan
+                // can retry the file instead of silently deleting it from the DB.
+                if (existing.TryGetValue(path, out var previous) && File.Exists(path))
+                {
+                    result[i] = previous;
+                }
+                Interlocked.Increment(ref failed);
+            }
             finally
             {
                 var processed = Interlocked.Increment(ref n);
