@@ -166,3 +166,5 @@ assert "mtheck01/mtheck01-PrintVault-3MF" in workflow
 assert "Any remaining conflict is a non-passing state" in workflow
 assert "if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }" not in workflow
 assert "return "FAIL"" in workflow
+
+# CI forensic revalidation marker: gate semantics must remain zero-conflict-only.
