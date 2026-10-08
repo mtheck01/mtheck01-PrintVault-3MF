@@ -1,6 +1,8 @@
 from pathlib import Path
 root=Path(__file__).parents[1]
 svc=(root/'src/PrintVault.Infrastructure/SmartCategoryReconciliationService.cs').read_text(encoding='utf-8')
+pipeline=(root/'src/PrintVault.Infrastructure/ModelIntelligencePipeline.cs').read_text(encoding='utf-8')
+arbitration=(root/'src/PrintVault.Infrastructure/Intelligence/EvidenceArbitrationStage.cs').read_text(encoding='utf-8')
 models=(root/'src/PrintVault.Core/Models.cs').read_text(encoding='utf-8')
 ui=(root/'src/PrintVault/MainWindow.xaml.cs').read_text(encoding='utf-8')
 xaml=(root/'src/PrintVault/MainWindow.xaml').read_text(encoding='utf-8')
@@ -17,6 +19,7 @@ checks={
  'undo UI': 'UndoSmartCategoryReview_Click' in ui,
  'menu': 'Smart Category Review' in xaml,
  'duplicate manager grid': 'MinWidth = 900' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text(encoding='utf-8') and 'HorizontalContentAlignment = HorizontalAlignment.Stretch' in (root/'src/PrintVault/DuplicateManagerWindow.cs').read_text(),
+ 'protected categories still receive intelligence metadata': 'if (model is null) return false;' in pipeline and 'if (model.CategoryOverride)' in arbitration and 'CATEGORY_OVERRIDE_PROTECTED' in arbitration,
 }
 failed=[k for k,v in checks.items() if not v]
 if failed: raise SystemExit('SMART CATEGORY REVIEW TEST FAILED: '+', '.join(failed))
