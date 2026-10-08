@@ -16,6 +16,8 @@ checks = {
     "scan failure preserves existing catalog record": "existing.TryGetValue(path, out var previous)" in engine_code and "result[i] = previous;" in engine_code,
     "scan failure only preserves existing file": "existing.TryGetValue(path, out var previous) && File.Exists(path)" in engine_code,
     "scan reports failure instead of deleting record": "Interlocked.Increment(ref failed);" in engine_code and "repo.SaveAll(models, stale);" in engine_code,
+    "rebuild fails closed before catalog commit": "if (failed > 0)" in engine_code and "The existing catalog was left unchanged" in engine_code,
+    "rebuild requires full discovered-file count": "persisted.Count != models.Count || persisted.Count != files.Count" in engine_code,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
