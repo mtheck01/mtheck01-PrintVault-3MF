@@ -37,7 +37,8 @@ assert "repair $report $expectedCatalog" in workflow or \
 # A later scheduled poll must queue rather than cancel the active forensic run.
 assert "queue: single" in workflow
 assert "queue: max" not in workflow
-assert "cancel-in-progress: false" in workflow
+assert 'cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}' in workflow
+assert "cancel-in-progress: false" not in workflow
 assert "cancel-in-progress: true" not in workflow
 assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
 assert "actions/workflows/autonomous-cycle.yml/runs?head_sha=" in workflow
