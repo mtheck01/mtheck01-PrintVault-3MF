@@ -47,10 +47,19 @@ bool IsLegacyCategory(string? category)
 {
     if (string.IsNullOrWhiteSpace(category)) return false;
     var value = category.Trim();
-    if (value is "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "11_Test_Print" or
-        "Soap Holders" or "test eng 8.6" or "Cosplay" or "Aviation" or "Aircraft" or "Automotive" or
-        "Decor" or "Decorative" or "Figures" or "Gaming" or "Game Models" or "Multi-Color" or
-        "Test Print" or "Test Prints" or "Other" or "Needs Review")
+    if (value is
+        "02_Functional" or "02_Household" or
+        "03_Automotive" or "07_Automotive" or "Automotive" or
+        "03_Decor" or "06_Decorative" or "Decor" or "Decorative" or
+        "04_Figures" or "Figures" or
+        "05_Game_Models" or "05_Gaming" or "Gaming" or "Game Models" or
+        "06_Cosplay" or "Cosplay" or
+        "08_Aviation" or "09_Aircraft" or "Aviation" or "Aircraft" or
+        "09_Models" or "Models" or
+        "07_Multi_Color" or "10_Multi_Color" or "Multi_Color" or "Multi-Color" or
+        "08_Test_Print" or "11_Test_Print" or "Test_Print" or "Test Print" or "Test Prints" or
+        "99_Other" or "Other" or "Needs Review" or
+        "Soap Holders" or "test eng 8.6")
         return true;
 
     var i = 0;
