@@ -41,7 +41,7 @@ checks = [
     ("role evidence is explicit", "Role-aware artifact arbitration:" in fusion),
     ("role branch precedes generic lexical promotion", "else if (hasGeneralizedArtifactRole)" in fusion and
         fusion.index("else if (hasGeneralizedArtifactRole)") <
-        fusion.index("else if (cueHits.Count > 0 && best.Hits.Length > 0)")),
+        fusion.index("else if (cueHits.Count > 0 && bestHits.Length > 0)")),
     ("subject lexical cues are explicitly prevented from winning", "subject-domain lexical cues" in fusion),
     ("generic suffixes cannot promote without context", "ContextualArtifactRoleSuffixes.Contains(role" in fusion and "HasContextualArtifactRole(subject, role)" in fusion),
     ("bounded role grammar is not a free-form contains rule", "not a free-form" in fusion),
