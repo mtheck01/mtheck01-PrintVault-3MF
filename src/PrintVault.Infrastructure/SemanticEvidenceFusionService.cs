@@ -260,11 +260,13 @@ public sealed class SemanticEvidenceFusionService
             .ToList();
         var explicitRole = roleHits.FirstOrDefault();
 
-        var best = cueHits.FirstOrDefault();
-        // FirstOrDefault() on an empty value-tuple sequence returns the default tuple.
-        // Its Hits array is null. Treat that state as an empty hit set so records with
-        // no lexical cue cannot crash semantic fusion while evaluating optional evidence.
-        var bestHits = best.Hits ?? Array.Empty<string>();
+        // Do not retain FirstOrDefault()'s default value-tuple as a sentinel. A default
+        // tuple has null reference fields (including Cue.Terms and Hits), which made the
+        // original 43-file failure population capable of escaping through optional
+        // arbitration paths. Represent absence explicitly and only dereference a real cue.
+        var hasBestCue = cueHits.Count > 0;
+        var bestCue = hasBestCue ? cueHits[0].Cue : default;
+        var bestHits = hasBestCue ? cueHits[0].Hits : Array.Empty<string>();
         var aviationIdentityHits = AviationIdentityTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDomainHits = AviationDomainTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDescriptorHits = aviationIdentityHits.Length > 0
@@ -362,7 +364,7 @@ public sealed class SemanticEvidenceFusionService
             }
             else if (cueHits.Count > 0 && bestHits.Length > 0)
             {
-                var lexicalCategory = best.Cue.Category;
+                var lexicalCategory = bestCue.Category;
                 if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Source-derived analyzer + lexical corroboration";
@@ -380,7 +382,7 @@ public sealed class SemanticEvidenceFusionService
                 basis = "Source-derived analyzer semantics";
             }
         }
-        else if (entity is not null && IsContextualEntityWithArtifactCue(entity, best))
+        else if (entity is not null && hasBestCue && IsContextualEntityWithArtifactCue(entity, bestCue, bestHits))
         {
             // A setting/landmark entity can identify the world or location referenced by
             // the model without identifying the printable artifact itself. For example,
@@ -388,7 +390,7 @@ public sealed class SemanticEvidenceFusionService
             // the printed object is the dragon figure. In this case the high-precision
             // artifact cue is the correct catalog category and the named entity is retained
             // as contextual evidence rather than allowed to promote its domain category.
-            var cue = best.Cue;
+            var cue = bestCue;
             category = cue.Category;
             type = cue.Type;
             subtype = cue.Subtype;
@@ -419,7 +421,7 @@ public sealed class SemanticEvidenceFusionService
             evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
             if (cueHits.Count > 0 && bestHits.Length > 0)
             {
-                var lexicalCategory = best.Cue.Category;
+                var lexicalCategory = bestCue.Category;
                 if (string.Equals(lexicalCategory, entity.Category, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Named entity + lexical corroboration";
@@ -434,7 +436,7 @@ public sealed class SemanticEvidenceFusionService
         }
         else if (cueHits.Count > 0 && bestHits.Length > 0)
         {
-            var cue = best.Cue;
+            var cue = bestCue;
             category = cue.Category; type = cue.Type; subtype = cue.Subtype; family = cue.Family;
             var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (bestHits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
