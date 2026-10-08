@@ -19,6 +19,8 @@ checks = {
     "missing_source_warning": "Source file no longer exists" in svc,
     "empty_folder_only": "Directory.EnumerateFileSystemEntries(dir).Any()" in svc,
     "3mf_only": 'EnumerateFiles(dir, "*.3mf"' in svc,
+    "root_3mf_included": 'EnumerateFiles(root, "*.3mf", SearchOption.TopDirectoryOnly)' in svc and "DetermineRootFileTarget" in svc,
+    "root_classification_source": "Model intelligence category resolved from root" in svc and "Root-level file has no resolved category" in svc,
     "search_label": "SEARCH YOUR 3MF LIBRARY" in (ROOT / "src/PrintVault/MainWindow.xaml").read_text(),
     "review_checkbox_behavior": "SetReviewSelection" in ui,
 }
