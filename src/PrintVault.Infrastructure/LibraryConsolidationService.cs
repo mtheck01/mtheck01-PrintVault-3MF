@@ -296,13 +296,15 @@ public sealed class LibraryConsolidationService
             string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase))
             return (null, "Root-level file has no resolved category", "Review", true);
 
-        var actual = FindCategory(categories, category);
-        if (actual == null)
-            return (null, "Root-level file category is not in the active taxonomy", "Review", true);
+        // Resolve through the same canonical alias map used for legacy folders. Do not
+        // trust a legacy category merely because it still exists in the user registry.
+        var canonical = BuildCanonicalMap(categories);
+        if (!canonical.TryGetValue(Normalize(category), out var actual))
+            return (null, "Root-level file category is not in the active canonical taxonomy", "Review", true);
 
         return model?.CategoryOverride == true
-            ? (actual, "Preserved custom category override from root", "High", false)
-            : (actual, "Model intelligence category resolved from root", "High", false);
+            ? (actual, "Preserved category override resolved to canonical taxonomy", "High", false)
+            : (actual, "Model intelligence category resolved to canonical taxonomy", "High", false);
     }
 
     private (string? Target, string Reason, string Confidence, bool NeedsReview) DetermineTarget(
@@ -361,9 +363,9 @@ public sealed class LibraryConsolidationService
         Add("03_Decor", "Art & Decor"); Add("06_Decorative", "Art & Decor"); Add("Art & Decor", "Art & Decor"); Add("Decor", "Art & Decor");
         Add("04_Figures", "Figures & Characters"); Add("Figures", "Figures & Characters"); Add("Figures & Characters", "Figures & Characters");
         Add("05_Game_Models", "Toys & Games"); Add("05_Gaming", "Toys & Games"); Add("Gaming", "Toys & Games"); Add("Toys & Games", "Toys & Games");
-        Add("08_Aviation", "Aviation"); Add("09_Aircraft", "Aviation"); Add("Aviation", "Aviation"); Add("Aircraft", "Aviation");
-        Add("07_Multi_Color", "Multi-Color"); Add("10_Multi_Color", "Multi-Color"); Add("Multi_Color", "Multi-Color"); Add("Multi-Color", "Multi-Color");
-        Add("08_Test_Print", "Test Prints"); Add("11_Test_Print", "Test Prints"); Add("Test_Print", "Test Prints"); Add("Test Prints", "Test Prints");
+        Add("08_Aviation", "Vehicles"); Add("09_Aircraft", "Vehicles"); Add("Aviation", "Vehicles"); Add("Aircraft", "Vehicles");
+        Add("07_Multi_Color", "Uncategorized"); Add("10_Multi_Color", "Uncategorized"); Add("Multi_Color", "Uncategorized"); Add("Multi-Color", "Uncategorized");
+        Add("08_Test_Print", "Uncategorized"); Add("11_Test_Print", "Uncategorized"); Add("Test_Print", "Uncategorized"); Add("Test Prints", "Uncategorized");
         Add("99_Other", "Uncategorized"); Add("Other", "Uncategorized");
         Add("Hueforge", "HueForge"); Add("HueForge", "HueForge");
         Add("Keychain", "Keychains"); Add("Keychains", "Keychains");
