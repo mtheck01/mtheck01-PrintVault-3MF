@@ -14,10 +14,7 @@ public sealed class LibraryEngine : ILibraryEngine
 
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
     {
-        var rootList = roots.Where(Directory.Exists)
-            .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var rootList = NormalizeRoots(roots);
         var autonomousClassificationOnly = string.Equals(
             Environment.GetEnvironmentVariable("PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"),
             "1",
@@ -372,6 +369,25 @@ public sealed class LibraryEngine : ILibraryEngine
         return Task.FromResult(new LibraryStats(all.Count, all.Count(m => m.Favorite), dup, all.Count(m => m.IntelligenceScore < .5), all.Sum(m => m.Size), all.Count(m => !m.HasThumbnail)));
     }
 
+
+    private static string[] NormalizeRoots(IEnumerable<string> roots)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        var requested = roots
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (requested.Length == 0)
+            throw new ArgumentException("At least one library root is required.", nameof(roots));
+
+        var missing = requested.Where(x => !Directory.Exists(x)).ToArray();
+        if (missing.Length > 0)
+            throw new DirectoryNotFoundException(
+                $"PrintVault library root(s) are unavailable: {string.Join("; ", missing)}. The library catalog was left unchanged.");
+
+        return requested;
+    }
 
     private static bool IsBuiltInOrUnresolved(string? category)
         => string.IsNullOrWhiteSpace(category) ||
