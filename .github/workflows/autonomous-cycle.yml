@@ -607,9 +607,20 @@ jobs:
 
           function Invoke-CandidateBuild {
             powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\release_preflight.ps1" -Root "$PWD"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Release preflight failed after candidate source changes. Exit code $LASTEXITCODE."
+            }
+
             python ".\tools\static_audit.py"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Static audit failed after candidate source changes. Exit code $LASTEXITCODE."
+            }
+
             python ".\tools\forensic_repository_audit.py"
-            if ($LASTEXITCODE -ne 0) { throw "Forensic repository audit failed after candidate source changes." }
+            if ($LASTEXITCODE -ne 0) {
+              throw "Forensic repository audit failed after candidate source changes. Exit code $LASTEXITCODE."
+            }
+
             Invoke-SourceTests
             python ".\tools\forensic_repository_audit.py"
             if ($LASTEXITCODE -ne 0) { throw "Forensic repository audit failed after module verification." }
