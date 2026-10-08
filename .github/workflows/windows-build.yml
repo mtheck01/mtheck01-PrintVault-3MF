@@ -122,6 +122,10 @@ jobs:
         shell: pwsh
         run: python ".\\tools\\test_semantic_evidence_artifact_role_precision_9_0_45.py"
 
+      - name: Test test_semantic_evidence_unresolved_category_gate_9_0_46
+        shell: pwsh
+        run: python ".\\tools\\test_semantic_evidence_unresolved_category_gate_9_0_46.py"
+
       - name: Build installer
         shell: cmd
         env:
