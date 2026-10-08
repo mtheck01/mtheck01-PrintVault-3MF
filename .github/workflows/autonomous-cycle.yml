@@ -3,10 +3,6 @@ name: PrintVault Autonomous Cycle
 on:
   push:
     branches: [main]
-  schedule:
-    # Safety poll for API-created commits that do not emit push workflow events.
-    # Push events remain the primary trigger; this poll is only a backstop.
-    - cron: "*/15 * * * *"
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
