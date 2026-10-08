@@ -82,20 +82,45 @@ try
         Console.WriteLine($"SCAN_ROOT={scanRoot}");
         Console.WriteLine($"SCAN_MODE={scanMode}");
         var scanEngine = new LibraryEngine();
+        var scanFailed = 0;
+        var scanDiscovered = 0;
+        var scanIndexed = 0;
         var scanProgress = new Progress<ScanProgress>(p =>
         {
+            scanFailed = p.Failed;
+            scanDiscovered = p.Discovered;
+            scanIndexed = p.Indexed;
             if (p.Processed == p.Discovered || p.Processed % 100 == 0)
                 Console.WriteLine($"SCAN_PROGRESS={p.Processed}/{p.Discovered} INDEXED={p.Indexed} FAILED={p.Failed}");
         });
         var scanned = await scanEngine.ScanAsync(new[] { scanRoot }, scanMode, default, scanProgress);
         var persisted = scanEngine.Repository.GetAll().Count;
         Console.WriteLine($"SCAN_DISCOVERED={scanned.Count}");
+        Console.WriteLine($"SCAN_ENUMERATED={scanDiscovered}");
+        Console.WriteLine($"SCAN_INDEXED={scanIndexed}");
+        Console.WriteLine($"SCAN_FAILED={scanFailed}");
         Console.WriteLine($"SCAN_PERSISTED={persisted}");
+        if (scanDiscovered != scanned.Count)
+        {
+            Console.Error.WriteLine($"SCAN_DISCOVERY_ACCOUNTING_MISMATCH=ENUMERATED:{scanDiscovered};RETURNED:{scanned.Count}");
+            return 21;
+        }
+        if (scanIndexed != scanDiscovered)
+        {
+            Console.Error.WriteLine($"SCAN_INDEX_ACCOUNTING_MISMATCH=DISCOVERED:{scanDiscovered};INDEXED:{scanIndexed}");
+            return 22;
+        }
+        if (scanFailed != 0)
+        {
+            Console.Error.WriteLine($"SCAN_FAILED_FILES={scanFailed}");
+            return 23;
+        }
         if (persisted != scanned.Count)
         {
             Console.Error.WriteLine($"SCAN_PERSISTENCE_MISMATCH=EXPECTED:{scanned.Count};ACTUAL:{persisted}");
-            return 21;
+            return 24;
         }
+        Console.WriteLine("SCAN_ACCOUNTING=PASS");
         Console.WriteLine("SCAN=PASS");
         return 0;
     }
