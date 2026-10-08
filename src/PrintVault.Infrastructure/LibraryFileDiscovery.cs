@@ -41,13 +41,25 @@ public sealed class LibraryFileDiscovery
             catch { continue; }
 
             string[] files;
-            try { files = Directory.GetFiles(dir, "*.3mf", SearchOption.TopDirectoryOnly); }
-            catch { files = Array.Empty<string>(); }
+            try
+            {
+                files = Directory.GetFiles(dir, "*.3mf", SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"PrintVault could not enumerate 3MF files in '{dir}'. The scan was stopped to prevent an incomplete library from being treated as authoritative.", ex);
+            }
             foreach (var file in files) yield return file;
 
             string[] dirs;
-            try { dirs = Directory.GetDirectories(dir); }
-            catch { dirs = Array.Empty<string>(); }
+            try
+            {
+                dirs = Directory.GetDirectories(dir);
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"PrintVault could not enumerate subdirectories in '{dir}'. The scan was stopped to prevent an incomplete library from being treated as authoritative.", ex);
+            }
             foreach (var child in dirs) pending.Push(child);
         }
     }
