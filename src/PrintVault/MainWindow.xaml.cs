@@ -704,7 +704,7 @@ public partial class MainWindow : Window
         if (w.ShowDialog() != true) return;
         if (!categories.Contains(w.Value, StringComparer.OrdinalIgnoreCase)) { categories.Add(w.Value); SaveCategories(); }
 
-        var moved = new List<(ModelRecord Model, bool PreviousOverride)>();
+        var moved = new List<(ModelRecord Model, bool PreviousOverride, bool Undoable)>();
         try
         {
             foreach (var item in selected.ToList())
@@ -713,7 +713,7 @@ public partial class MainWindow : Window
                 var result = organization.MoveToCategory(item, w.Value);
                 item.CategoryOverride = true;
                 engine.Repository.Upsert(item);
-                moved.Add((result.Model, previousOverride));
+                moved.Add((result.Model, previousOverride, !string.Equals(result.OldPath, result.NewPath, StringComparison.OrdinalIgnoreCase)));
             }
 
             // Learn only after the entire filesystem/database operation succeeds.
@@ -734,6 +734,13 @@ public partial class MainWindow : Window
             {
                 try
                 {
+                    if (!moved[i].Undoable)
+                    {
+                        moved[i].Model.CategoryOverride = moved[i].PreviousOverride;
+                        engine.Repository.Upsert(moved[i].Model);
+                        continue;
+                    }
+
                     var restored = organization.UndoLast();
                     if (restored != null)
                     {
