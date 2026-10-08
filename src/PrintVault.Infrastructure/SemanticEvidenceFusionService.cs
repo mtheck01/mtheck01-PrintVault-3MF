@@ -261,6 +261,10 @@ public sealed class SemanticEvidenceFusionService
         var explicitRole = roleHits.FirstOrDefault();
 
         var best = cueHits.FirstOrDefault();
+        // FirstOrDefault() on an empty value-tuple sequence returns the default tuple.
+        // Its Hits array is null. Treat that state as an empty hit set so records with
+        // no lexical cue cannot crash semantic fusion while evaluating optional evidence.
+        var bestHits = best.Hits ?? Array.Empty<string>();
         var aviationIdentityHits = AviationIdentityTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDomainHits = AviationDomainTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDescriptorHits = aviationIdentityHits.Length > 0
@@ -356,18 +360,18 @@ public sealed class SemanticEvidenceFusionService
                 evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
                 basis = "Source-derived artifact semantics + named subject identity";
             }
-            else if (cueHits.Count > 0 && best.Hits.Length > 0)
+            else if (cueHits.Count > 0 && bestHits.Length > 0)
             {
                 var lexicalCategory = best.Cue.Category;
                 if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Source-derived analyzer + lexical corroboration";
-                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", bestHits)}");
                 }
                 else
                 {
                     basis = "Source-derived analyzer arbitration";
-                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", bestHits)}");
                     evidence.Add($"Analyzer arbitration: {analyzerCategory} outranks lexical category {lexicalCategory}");
                 }
             }
@@ -389,12 +393,12 @@ public sealed class SemanticEvidenceFusionService
             type = cue.Type;
             subtype = cue.Subtype;
             family = cue.Family;
-            var cueConfidence = Math.Min(92, 58 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
+            var cueConfidence = Math.Min(92, 58 + cue.Weight + Math.Min(10, (bestHits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
             identity = Math.Max(identity, Math.Min(88, cueConfidence));
             basis = "Artifact lexical evidence + contextual named entity";
             evidence.Add($"Contextual named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
-            evidence.Add($"Artifact cue outranks contextual entity category: {string.Join(", ", best.Hits)} -> {cue.Category}");
+            evidence.Add($"Artifact cue outranks contextual entity category: {string.Join(", ", bestHits)} -> {cue.Category}");
         }
         else if (entity is not null)
         {
@@ -413,30 +417,30 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, entity.Confidence);
             basis = "Named entity evidence";
             evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
-            if (cueHits.Count > 0 && best.Hits.Length > 0)
+            if (cueHits.Count > 0 && bestHits.Length > 0)
             {
                 var lexicalCategory = best.Cue.Category;
                 if (string.Equals(lexicalCategory, entity.Category, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Named entity + lexical corroboration";
-                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", bestHits)}");
                 }
                 else
                 {
-                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", bestHits)}");
                     evidence.Add($"Entity arbitration: {entity.Category} outranks lexical category {lexicalCategory}");
                 }
             }
         }
-        else if (cueHits.Count > 0 && best.Hits.Length > 0)
+        else if (cueHits.Count > 0 && bestHits.Length > 0)
         {
             var cue = best.Cue;
             category = cue.Category; type = cue.Type; subtype = cue.Subtype; family = cue.Family;
-            var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
+            var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (bestHits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
             identity = Math.Max(identity, Math.Min(82, cueConfidence - 8));
             basis = $"Lexical evidence: {cue.Label}";
-            evidence.Add($"Lexical cue: {string.Join(", ", best.Hits)}");
+            evidence.Add($"Lexical cue: {string.Join(", ", bestHits)}");
         }
         else if (hasSourceDerivedAnalyzer)
         {
@@ -594,7 +598,7 @@ public sealed class SemanticEvidenceFusionService
         }
         var strongAlternative = strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
-                                (cueHits.Count > 0 && best.Hits.Length > 0 && classification >= 85);
+                                (cueHits.Count > 0 && bestHits.Length > 0 && classification >= 85);
         var review = actionableConflict ||
                      (strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved && !semanticChannelsAgree);
         if (review)
@@ -624,7 +628,7 @@ public sealed class SemanticEvidenceFusionService
         ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
           string[] Hits) best)
     {
-        if (best.Hits.Length == 0) return false;
+        if (bestHits.Length == 0) return false;
         if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
 
         // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
