@@ -5,7 +5,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "queue: single",
+    "group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}",
     "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
@@ -35,8 +35,7 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 # A full-library cycle may legitimately exceed the 10-minute schedule interval.
 # A later scheduled poll must queue rather than cancel the active forensic run.
-assert "queue: single" in workflow
-assert "queue: max" not in workflow
+assert "group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "cancel-in-progress: true" not in workflow
 assert "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED" in workflow
