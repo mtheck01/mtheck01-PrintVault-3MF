@@ -184,12 +184,19 @@ CREATE INDEX IF NOT EXISTS IX_Models_Name ON Models(Name);");
 
     public ModelRecord? Get(string path)
     {
-        using var c = Open();
-        using var x = c.CreateCommand();
-        x.CommandText = $"SELECT {SelectColumns} FROM Models WHERE Path=$p";
-        x.Parameters.AddWithValue("$p", path);
-        using var r = x.ExecuteReader();
-        return r.Read() ? Read(r) : null;
+        using (var c = Open())
+        using (var x = c.CreateCommand())
+        {
+            x.CommandText = $"SELECT {SelectColumns} FROM Models WHERE Path=$p";
+            x.Parameters.AddWithValue("$p", path);
+            using var r = x.ExecuteReader();
+            if (r.Read()) return Read(r);
+        }
+
+        // Windows paths are case-insensitive, while SQLite's default TEXT comparison
+        // is case-sensitive. Fall back to the in-memory case-insensitive map so a
+        // casing-only filesystem change cannot make an existing record look missing.
+        return GetAllMap().TryGetValue(path, out var existing) ? existing : null;
     }
 
     public void SaveAll(IEnumerable<ModelRecord> models, ISet<string>? existingPaths = null)
