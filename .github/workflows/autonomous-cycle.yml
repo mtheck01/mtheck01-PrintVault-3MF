@@ -44,8 +44,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
+  watchdog:
+    name: Autonomous Trigger Watchdog
+    runs-on: ubuntu-latest
+    outputs:
+      run_cycle: ${{ steps.gate.outputs.run_cycle }}
+    steps:
+      - name: Decide whether this SHA requires validation
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" != "schedule" ]]; then
+            echo "run_cycle=true" >> "${GITHUB_OUTPUT}"
+            echo "WATCHDOG_RESULT=PRIMARY_EVENT"
+            echo "WATCHDOG_SHA=${GITHUB_SHA}"
+            exit 0
+          fi
+          statuses="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/statuses?per_page=100")"
+          if echo "${statuses}" | jq -e '.[] | select(.context == "printvault/whole-library-validation" and .state == "success")' >/dev/null; then
+            echo "run_cycle=false" >> "${GITHUB_OUTPUT}"
+            echo "WATCHDOG_RESULT=ALREADY_VALIDATED"
+          else
+            echo "run_cycle=true" >> "${GITHUB_OUTPUT}"
+            echo "WATCHDOG_RESULT=UNVALIDATED"
+          fi
+          echo "WATCHDOG_SHA=${GITHUB_SHA}"
+
   cycle:
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    needs: watchdog
+    if: needs.watchdog.outputs.run_cycle == 'true' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
@@ -112,27 +142,6 @@ jobs:
           $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
-
-          if ($env:GITHUB_EVENT_NAME -eq "schedule") {
-            $statusHeaders = @{
-              Authorization = "Bearer $env:GITHUB_TOKEN"
-              Accept = "application/vnd.github+json"
-              "X-GitHub-Api-Version" = "2026-03-10"
-              "User-Agent" = "PrintVault-Autonomous-Watchdog"
-            }
-            $statusUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_SHA/statuses?per_page=100"
-            $existingStatuses = @(Invoke-RestMethod -Uri $statusUri -Headers $statusHeaders -Method Get)
-            $validated = @($existingStatuses | Where-Object {
-              $_.context -eq "printvault/whole-library-validation" -and $_.state -eq "success"
-            })
-            if ($validated.Count -gt 0) {
-              Write-Host "WATCHDOG_RESULT=ALREADY_VALIDATED"
-              Write-Host "WATCHDOG_SHA=$env:GITHUB_SHA"
-              exit 0
-            }
-            Write-Host "WATCHDOG_RESULT=UNVALIDATED"
-            Write-Host "WATCHDOG_SHA=$env:GITHUB_SHA"
-          }
 
           if ($publish -and [string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
             throw "PRINTVAULT_RELEASE_TOKEN is required when publish_on_pass=true."
