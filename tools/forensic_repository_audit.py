@@ -192,7 +192,8 @@ def main():
         required = [
             "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
             'cron: "*/15 * * * *"',
-            'if ($env:GITHUB_EVENT_NAME -eq "schedule")',
+            'name: Autonomous Trigger Watchdog',
+            'run_cycle=true',
             'printvault/whole-library-validation',
             'WATCHDOG_RESULT=UNVALIDATED',
             "queue: single",
