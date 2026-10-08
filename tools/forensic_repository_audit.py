@@ -190,7 +190,7 @@ def main():
     else:
         w = workflow.read_text(encoding="utf-8")
         required = [
-            "cancel-in-progress: false",
+            "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
             "queue: single",
             'python ".\\tools\\forensic_repository_audit.py"',
             "MODULE_PASS=$pass/2",
