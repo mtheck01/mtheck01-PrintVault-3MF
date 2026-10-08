@@ -250,6 +250,9 @@ public partial class MainWindow : Window
         root = null;
         organization = null;
         SaveRoot();
+        // Keep an automatic database recovery point before this destructive command.
+        // The physical library is untouched, but catalog metadata must remain recoverable.
+        engine.Repository.BackupDatabase();
         engine.Repository.ClearAllModels();
         Models.UnselectAll();
         active = null;
@@ -306,8 +309,10 @@ public partial class MainWindow : Window
             };
             try
             {
+                var lastFailed = 0;
                 var progress = new Progress<ScanProgress>(p =>
                 {
+                    lastFailed = p.Failed;
                     Progress.Value = p.Percent;
                     ScanProgressText.Text = p.Discovered <= 0
                         ? "No .3mf files discovered"
@@ -331,8 +336,10 @@ public partial class MainWindow : Window
 
                 UpdateDashboard();
                 UpdateGalleryPage();
-                ScanProgressText.Text = $"Found {ModelsSource.Count:N0} • Indexed {ModelsSource.Count:N0} • Failed 0 • 100%";
-                Status.Text = $"{ModelsSource.Count:N0} models indexed • thumbnails cached • ready";
+                ScanProgressText.Text = $"Found {ModelsSource.Count:N0} • Indexed {ModelsSource.Count:N0} • Failed {lastFailed:N0} • 100%";
+                Status.Text = lastFailed == 0
+                    ? $"{ModelsSource.Count:N0} models indexed • thumbnails cached • ready"
+                    : $"{ModelsSource.Count:N0} models indexed • {lastFailed:N0} files failed and were preserved/retried safely";
             }
             catch (OperationCanceledException) { ScanProgressText.Text = "Scan canceled"; Status.Text = "Scan canceled"; }
             catch (Exception ex) { Error("Scan failed", ex); }
