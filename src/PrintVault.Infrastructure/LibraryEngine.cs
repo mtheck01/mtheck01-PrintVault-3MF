@@ -117,9 +117,12 @@ public sealed class LibraryEngine : ILibraryEngine
                 // an existing catalog record into a "stale" record. Preserve the
                 // last known record while reporting the failure so the next scan
                 // can retry the file instead of silently deleting it from the DB.
-                if (existing.TryGetValue(path, out var previous) && File.Exists(path))
+                if (existing.ContainsKey(path) && File.Exists(path))
                 {
-                    result[i] = previous;
+                    // The in-memory ModelRecord may already have been partially
+                    // mutated before the failure. Reload the last committed copy
+                    // instead of preserving that partially updated object.
+                    result[i] = repo.Get(path);
                 }
                 Interlocked.Increment(ref failed);
             }
