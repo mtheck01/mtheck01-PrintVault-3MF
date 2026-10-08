@@ -973,14 +973,25 @@ jobs:
                     Write-CycleStatus "PROMOTION_REVALIDATION" "attempt=$promotionAttempt base=$promotionBase"
                     $candidate = Invoke-CandidateBuild
                     $candidate = Install-Candidate $candidate
-                    $recheckReport = Invoke-WholeLibrary
-                    $recheckData = Get-Content $recheckReport -Raw | ConvertFrom-Json
-                    $recheckConflicts = [int]$recheckData.Conflicts
-                    $recheckGate = Test-RegressionGate $recheckReport
-                    Write-Host "PROMOTION_RECHECK_GATE=$recheckGate CONFLICTS=$recheckConflicts"
-                    if ($recheckConflicts -ne 0 -or $recheckGate -ne "PASS") {
-                      throw "Promotion revalidation failed after main changed: gate=$recheckGate conflicts=$recheckConflicts."
+                    $recheckReport1 = Invoke-WholeLibrary -Pass 1
+                    $recheckReport2 = Invoke-WholeLibrary -Pass 2
+                    $recheckData1 = Get-Content $recheckReport1 -Raw | ConvertFrom-Json
+                    $recheckData = Get-Content $recheckReport2 -Raw | ConvertFrom-Json
+                    if ($recheckData1.Catalog -ne $recheckData.Catalog -or
+                        $recheckData1.Processed -ne $recheckData.Processed -or
+                        $recheckData1.Conflicts -ne $recheckData.Conflicts -or
+                        $recheckData1.Failed -ne $recheckData.Failed) {
+                      throw "Promotion whole-library reproducibility gate failed after main changed."
                     }
+                    $recheckConflicts = [int]$recheckData.Conflicts
+                    $recheckGate = Test-RegressionGate $recheckReport2
+                    Write-Host "PROMOTION_RECHECK_TWO_PASS=PASS CATALOG=$($recheckData.Catalog) PROCESSED=$($recheckData.Processed) CONFLICTS=$recheckConflicts"
+                    Write-Host "PROMOTION_RECHECK_GATE=$recheckGate CONFLICTS=$recheckConflicts"
+                    if ($recheckConflicts -ne 0 -or $recheckData.Failed -ne 0 -or $recheckGate -ne "PASS") {
+                      throw "Promotion revalidation failed after main changed: gate=$recheckGate conflicts=$recheckConflicts failures=$($recheckData.Failed)."
+                    }
+                    $reportData = $recheckData
+                    $report = $recheckReport2
 
                     git add .
                     git diff --cached --quiet
@@ -1005,12 +1016,15 @@ jobs:
                     $promotionBase = (git rev-parse origin/main).Trim()
                   }
 
-                  git push origin "HEAD:refs/heads/main" "--force-with-lease=refs/heads/main:$promotionBase"
+                  # Main is never force-pushed. A normal fast-forward push is the final
+                  # promotion guard; if another writer advances main, Git rejects the push
+                  # and the candidate is revalidated against the new main before retrying.
+                  git push origin "HEAD:refs/heads/main"
                   if ($LASTEXITCODE -eq 0) {
                     $promoted = $true
                     break
                   }
-                  Write-Warning "Promotion lease lost; another writer moved main. Retrying."
+                  Write-Warning "Promotion push rejected; another writer moved main. Revalidating before retry."
                   Start-Sleep -Seconds 2
                 }
 
@@ -1019,6 +1033,12 @@ jobs:
                 }
 
                 $sourceSha = (git rev-parse HEAD).Trim()
+                # The exact promoted candidate must pass the final application smoke
+                # after promotion/revalidation, not merely before it.
+                Write-CycleStatus "FINAL_APP_SMOKE" "promoted-version=$version"
+                $promotedApp = Start-FinalApp $candidate $testLibraryRoot
+                Close-PrintVault $promotedApp
+                Write-Host "FINAL_APP_SMOKE_PROMOTED=PASS"
                 Publish-WholeLibraryValidationStatus $sourceSha "two-pass whole-library validation passed on promoted SHA; processed=$($reportData.Processed) conflicts=$($reportData.Conflicts) failures=$($reportData.Failed)"
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
                 if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }
