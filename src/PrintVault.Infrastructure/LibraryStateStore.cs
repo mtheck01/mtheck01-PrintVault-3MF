@@ -30,13 +30,27 @@ public sealed class LibraryStateStore
         state = Load();
     }
 
-    public IReadOnlyList<CollectionRecord> Collections => state.Collections
-        .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
-        .Select(x => new CollectionRecord(x.Key, x.Value.ToList()))
-        .ToList();
+    public IReadOnlyList<CollectionRecord> Collections
+    {
+        get
+        {
+            lock (gate)
+                return state.Collections
+                    .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => new CollectionRecord(x.Key, x.Value.ToList()))
+                    .ToList();
+        }
+    }
 
-    public IReadOnlyList<LearnedRule> LearnedRules => state.LearnedRules.ToList();
-    public IReadOnlyList<OperationJournalEntry> Journal => state.Journal.ToList();
+    public IReadOnlyList<LearnedRule> LearnedRules
+    {
+        get { lock (gate) return state.LearnedRules.ToList(); }
+    }
+
+    public IReadOnlyList<OperationJournalEntry> Journal
+    {
+        get { lock (gate) return state.Journal.ToList(); }
+    }
 
     public void CreateCollection(string name)
     {
@@ -56,7 +70,12 @@ public sealed class LibraryStateStore
     }
 
     public IReadOnlySet<string> GetCollectionMembers(string name)
-        => state.Collections.TryGetValue(name, out var p) ? p.ToHashSet(StringComparer.OrdinalIgnoreCase) : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    {
+        lock (gate)
+            return state.Collections.TryGetValue(name, out var p)
+                ? p.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
 
     public void RecordLearnedRule(string token, string category)
     {
@@ -84,9 +103,33 @@ public sealed class LibraryStateStore
 
     private State Load()
     {
-        try { if (File.Exists(path)) return JsonSerializer.Deserialize<State>(File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new(); }
-        catch { }
-        return new();
+        if (!File.Exists(path)) return new();
+
+        try
+        {
+            return JsonSerializer.Deserialize<State>(
+                File.ReadAllText(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        }
+        catch (Exception ex)
+        {
+            // Never silently replace user state with an empty state. Preserve the
+            // corrupt artifact so collections, learned rules and operation history
+            // remain recoverable while allowing PrintVault to start cleanly.
+            var recovery = path + $".corrupt.{DateTime.UtcNow:yyyyMMdd-HHmmssfff}.json";
+            try
+            {
+                File.Move(path, recovery, false);
+            }
+            catch (Exception moveEx)
+            {
+                throw new InvalidDataException(
+                    $"PrintVault state is corrupt and could not be preserved for recovery: {path}",
+                    new AggregateException(ex, moveEx));
+            }
+
+            return new();
+        }
     }
 
     private void Save()
