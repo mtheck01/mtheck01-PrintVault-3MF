@@ -703,21 +703,57 @@ public partial class MainWindow : Window
         var w = new CategoryWindow(m.Category, categories) { Owner = this };
         if (w.ShowDialog() != true) return;
         if (!categories.Contains(w.Value, StringComparer.OrdinalIgnoreCase)) { categories.Add(w.Value); SaveCategories(); }
+
+        var moved = new List<(ModelRecord Model, bool PreviousOverride)>();
         try
         {
             foreach (var item in selected.ToList())
             {
-                item.CategoryOverride = true;
+                var previousOverride = item.CategoryOverride;
                 var result = organization.MoveToCategory(item, w.Value);
-                learning.RecordCorrection(item, w.Value);
-                ModelsSource.Remove(item);
-                ModelsSource.Add(result.Model);
+                item.CategoryOverride = true;
+                engine.Repository.Upsert(item);
+                moved.Add((result.Model, previousOverride));
             }
-            Select(m);
+
+            // Learn only after the entire filesystem/database operation succeeds.
+            foreach (var item in moved)
+                learning.RecordCorrection(item.Model, w.Value);
+
+            ModelsSource.ReplaceAll(engine.Repository.GetAll());
+            Select(ModelsSource.FirstOrDefault(x => string.Equals(x.Path, m.Path, StringComparison.OrdinalIgnoreCase)));
             UpdateDashboard(); RefreshFilter();
             Status.Text = selected.Count == 1 ? "Category updated" : $"Moved {selected.Count:N0} models to {w.Value}";
         }
-        catch (Exception ex) { Error("Category move failed", ex); }
+        catch (Exception ex)
+        {
+            // Bulk category changes are transactional at the UX level: reverse every
+            // successful move from this operation so one failed file cannot leave a
+            // half-moved selection. Restore the previous override state as well.
+            for (var i = moved.Count - 1; i >= 0; i--)
+            {
+                try
+                {
+                    var restored = organization.UndoLast();
+                    if (restored != null)
+                    {
+                        var prior = moved[i].PreviousOverride;
+                        restored.Model.CategoryOverride = prior;
+                        engine.Repository.Upsert(restored.Model);
+                    }
+                }
+                catch
+                {
+                    // Preserve the original failure; the catalog refresh below exposes
+                    // the actual committed state instead of claiming a rollback succeeded.
+                    break;
+                }
+            }
+
+            ModelsSource.ReplaceAll(engine.Repository.GetAll());
+            UpdateDashboard(); RefreshFilter();
+            Error("Category move failed; successful moves were rolled back where possible", ex);
+        }
     }
 
     private async void Analyze(ModelRecord? m)
