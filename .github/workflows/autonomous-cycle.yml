@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  schedule:
+    # Backstop for commits that do not emit a push workflow event.
+    # The run is zero-credit and self-gates before heavy validation.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       max_attempts:
