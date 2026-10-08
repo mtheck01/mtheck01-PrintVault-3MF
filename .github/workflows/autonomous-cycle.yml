@@ -91,9 +91,9 @@ jobs:
       - name: Run autonomous cycle
         shell: powershell
         env:
-          RELEASE_TOKEN: ${{ secrets.PrintVaultReleaseAutomation }}
+          RELEASE_TOKEN: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish_on_pass) || github.event_name == 'push' || github.event_name == 'schedule' && secrets.PrintVaultReleaseAutomation || '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair && secrets.OPENAI_API_KEY || '' }}
           OPENAI_REPAIR_MODEL: gpt-5.6-sol
           # Push/schedule validation is explicitly zero-credit: OpenAI repair is
           # available only when a human deliberately starts workflow_dispatch with
@@ -101,12 +101,18 @@ jobs:
           MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}
           AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}
           PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}
-          PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}
+          # Pull requests are forensic validation only. They may never publish, promote,
+          # create releases, or close engineering requests. Main push/schedule runs may
+          # publish a clean validated candidate; manual dispatch follows its explicit input.
+          PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || github.event_name == 'push' || github.event_name == 'schedule' }}
         run: |
           $ErrorActionPreference = "Stop"
           $maxAttempts = [int]$env:MAX_ATTEMPTS
           $autoRepair = $env:AUTO_REPAIR -eq "true"
           $publish = $env:PUBLISH_ON_PASS -eq "true"
+          $prForensicOnly = $env:GITHUB_EVENT_NAME -eq "pull_request"
+          if ($prForensicOnly -and $publish) { throw "Pull-request forensic validation must never enable publication." }
+          if ($prForensicOnly) { Write-Host "PULL_REQUEST_FORENSIC_ONLY=TRUE" }
           $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
