@@ -590,6 +590,19 @@ jobs:
             $script:SourceFingerprint = $fingerprintAfter
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($script:SourceTestFailures.Count)"
             Write-Host "SOURCE_MODULE_LOCK_COUNT=$($script:SourceModuleLocks.Count)"
+
+            # FAIL CLOSED: required source/semantic tests are a hard gate.
+            # Previously failures were recorded for diagnostics but execution
+            # continued, allowing a false-green Autonomous Cycle.
+            if ($script:SourceTestFailures.Count -ne 0) {
+              $failedNames = ($script:SourceTestFailures | ForEach-Object { "$($_.Test) [pass=$($_.Pass) exit=$($_.ExitCode)]" }) -join "; "
+              throw "SOURCE_TEST_GATE_FAILED: $($script:SourceTestFailures.Count) required module test failure(s): $failedNames"
+            }
+            if ($script:SourceModuleLocks.Count -ne $script:SourceModuleCount) {
+              throw "SOURCE_MODULE_LOCK_GATE_FAILED: expected $($script:SourceModuleCount) module locks after two-pass validation, found $($script:SourceModuleLocks.Count)."
+            }
+            Write-Host "SOURCE_TEST_GATE=PASS"
+            Write-Host "SOURCE_MODULE_LOCK_GATE=PASS"
           }
 
           function Invoke-CandidateBuild {
