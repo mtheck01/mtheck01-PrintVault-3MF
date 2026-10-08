@@ -9,7 +9,9 @@ checks = {
     "startup no-library status": 'No library selected. Choose Settings / Library' in main,
     "clear resets root": "root = null;" in main,
     "clear resets organization": "organization = null;" in main,
-    "clear clears repository models": "engine.Repository.ClearAllModels();" in main,
+    "reset rebuild does not clear live catalog first": "engine.Repository.ClearAllModels();" not in main.split("private async void ResetAndRebuildLibrary_Click",1)[1].split("private void Scan_Click",1)[0],
+    "reset rebuild uses atomic clean candidate": "preserveMetadata: false" in main,
+    "reset still creates recovery backup": "engine.Repository.BackupDatabase();" in main,
     "repository clear method exists": "public void ClearAllModels()" in repo,
     "production library remains blocked": "IsForbiddenProductionLibrary" in main,
 }
