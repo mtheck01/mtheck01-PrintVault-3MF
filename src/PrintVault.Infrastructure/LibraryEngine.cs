@@ -40,12 +40,13 @@ public sealed class LibraryEngine : ILibraryEngine
         }, async (i, ct) =>
         {
             var path = files[i];
+            ModelRecord? m = null;
             try
             {
                 var fi = new FileInfo(path);
                 if (!fi.Exists) return;
 
-                existing.TryGetValue(path, out var m);
+                existing.TryGetValue(path, out m);
                 var changed = m is null || m.Size != fi.Length || m.ModifiedUtc != fi.LastWriteTimeUtc;
                 var existingCategory = m?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
@@ -111,7 +112,42 @@ public sealed class LibraryEngine : ILibraryEngine
                 Interlocked.Increment(ref indexed);
             }
             catch (OperationCanceledException) { throw; }
-            catch { Interlocked.Increment(ref failed); }
+            catch (Exception ex)
+            {
+                // A per-file enrichment/classification defect must never silently drop the
+                // source file from the catalog. Preserve a minimal record so discovered and
+                // persisted counts remain identical, while retaining the exact failure for
+                // forensic diagnostics and later repair.
+                try
+                {
+                    m ??= new ModelRecord
+                    {
+                        Path = path,
+                        Name = Path.GetFileName(path),
+                        Category = "Uncategorized"
+                    };
+                    m.Path = path;
+                    m.Name = Path.GetFileName(path);
+                    m.SemanticType = string.IsNullOrWhiteSpace(m.SemanticType) ? "Unknown" : m.SemanticType;
+                    m.IntelligenceReason = string.IsNullOrWhiteSpace(m.IntelligenceReason)
+                        ? $"Scan fallback: {ex.GetType().Name}"
+                        : $"{m.IntelligenceReason} | Scan fallback: {ex.GetType().Name}";
+                    m.RiskFlags = string.Join(", ", new[]
+                    {
+                        m.RiskFlags,
+                        "ScanFallback",
+                        ex.GetType().Name
+                    }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase));
+                    result[i] = m;
+                    Interlocked.Increment(ref indexed);
+                    Console.Error.WriteLine($"SCAN_FILE_FAILURE path={path} exception={ex.GetType().FullName} message={ex.Message}");
+                }
+                catch (Exception fallbackEx)
+                {
+                    Console.Error.WriteLine($"SCAN_FALLBACK_FAILURE path={path} exception={fallbackEx.GetType().FullName} message={fallbackEx.Message}");
+                }
+                Interlocked.Increment(ref failed);
+            }
             finally
             {
                 var processed = Interlocked.Increment(ref n);
