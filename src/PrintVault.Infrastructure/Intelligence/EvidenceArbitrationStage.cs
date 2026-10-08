@@ -12,6 +12,14 @@ internal sealed class EvidenceArbitrationStage : IModelIntelligenceStage
         var result = context.Fusion;
         if (result is null) { context.StageEvidence.Add("EVIDENCE:NONE"); return; }
 
+        // A manual category override protects only the category decision. Language,
+        // entity and semantic evidence stages still run so metadata remains current.
+        if (model.CategoryOverride)
+        {
+            context.StageEvidence.Add($"EVIDENCE:{result.EvidenceQuality}:CATEGORY_OVERRIDE_PROTECTED");
+            return;
+        }
+
         var unresolved = string.IsNullOrWhiteSpace(model.Category) ||
                          string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase);
