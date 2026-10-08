@@ -39,9 +39,10 @@ assert "queue: single" in workflow
 assert "queue: max" not in workflow
 assert "cancel-in-progress: false" in workflow
 assert "cancel-in-progress: true" not in workflow
-assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
+assert "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED" in workflow
+assert "Do not exit successfully here" in workflow
+assert "A prior completed run is NOT validation evidence" in workflow
 assert "actions/workflows/autonomous-cycle.yml/runs?head_sha=" in workflow
-assert 'explicit dispatch required to retry' in workflow
 assert '$_.status -eq "completed"' in workflow
 assert '$_.id -ne [int64]$env:GITHUB_RUN_ID' in workflow
 
@@ -64,6 +65,9 @@ assert "Every executable test named by the autonomous workflow must physically e
 assert 'SKIP_DIRS = {".git", "bin", "obj"}' in (ROOT / "tools" / "forensic_repository_audit.py").read_text(encoding="utf-8")
 assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
+assert "WHOLE_LIBRARY_GATE_CLEAN=TRUE" in workflow
+assert "WHOLE_LIBRARY_GATE_CLEAN=FALSE" in workflow
+assert "if ($r.Conflicts -eq 0 -and $r.AnalyzedConflicts -eq 0 -and $actionable -eq 0)" in workflow
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
 assert "expected 40, found" in workflow
@@ -143,3 +147,16 @@ assert 'Never use an unleased force push.' in workflow
 assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
 assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
 assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
+
+
+# A scheduled run is never allowed to become a false-green terminal result merely
+# because an earlier run for the same SHA completed. Exact-SHA whole-library status
+# is the only schedule short-circuit.
+assert "NO_EXACT_SHA_ALREADY_ATTEMPTED" not in workflow
+assert "explicit dispatch required to retry" not in workflow
+
+# Repository identity is fail-closed. The old repository path that caused connector
+# 404s must never re-enter the autonomous chain.
+legacy_repo = "mtheck01/PrintVault-3MF"
+assert legacy_repo not in workflow
+assert "mtheck01/mtheck01-PrintVault-3MF" in workflow
