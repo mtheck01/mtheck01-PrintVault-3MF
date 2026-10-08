@@ -109,6 +109,27 @@ jobs:
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
 
+          if ($env:GITHUB_EVENT_NAME -eq "schedule") {
+            $statusHeaders = @{
+              Authorization = "Bearer $env:GITHUB_TOKEN"
+              Accept = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2026-03-10"
+              "User-Agent" = "PrintVault-Autonomous-Watchdog"
+            }
+            $statusUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_SHA/statuses?per_page=100"
+            $existingStatuses = @(Invoke-RestMethod -Uri $statusUri -Headers $statusHeaders -Method Get)
+            $validated = @($existingStatuses | Where-Object {
+              $_.context -eq "printvault/whole-library-validation" -and $_.state -eq "success"
+            })
+            if ($validated.Count -gt 0) {
+              Write-Host "WATCHDOG_RESULT=ALREADY_VALIDATED"
+              Write-Host "WATCHDOG_SHA=$env:GITHUB_SHA"
+              exit 0
+            }
+            Write-Host "WATCHDOG_RESULT=UNVALIDATED"
+            Write-Host "WATCHDOG_SHA=$env:GITHUB_SHA"
+          }
+
           if ($publish -and [string]::IsNullOrWhiteSpace($env:RELEASE_TOKEN)) {
             throw "PRINTVAULT_RELEASE_TOKEN is required when publish_on_pass=true."
           }
