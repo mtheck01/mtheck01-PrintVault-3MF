@@ -191,7 +191,7 @@ def main():
         w = workflow.read_text(encoding="utf-8")
         required = [
             "cancel-in-progress: false",
-            "queue: single",
+            "group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}",
             'python ".\\tools\\forensic_repository_audit.py"',
             "MODULE_PASS=$pass/2",
             "MODULE_LOCKS=CREATED",

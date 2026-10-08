@@ -5,7 +5,7 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "queue: single",
+    "group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}",
     "cancel-in-progress: false",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
@@ -35,19 +35,24 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 # A full-library cycle may legitimately exceed the 10-minute schedule interval.
 # A later scheduled poll must queue rather than cancel the active forensic run.
-assert "queue: single" in workflow
-assert "queue: max" not in workflow
+assert "group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "cancel-in-progress: true" not in workflow
-assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
+assert "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED" in workflow
+assert "Do not exit successfully here" in workflow
+assert "A prior completed run is NOT validation evidence" in workflow
 assert "actions/workflows/autonomous-cycle.yml/runs?head_sha=" in workflow
-assert 'explicit dispatch required to retry' in workflow
 assert '$_.status -eq "completed"' in workflow
 assert '$_.id -ne [int64]$env:GITHUB_RUN_ID' in workflow
 
 # Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
 assert "AUTO_REPAIR: ${{ inputs.auto_repair || true }}" not in workflow
+assert "PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || github.event_name == 'push' || github.event_name == 'schedule' }}" in workflow
+assert "PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}" not in workflow
+assert "PULL_REQUEST_FORENSIC_ONLY" in workflow
+assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+assert "Fork PRs are never executed on the persistent Windows runner." in workflow
 assert "PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}" in workflow
 assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}" in workflow
 
@@ -64,6 +69,16 @@ assert "Every executable test named by the autonomous workflow must physically e
 assert 'SKIP_DIRS = {".git", "bin", "obj"}' in (ROOT / "tools" / "forensic_repository_audit.py").read_text(encoding="utf-8")
 assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
+assert "WHOLE_LIBRARY_GATE_CLEAN=TRUE" in workflow
+assert "WHOLE_LIBRARY_GATE_CLEAN=FALSE" in workflow
+assert "if ($r.Conflicts -eq 0 -and $r.AnalyzedConflicts -eq 0 -and $actionable -eq 0)" in workflow
+assert "git push origin \"HEAD:refs/heads/main\" \"--force-with-lease=refs/heads/main:$promotionBase\"" not in workflow
+assert 'git push origin "HEAD:refs/heads/main"' in workflow
+assert "Promotion revalidation failed after main changed" in workflow
+assert "PROMOTION_RECHECK_TWO_PASS=PASS" in workflow
+assert "FINAL_APP_SMOKE_PROMOTED=PASS" in workflow
+assert "SCAN_FAILED=" in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
+assert "SCAN_ACCOUNTING=PASS" in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
 assert "expected 40, found" in workflow
@@ -143,3 +158,24 @@ assert 'Never use an unleased force push.' in workflow
 assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
 assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
 assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
+
+
+# A scheduled run is never allowed to become a false-green terminal result merely
+# because an earlier run for the same SHA completed. Exact-SHA whole-library status
+# is the only schedule short-circuit.
+assert "NO_EXACT_SHA_ALREADY_ATTEMPTED" not in workflow
+assert "explicit dispatch required to retry" not in workflow
+
+# Repository identity is fail-closed. The old repository path that caused connector
+# 404s must never re-enter the autonomous chain.
+legacy_repo = "mtheck01/" + "PrintVault-3MF"
+assert legacy_repo not in workflow
+assert "mtheck01/mtheck01-PrintVault-3MF" in workflow
+
+
+# Regression PASS must never be granted for an improved-but-dirty library.
+assert "Any remaining conflict is a non-passing state" in workflow
+assert 'if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }' not in workflow
+assert 'return "FAIL"' in workflow
+
+# CI forensic revalidation marker: gate semantics must remain zero-conflict-only.

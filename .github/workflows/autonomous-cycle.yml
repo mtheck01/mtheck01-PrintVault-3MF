@@ -35,16 +35,17 @@ permissions:
   issues: write
 
 concurrency:
-  # Exactly one cycle may run and at most one pending cycle may wait.
-  # A scheduled poll is a safety net, not a backlog generator. Never cancel the
-  # active engineering cycle, but replace obsolete pending polls with the newest one.
-  group: printvault-autonomous-cycle
-  queue: single
+  # Keep PR forensic validation isolated from the main-branch safety poll.
+  # A scheduled main poll must never cancel a PR engineering run that is proving
+  # a repair. Main push/schedule runs share one lane; each PR gets its own lane.
+  group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
   cycle:
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # Self-hosted execution is allowed only for trusted same-repository PRs.
+    # Fork PRs are never executed on the persistent Windows runner.
+    if: (github.event_name != 'pull_request') || (github.event.pull_request.head.repo.full_name == github.repository)
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
@@ -92,9 +93,9 @@ jobs:
       - name: Run autonomous cycle
         shell: powershell
         env:
-          RELEASE_TOKEN: ${{ secrets.PrintVaultReleaseAutomation }}
+          RELEASE_TOKEN: ${{ (((github.event_name == 'workflow_dispatch' && inputs.publish_on_pass) || github.event_name == 'push' || github.event_name == 'schedule') && secrets.PrintVaultReleaseAutomation) || '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair && secrets.OPENAI_API_KEY || '' }}
           OPENAI_REPAIR_MODEL: gpt-5.6-sol
           # Push/schedule validation is explicitly zero-credit: OpenAI repair is
           # available only when a human deliberately starts workflow_dispatch with
@@ -102,12 +103,18 @@ jobs:
           MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}
           AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}
           PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}
-          PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}
+          # Pull requests are forensic validation only. They may never publish, promote,
+          # create releases, or close engineering requests. Main push/schedule runs may
+          # publish a clean validated candidate; manual dispatch follows its explicit input.
+          PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || github.event_name == 'push' || github.event_name == 'schedule' }}
         run: |
           $ErrorActionPreference = "Stop"
           $maxAttempts = [int]$env:MAX_ATTEMPTS
           $autoRepair = $env:AUTO_REPAIR -eq "true"
           $publish = $env:PUBLISH_ON_PASS -eq "true"
+          $prForensicOnly = $env:GITHUB_EVENT_NAME -eq "pull_request"
+          if ($prForensicOnly -and $publish) { throw "Pull-request forensic validation must never enable publication." }
+          if ($prForensicOnly) { Write-Host "PULL_REQUEST_FORENSIC_ONLY=TRUE" }
           $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
@@ -201,11 +208,10 @@ jobs:
                 exit 0
               }
               else {
-                # A failed scheduled validation does not change main. Re-running the
-                # exact same SHA every 10/15 minutes cannot repair anything in zero-credit
-                # mode; it only burns runner time and creates a misleading backlog.
-                # Treat a completed prior run for this exact SHA as a terminal scheduled
-                # attempt. A human can explicitly retry with workflow_dispatch.
+                # A prior completed run is NOT validation evidence. It may have failed,
+                # been cancelled, or exited through a diagnostic/skip path. The only
+                # terminal success condition for the schedule gate is an explicit
+                # whole-library validation status for this exact SHA.
                 $encodedSha = [System.Uri]::EscapeDataString($startingMainSha)
                 $priorRunsUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/autonomous-cycle.yml/runs?head_sha=$encodedSha&per_page=100"
                 $priorRuns = @(Invoke-RestMethod -Uri $priorRunsUri -Headers $headers -Method Get)
@@ -216,11 +222,11 @@ jobs:
                 Write-Host "SCHEDULE_PRIOR_COMPLETED_RUNS_FOR_SHA=$($priorCompletedRuns.Count)"
                 if ($priorCompletedRuns.Count -gt 0) {
                   $latestPrior = $priorCompletedRuns | Sort-Object -Property updated_at -Descending | Select-Object -First 1
-                  Write-Host "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED"
                   Write-Host "SCHEDULE_PRIOR_RUN=$($latestPrior.run_number) CONCLUSION=$($latestPrior.conclusion) UPDATED=$($latestPrior.updated_at)"
-                  Write-CycleStatus "SKIPPED" "scheduled poll: exact main SHA $startingMainSha already has completed autonomous run #$($latestPrior.run_number); explicit dispatch required to retry"
-                  exit 0
+                  Write-Host "SCHEDULE_PRIOR_RUN_IS_VALIDATION=$([string]($latestPrior.conclusion -eq "success" -and $wholeLibraryValidated).ToString().ToUpperInvariant())"
                 }
+                # Do not exit successfully here. A scheduled poll without an exact-SHA
+                # whole-library success must enter the canonical validation path.
                 Write-Host "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED"
               }
             } catch {
@@ -739,10 +745,15 @@ jobs:
             $actionable = Get-ActionableConflictCount $r
             Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$baselineLexical resolution=$baselineResolution"
             Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution actionable=$actionable"
-            if ($actionable -eq 0) { Write-Host "ACTIONABLE_CONFLICTS=0"; return "PASS" }
+            if ($r.Conflicts -eq 0 -and $r.AnalyzedConflicts -eq 0 -and $actionable -eq 0) {
+              Write-Host "WHOLE_LIBRARY_GATE_CLEAN=TRUE"
+              return "PASS"
+            }
+            Write-Host "WHOLE_LIBRARY_GATE_CLEAN=FALSE CONFLICTS=$($r.Conflicts) ANALYZED=$($r.AnalyzedConflicts) ACTIONABLE=$actionable"
             if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
             if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
-            if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
+            # PASS is reserved exclusively for a completely clean whole-library result.
+            # Any remaining conflict is a non-passing state, even if it improves on baseline.
             return "FAIL"
           }
           $deterministicRepairAttempted = $false
@@ -970,14 +981,25 @@ jobs:
                     Write-CycleStatus "PROMOTION_REVALIDATION" "attempt=$promotionAttempt base=$promotionBase"
                     $candidate = Invoke-CandidateBuild
                     $candidate = Install-Candidate $candidate
-                    $recheckReport = Invoke-WholeLibrary
-                    $recheckData = Get-Content $recheckReport -Raw | ConvertFrom-Json
-                    $recheckConflicts = [int]$recheckData.Conflicts
-                    $recheckGate = Test-RegressionGate $recheckReport
-                    Write-Host "PROMOTION_RECHECK_GATE=$recheckGate CONFLICTS=$recheckConflicts"
-                    if ($recheckConflicts -ne 0 -or $recheckGate -ne "PASS") {
-                      throw "Promotion revalidation failed after main changed: gate=$recheckGate conflicts=$recheckConflicts."
+                    $recheckReport1 = Invoke-WholeLibrary -Pass 1
+                    $recheckReport2 = Invoke-WholeLibrary -Pass 2
+                    $recheckData1 = Get-Content $recheckReport1 -Raw | ConvertFrom-Json
+                    $recheckData = Get-Content $recheckReport2 -Raw | ConvertFrom-Json
+                    if ($recheckData1.Catalog -ne $recheckData.Catalog -or
+                        $recheckData1.Processed -ne $recheckData.Processed -or
+                        $recheckData1.Conflicts -ne $recheckData.Conflicts -or
+                        $recheckData1.Failed -ne $recheckData.Failed) {
+                      throw "Promotion whole-library reproducibility gate failed after main changed."
                     }
+                    $recheckConflicts = [int]$recheckData.Conflicts
+                    $recheckGate = Test-RegressionGate $recheckReport2
+                    Write-Host "PROMOTION_RECHECK_TWO_PASS=PASS CATALOG=$($recheckData.Catalog) PROCESSED=$($recheckData.Processed) CONFLICTS=$recheckConflicts"
+                    Write-Host "PROMOTION_RECHECK_GATE=$recheckGate CONFLICTS=$recheckConflicts"
+                    if ($recheckConflicts -ne 0 -or $recheckData.Failed -ne 0 -or $recheckGate -ne "PASS") {
+                      throw "Promotion revalidation failed after main changed: gate=$recheckGate conflicts=$recheckConflicts failures=$($recheckData.Failed)."
+                    }
+                    $reportData = $recheckData
+                    $report = $recheckReport2
 
                     git add .
                     git diff --cached --quiet
@@ -1002,12 +1024,15 @@ jobs:
                     $promotionBase = (git rev-parse origin/main).Trim()
                   }
 
-                  git push origin "HEAD:refs/heads/main" "--force-with-lease=refs/heads/main:$promotionBase"
+                  # Main is never force-pushed. A normal fast-forward push is the final
+                  # promotion guard; if another writer advances main, Git rejects the push
+                  # and the candidate is revalidated against the new main before retrying.
+                  git push origin "HEAD:refs/heads/main"
                   if ($LASTEXITCODE -eq 0) {
                     $promoted = $true
                     break
                   }
-                  Write-Warning "Promotion lease lost; another writer moved main. Retrying."
+                  Write-Warning "Promotion push rejected; another writer moved main. Revalidating before retry."
                   Start-Sleep -Seconds 2
                 }
 
@@ -1016,6 +1041,12 @@ jobs:
                 }
 
                 $sourceSha = (git rev-parse HEAD).Trim()
+                # The exact promoted candidate must pass the final application smoke
+                # after promotion/revalidation, not merely before it.
+                Write-CycleStatus "FINAL_APP_SMOKE" "promoted-version=$version"
+                $promotedApp = Start-FinalApp $candidate $testLibraryRoot
+                Close-PrintVault $promotedApp
+                Write-Host "FINAL_APP_SMOKE_PROMOTED=PASS"
                 Publish-WholeLibraryValidationStatus $sourceSha "two-pass whole-library validation passed on promoted SHA; processed=$($reportData.Processed) conflicts=$($reportData.Conflicts) failures=$($reportData.Failed)"
                 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\tools\publish_release.ps1" -Root "$PWD" -DistributionToken "$env:RELEASE_TOKEN" -Version "$version" -SourceSha "$sourceSha"
                 if ($LASTEXITCODE -ne 0) { throw "Production release publication failed with exit code $LASTEXITCODE." }

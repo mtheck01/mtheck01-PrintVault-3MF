@@ -260,7 +260,13 @@ public sealed class SemanticEvidenceFusionService
             .ToList();
         var explicitRole = roleHits.FirstOrDefault();
 
-        var best = cueHits.FirstOrDefault();
+        // Do not retain FirstOrDefault()'s default value-tuple as a sentinel. A default
+        // tuple has null reference fields (including Cue.Terms and Hits), which made the
+        // original 43-file failure population capable of escaping through optional
+        // arbitration paths. Represent absence explicitly and only dereference a real cue.
+        var hasBestCue = cueHits.Count > 0;
+        var bestCue = hasBestCue ? cueHits[0].Cue : default;
+        var bestHits = hasBestCue ? cueHits[0].Hits : Array.Empty<string>();
         var aviationIdentityHits = AviationIdentityTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDomainHits = AviationDomainTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDescriptorHits = aviationIdentityHits.Length > 0
@@ -356,18 +362,18 @@ public sealed class SemanticEvidenceFusionService
                 evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
                 basis = "Source-derived artifact semantics + named subject identity";
             }
-            else if (cueHits.Count > 0 && best.Hits.Length > 0)
+            else if (cueHits.Count > 0 && bestHits.Length > 0)
             {
-                var lexicalCategory = best.Cue.Category;
+                var lexicalCategory = bestCue.Category;
                 if (string.Equals(lexicalCategory, analyzerCategory, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Source-derived analyzer + lexical corroboration";
-                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", bestHits)}");
                 }
                 else
                 {
                     basis = "Source-derived analyzer arbitration";
-                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", bestHits)}");
                     evidence.Add($"Analyzer arbitration: {analyzerCategory} outranks lexical category {lexicalCategory}");
                 }
             }
@@ -376,7 +382,7 @@ public sealed class SemanticEvidenceFusionService
                 basis = "Source-derived analyzer semantics";
             }
         }
-        else if (entity is not null && IsContextualEntityWithArtifactCue(entity, best))
+        else if (entity is not null && hasBestCue && IsContextualEntityWithArtifactCue(entity, bestCue, bestHits))
         {
             // A setting/landmark entity can identify the world or location referenced by
             // the model without identifying the printable artifact itself. For example,
@@ -384,17 +390,17 @@ public sealed class SemanticEvidenceFusionService
             // the printed object is the dragon figure. In this case the high-precision
             // artifact cue is the correct catalog category and the named entity is retained
             // as contextual evidence rather than allowed to promote its domain category.
-            var cue = best.Cue;
+            var cue = bestCue;
             category = cue.Category;
             type = cue.Type;
             subtype = cue.Subtype;
             family = cue.Family;
-            var cueConfidence = Math.Min(92, 58 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
+            var cueConfidence = Math.Min(92, 58 + cue.Weight + Math.Min(10, (bestHits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
             identity = Math.Max(identity, Math.Min(88, cueConfidence));
             basis = "Artifact lexical evidence + contextual named entity";
             evidence.Add($"Contextual named entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
-            evidence.Add($"Artifact cue outranks contextual entity category: {string.Join(", ", best.Hits)} -> {cue.Category}");
+            evidence.Add($"Artifact cue outranks contextual entity category: {string.Join(", ", bestHits)} -> {cue.Category}");
         }
         else if (entity is not null)
         {
@@ -413,30 +419,30 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, entity.Confidence);
             basis = "Named entity evidence";
             evidence.Add($"Subject identity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
-            if (cueHits.Count > 0 && best.Hits.Length > 0)
+            if (cueHits.Count > 0 && bestHits.Length > 0)
             {
-                var lexicalCategory = best.Cue.Category;
+                var lexicalCategory = bestCue.Category;
                 if (string.Equals(lexicalCategory, entity.Category, StringComparison.OrdinalIgnoreCase))
                 {
                     basis = "Named entity + lexical corroboration";
-                    evidence.Add($"Lexical corroboration: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical corroboration: {string.Join(", ", bestHits)}");
                 }
                 else
                 {
-                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", best.Hits)}");
+                    evidence.Add($"Lexical cue retained as non-promoting evidence: {string.Join(", ", bestHits)}");
                     evidence.Add($"Entity arbitration: {entity.Category} outranks lexical category {lexicalCategory}");
                 }
             }
         }
-        else if (cueHits.Count > 0 && best.Hits.Length > 0)
+        else if (cueHits.Count > 0 && bestHits.Length > 0)
         {
-            var cue = best.Cue;
+            var cue = bestCue;
             category = cue.Category; type = cue.Type; subtype = cue.Subtype; family = cue.Family;
-            var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
+            var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (bestHits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
             identity = Math.Max(identity, Math.Min(82, cueConfidence - 8));
             basis = $"Lexical evidence: {cue.Label}";
-            evidence.Add($"Lexical cue: {string.Join(", ", best.Hits)}");
+            evidence.Add($"Lexical cue: {string.Join(", ", bestHits)}");
         }
         else if (hasSourceDerivedAnalyzer)
         {
@@ -594,7 +600,7 @@ public sealed class SemanticEvidenceFusionService
         }
         var strongAlternative = strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
-                                (cueHits.Count > 0 && best.Hits.Length > 0 && classification >= 85);
+                                (cueHits.Count > 0 && bestHits.Length > 0 && classification >= 85);
         var review = actionableConflict ||
                      (strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved && !semanticChannelsAgree);
         if (review)
@@ -621,11 +627,11 @@ public sealed class SemanticEvidenceFusionService
 
     private static bool IsContextualEntityWithArtifactCue(
         MultilingualEntityMatch entity,
-        ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
-          string[] Hits) best)
+        (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) cue,
+        string[] hits)
     {
-        if (best.Hits.Length == 0) return false;
-        if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
+        if (hits.Length == 0) return false;
+        if (!string.Equals(cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
 
         // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
         // by a model whose actual printable subject is a figure. Only treat the entity as
