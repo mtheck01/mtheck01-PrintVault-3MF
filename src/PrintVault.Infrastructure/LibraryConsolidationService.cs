@@ -43,6 +43,27 @@ public sealed class LibraryConsolidationService
         var ignored = 0;
         var review = 0;
 
+        // Root-level 3MF files are first-class library members. They must be
+        // planned from their catalog classification rather than being silently
+        // excluded because they do not have a source folder.
+        foreach (var file in Directory.EnumerateFiles(root, "*.3mf", SearchOption.TopDirectoryOnly))
+        {
+            var model = repo.Get(file);
+            var target = DetermineRootFileTarget(model, categories);
+            if (target.Target == null)
+            {
+                ignored++;
+                continue;
+            }
+
+            var destination = GetSafeDestination(target.Target, Path.GetFileName(file));
+            if (PathsEqual(file, destination))
+                continue;
+
+            if (target.NeedsReview) review++;
+            moves.Add(new ConsolidationMove(file, target.Target, target.Reason, target.Confidence));
+        }
+
         foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))
         {
             var folder = Path.GetFileName(dir);
@@ -260,6 +281,28 @@ public sealed class LibraryConsolidationService
         }
 
         return new ConsolidationResult(moved, 0, bytes, warnings);
+    }
+
+    private (string? Target, string Reason, string Confidence, bool NeedsReview) DetermineRootFileTarget(
+        ModelRecord? model,
+        IReadOnlyList<string> categories)
+    {
+        // A root-level file has no folder taxonomy to resolve. Its persisted
+        // classification is the only safe source of truth for automatic cleanup.
+        // Manual category overrides remain authoritative.
+        var category = model?.Category?.Trim();
+        if (string.IsNullOrWhiteSpace(category) ||
+            string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase))
+            return (null, "Root-level file has no resolved category", "Review", true);
+
+        var actual = FindCategory(categories, category);
+        if (actual == null)
+            return (null, "Root-level file category is not in the active taxonomy", "Review", true);
+
+        return model?.CategoryOverride == true
+            ? (actual, "Preserved custom category override from root", "High", false)
+            : (actual, "Model intelligence category resolved from root", "High", false);
     }
 
     private (string? Target, string Reason, string Confidence, bool NeedsReview) DetermineTarget(
