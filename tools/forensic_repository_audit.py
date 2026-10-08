@@ -191,6 +191,10 @@ def main():
         w = workflow.read_text(encoding="utf-8")
         required = [
             "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
+            'cron: "*/15 * * * *"',
+            'if ($env:GITHUB_EVENT_NAME -eq "schedule")',
+            'printvault/whole-library-validation',
+            'WATCHDOG_RESULT=UNVALIDATED',
             "queue: single",
             'python ".\\tools\\forensic_repository_audit.py"',
             "MODULE_PASS=$pass/2",
