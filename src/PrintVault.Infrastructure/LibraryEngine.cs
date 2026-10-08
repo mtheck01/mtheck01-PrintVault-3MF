@@ -252,13 +252,21 @@ public sealed class LibraryEngine : ILibraryEngine
 
         token.ThrowIfCancellationRequested();
         var models = result.Where(x => x is not null).Select(x => x!).ToList();
+
+        // A rebuild replaces the catalog view, so any per-file failure makes the
+        // candidate incomplete. Fail closed before touching the existing database;
+        // the caller can retry after the offending file/problem is corrected.
+        if (failed > 0)
+            throw new InvalidOperationException(
+                $"Rebuild aborted safely: {failed:N0} of {files.Count:N0} files failed analysis or enrichment. The existing catalog was left unchanged.");
+
         duplicateGroups.Rebuild(models);
 
         // SaveAll with the old path set removes records for files that no longer exist.
         repo.SaveAll(models, new HashSet<string>(previous.Keys, StringComparer.OrdinalIgnoreCase));
         var persisted = repo.GetAll();
-        if (persisted.Count != models.Count)
-            throw new InvalidOperationException($"Rebuild reconciliation failed: produced {models.Count:N0} records but database read-back returned {persisted.Count:N0}.");
+        if (persisted.Count != models.Count || persisted.Count != files.Count)
+            throw new InvalidOperationException($"Rebuild reconciliation failed: discovered {files.Count:N0} files, produced {models.Count:N0} records, database read-back returned {persisted.Count:N0}.");
         return new LibraryRebuildResult(models.Count, reclassified, preservedCustom, failed, files.Count);
     }
 
