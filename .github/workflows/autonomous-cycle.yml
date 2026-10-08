@@ -201,11 +201,10 @@ jobs:
                 exit 0
               }
               else {
-                # A failed scheduled validation does not change main. Re-running the
-                # exact same SHA every 10/15 minutes cannot repair anything in zero-credit
-                # mode; it only burns runner time and creates a misleading backlog.
-                # Treat a completed prior run for this exact SHA as a terminal scheduled
-                # attempt. A human can explicitly retry with workflow_dispatch.
+                # A prior completed run is NOT validation evidence. It may have failed,
+                # been cancelled, or exited through a diagnostic/skip path. The only
+                # terminal success condition for the schedule gate is an explicit
+                # whole-library validation status for this exact SHA.
                 $encodedSha = [System.Uri]::EscapeDataString($startingMainSha)
                 $priorRunsUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/autonomous-cycle.yml/runs?head_sha=$encodedSha&per_page=100"
                 $priorRuns = @(Invoke-RestMethod -Uri $priorRunsUri -Headers $headers -Method Get)
@@ -216,11 +215,11 @@ jobs:
                 Write-Host "SCHEDULE_PRIOR_COMPLETED_RUNS_FOR_SHA=$($priorCompletedRuns.Count)"
                 if ($priorCompletedRuns.Count -gt 0) {
                   $latestPrior = $priorCompletedRuns | Sort-Object -Property updated_at -Descending | Select-Object -First 1
-                  Write-Host "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED"
                   Write-Host "SCHEDULE_PRIOR_RUN=$($latestPrior.run_number) CONCLUSION=$($latestPrior.conclusion) UPDATED=$($latestPrior.updated_at)"
-                  Write-CycleStatus "SKIPPED" "scheduled poll: exact main SHA $startingMainSha already has completed autonomous run #$($latestPrior.run_number); explicit dispatch required to retry"
-                  exit 0
+                  Write-Host "SCHEDULE_PRIOR_RUN_IS_VALIDATION=$([string]($latestPrior.conclusion -eq "success" -and $wholeLibraryValidated).ToString().ToUpperInvariant())"
                 }
+                # Do not exit successfully here. A scheduled poll without an exact-SHA
+                # whole-library success must enter the canonical validation path.
                 Write-Host "SCHEDULE_VALIDATION_NEEDED=YES_EXACT_SHA_NOT_VALIDATED"
               }
             } catch {
@@ -739,7 +738,11 @@ jobs:
             $actionable = Get-ActionableConflictCount $r
             Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$baselineLexical resolution=$baselineResolution"
             Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution actionable=$actionable"
-            if ($actionable -eq 0) { Write-Host "ACTIONABLE_CONFLICTS=0"; return "PASS" }
+            if ($r.Conflicts -eq 0 -and $r.AnalyzedConflicts -eq 0 -and $actionable -eq 0) {
+              Write-Host "WHOLE_LIBRARY_GATE_CLEAN=TRUE"
+              return "PASS"
+            }
+            Write-Host "WHOLE_LIBRARY_GATE_CLEAN=FALSE CONFLICTS=$($r.Conflicts) ANALYZED=$($r.AnalyzedConflicts) ACTIONABLE=$actionable"
             if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
             if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
             if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
