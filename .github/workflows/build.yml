@@ -7,6 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: printvault-build-validation
+  cancel-in-progress: true
+
 jobs:
   build-and-verify:
     runs-on: windows-latest
