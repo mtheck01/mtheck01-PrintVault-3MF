@@ -43,7 +43,9 @@ concurrency:
 
 jobs:
   cycle:
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    # Self-hosted execution is allowed only for trusted same-repository PRs.
+    # Fork PRs are never executed on the persistent Windows runner.
+    if: (github.event_name != 'pull_request') || (github.event.pull_request.head.repo.full_name == github.repository)
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
