@@ -150,7 +150,9 @@ public sealed class CategoryReconciliationService
                 changed++;
             }
 
-            if (models.Count == 0 || models.All(x => x.CategoryOverride || string.Equals(x.Category, item.TargetCategory, StringComparison.OrdinalIgnoreCase)))
+            var remainingInCandidate = candidates.Values.Any(x =>
+                string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase));
+            if (!remainingInCandidate)
                 retired++;
         }
 
