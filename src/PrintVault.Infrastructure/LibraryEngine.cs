@@ -92,7 +92,18 @@ public sealed class LibraryEngine : ILibraryEngine
                     // Preserve user tags; the intelligence layer stores its own suggested tags separately.
                     if (doHash)
                     {
-                        m.Hash = await HashAsync(path, ct);
+                        try
+                        {
+                            m.Hash = await HashAsync(path, ct);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch
+                        {
+                            // Hashing is enrichment, not classification. A hash failure
+                            // must never discard a valid catalog record.
+                            m.Hash = "";
+                            m.RiskFlags = AppendRiskFlag(m.RiskFlags, "Hash enrichment failed");
+                        }
                     }
                     if (changed)
                     {
@@ -103,7 +114,20 @@ public sealed class LibraryEngine : ILibraryEngine
                 }
 
                 if (doThumbnail && !m.HasThumbnail)
-                    m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
+                {
+                    try
+                    {
+                        m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch
+                    {
+                        // Thumbnail extraction is optional enrichment. Preserve the
+                        // classified/indexed model when the preview cannot be generated.
+                        m.ThumbnailPath = null;
+                        m.RiskFlags = AppendRiskFlag(m.RiskFlags, "Thumbnail enrichment failed");
+                    }
+                }
 
                 result[i] = m;
                 Interlocked.Increment(ref indexed);
@@ -435,6 +459,17 @@ public sealed class LibraryEngine : ILibraryEngine
         }
         catch { }
         return null;
+    }
+
+    private static string AppendRiskFlag(string? existing, string flag)
+    {
+        var values = (existing ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => x.Length > 0)
+            .ToList();
+        if (!values.Contains(flag, StringComparer.OrdinalIgnoreCase))
+            values.Add(flag);
+        return string.Join(", ", values);
     }
 
     private static async Task<string> HashAsync(string path, CancellationToken ct)
