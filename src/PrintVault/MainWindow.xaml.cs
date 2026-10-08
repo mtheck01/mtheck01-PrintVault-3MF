@@ -164,9 +164,23 @@ public partial class MainWindow : Window
         categories.AddRange(BuiltInCategories.All);
         var p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
         if (File.Exists(p))
-            foreach (var c in File.ReadAllLines(p).Select(x => x.Trim())
-                .Where(x => x.Length > 0 && !IsLegacyCategory(x) && !categories.Contains(x, StringComparer.OrdinalIgnoreCase)))
-                categories.Add(c);
+        {
+            try
+            {
+                foreach (var c in File.ReadAllLines(p).Select(x => x.Trim())
+                    .Where(x => x.Length > 0 && !IsLegacyCategory(x) && !categories.Contains(x, StringComparer.OrdinalIgnoreCase)))
+                    categories.Add(c);
+            }
+            catch (Exception ex)
+            {
+                var recovery = p + $".corrupt.{DateTime.UtcNow:yyyyMMdd-HHmmssfff}.txt";
+                try { File.Move(p, recovery, false); }
+                catch (Exception moveEx)
+                {
+                    throw new InvalidDataException("PrintVault category registry is unreadable and could not be preserved for recovery.", new AggregateException(ex, moveEx));
+                }
+            }
+        }
         foreach (var c in engine.Repository.GetAll().Select(x => x.Category)
             .Where(x => !string.IsNullOrWhiteSpace(x) && !IsLegacyCategory(x))
             .Distinct(StringComparer.OrdinalIgnoreCase))
@@ -201,7 +215,10 @@ public partial class MainWindow : Window
     {
         var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault");
         Directory.CreateDirectory(d);
-        File.WriteAllLines(Path.Combine(d, "categories.txt"), categories.Distinct(StringComparer.OrdinalIgnoreCase));
+        var path = Path.Combine(d, "categories.txt");
+        var temp = path + ".tmp";
+        File.WriteAllLines(temp, categories.Distinct(StringComparer.OrdinalIgnoreCase));
+        File.Move(temp, path, true);
     }
 
     private void ChooseRoot()
