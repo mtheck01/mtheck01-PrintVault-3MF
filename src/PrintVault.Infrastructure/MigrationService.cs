@@ -31,7 +31,12 @@ public sealed class MigrationService
             target.SaveAll(list);
             return list.Count;
         }
-        catch { return 0; }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Legacy library migration failed. No imported records were committed: {LegacyDbPath}",
+                ex);
+        }
     }
 
     private static string? Get(SqliteDataReader r, string name) { try { var i = r.GetOrdinal(name); return r.IsDBNull(i) ? null : r.GetValue(i)?.ToString(); } catch { return null; } }
