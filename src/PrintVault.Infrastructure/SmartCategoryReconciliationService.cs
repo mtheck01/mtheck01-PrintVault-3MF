@@ -92,13 +92,18 @@ public sealed class SmartCategoryReconciliationService
     {
         var warnings = new List<string>();
         var undo = new List<SmartCategoryUndoEntry>();
+        var candidates = repo.GetAll().ToDictionary(x => x.Path, StringComparer.OrdinalIgnoreCase);
         var applied = 0;
         var protectedSkipped = 0;
+        var changedModels = new List<ModelRecord>();
 
         foreach (var item in selected)
         {
-            var model = repo.Get(item.Path);
-            if (model is null) { warnings.Add($"Model no longer exists: {item.Path}"); continue; }
+            if (!candidates.TryGetValue(item.Path, out var model))
+            {
+                warnings.Add($"Model no longer exists: {item.Path}");
+                continue;
+            }
             if (model.CategoryOverride) { protectedSkipped++; continue; }
             if (!string.Equals(model.Category, item.CurrentCategory, StringComparison.OrdinalIgnoreCase))
             {
@@ -112,13 +117,26 @@ public sealed class SmartCategoryReconciliationService
             model.Category = item.SuggestedCategory;
             model.Tags = ReplaceCategoryTag(model.Tags, previous, item.SuggestedCategory);
             model.CategoryOverride = true;
-            repo.Upsert(model);
-            ensureCategory?.Invoke(item.SuggestedCategory);
-            learn?.Invoke(model.Name, item.SuggestedCategory);
+            changedModels.Add(model);
             applied++;
         }
 
-        if (undo.Count > 0) SaveManifest(new SmartCategoryUndoManifest(DateTime.UtcNow, undo));
+        if (changedModels.Count > 0)
+        {
+            // Persist all selected corrections in one SQLite transaction. A single write
+            // failure cannot leave the review half-applied.
+            SaveManifest(new SmartCategoryUndoManifest(DateTime.UtcNow, undo));
+            repo.SaveAll(candidates.Values, new HashSet<string>(candidates.Keys, StringComparer.OrdinalIgnoreCase));
+
+            foreach (var model in changedModels)
+            {
+                try { ensureCategory?.Invoke(model.Category); }
+                catch (Exception ex) { warnings.Add($"Could not register category '{model.Category}': {ex.Message}"); }
+                try { learn?.Invoke(model.Name, model.Category); }
+                catch (Exception ex) { warnings.Add($"Could not record learned correction for '{model.Name}': {ex.Message}"); }
+            }
+        }
+
         return new SmartCategoryReviewResult(applied, protectedSkipped, warnings);
     }
 
@@ -132,17 +150,24 @@ public sealed class SmartCategoryReconciliationService
         catch (Exception ex) { return new(0, 0, new[] { $"Undo record could not be read: {ex.Message}" }); }
         if (manifest is null || manifest.Entries.Count == 0) return new(0, 0, new[] { "No smart category review is available to undo." });
 
+        var candidates = repo.GetAll().ToDictionary(x => x.Path, StringComparer.OrdinalIgnoreCase);
         var changed = 0;
         foreach (var entry in manifest.Entries.Reverse())
         {
-            var model = repo.Get(entry.Path);
-            if (model is null) { warnings.Add($"Model no longer exists: {entry.Path}"); continue; }
+            if (!candidates.TryGetValue(entry.Path, out var model))
+            {
+                warnings.Add($"Model no longer exists: {entry.Path}");
+                continue;
+            }
             model.Category = entry.PreviousCategory;
             model.Tags = entry.PreviousTags;
             model.CategoryOverride = entry.PreviousCategoryOverride;
-            repo.Upsert(model);
             changed++;
         }
+
+        if (changed > 0)
+            repo.SaveAll(candidates.Values, new HashSet<string>(candidates.Keys, StringComparer.OrdinalIgnoreCase));
+
         if (warnings.Count == 0) TryDeleteManifest(warnings);
         return new(changed, 0, warnings);
     }
