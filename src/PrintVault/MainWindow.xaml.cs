@@ -174,11 +174,28 @@ public partial class MainWindow : Window
     }
 
     private static bool IsLegacyCategory(string? category)
-        => category?.Trim() switch
-        {
-            "06_Cosplay" or "08_Aviation" or "09_Models" or "10_Multi_Color" or "Soap Holders" or "test eng 8.6" or "Cosplay" or "Aviation" or "Aircraft" or "Automotive" or "Decor" or "Decorative" or "Figures" or "Gaming" or "Game Models" or "Multi-Color" or "Test Print" or "Test Prints" or "Other" or "Needs Review" => true,
-            _ => false
-        };
+    {
+        if (string.IsNullOrWhiteSpace(category)) return false;
+        var value = category.Trim();
+        if (value is
+            "02_Functional" or "02_Household" or
+            "03_Automotive" or "07_Automotive" or "Automotive" or
+            "03_Decor" or "06_Decorative" or "Decor" or "Decorative" or
+            "04_Figures" or "Figures" or
+            "05_Game_Models" or "05_Gaming" or "Gaming" or "Game Models" or
+            "06_Cosplay" or "Cosplay" or
+            "08_Aviation" or "09_Aircraft" or "Aviation" or "Aircraft" or
+            "09_Models" or "Models" or
+            "07_Multi_Color" or "10_Multi_Color" or "Multi_Color" or "Multi-Color" or
+            "08_Test_Print" or "11_Test_Print" or "Test_Print" or "Test Print" or "Test Prints" or
+            "99_Other" or "Other" or "Needs Review" or
+            "Soap Holders" or "test eng 8.6")
+            return true;
+
+        var i = 0;
+        while (i < value.Length && char.IsDigit(value[i])) i++;
+        return i > 0 && i < value.Length && (value[i] == '_' || value[i] == '-' || value[i] == ' ');
+    }
 
     private void SaveCategories()
     {
@@ -912,7 +929,7 @@ public partial class MainWindow : Window
                     ? "No .3mf files discovered"
                     : $"Found {p.Discovered:N0} • Indexed {p.Indexed:N0} • Failed {p.Failed:N0} • {p.Percent}%";
             });
-            var rebuilt = await engine.RebuildAsync(new[] { root }, token, progress);
+            var rebuilt = await engine.RebuildAsync(new[] { root }, token, progress, preserveMetadata: false);
             token.ThrowIfCancellationRequested();
 
             var rows = engine.Repository.GetAll().Where(x => File.Exists(x.Path)).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -977,7 +994,9 @@ public partial class MainWindow : Window
             var backup = engine.Repository.BackupDatabase();
             Status.Text = $"Backup created: {Path.GetFileName(backup)}";
 
-            engine.Repository.ClearAllModels();
+            // RebuildAsync now builds a complete candidate and commits it only after
+            // every file succeeds. Do not clear the live catalog first: doing so created
+            // a catastrophic empty-catalog window if rebuild failed or was canceled.
             Models.UnselectAll();
             active = null;
             ModelsSource.ReplaceAll(Array.Empty<ModelRecord>());
