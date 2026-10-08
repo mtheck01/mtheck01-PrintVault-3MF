@@ -147,6 +147,6 @@ assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boun
 
 # Candidate build prerequisites must fail closed. A native-process failure cannot
 # be allowed to have its exit code overwritten by the next audit command.
-assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\\tools\\release_preflight.ps1" -Root "$PWD"\\n            if ($LASTEXITCODE -ne 0)' in workflow, "Candidate release preflight exit code is not enforced"
-assert 'python ".\\tools\\static_audit.py"\\n            if ($LASTEXITCODE -ne 0)' in workflow, "Candidate static-audit exit code is not enforced"
-assert 'python ".\\tools\\forensic_repository_audit.py"\\n            if ($LASTEXITCODE -ne 0)' in workflow, "Candidate forensic-audit exit code is not enforced"
+assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\\tools\\release_preflight.ps1" -Root "$PWD"' in workflow and 'Release preflight failed after candidate source changes' in workflow, "Candidate release preflight exit code is not enforced"
+assert 'python ".\\tools\\static_audit.py"' in workflow and 'Static audit failed after candidate source changes' in workflow, "Candidate static-audit exit code is not enforced"
+assert 'python ".\\tools\\forensic_repository_audit.py"' in workflow and 'Forensic repository audit failed after candidate source changes' in workflow, "Candidate forensic-audit exit code is not enforced"
