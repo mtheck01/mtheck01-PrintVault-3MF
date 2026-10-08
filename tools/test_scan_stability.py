@@ -20,6 +20,8 @@ checks = {
     "scan persists only after failure-safe reconciliation": "repo.SaveAll(models, stale);" in engine_code,
     "rebuild fails closed before catalog commit": "if (failed > 0)" in engine_code and "The existing catalog was left unchanged" in engine_code,
     "rebuild requires full discovered-file count": "persisted.Count != models.Count || persisted.Count != files.Count" in engine_code,
+    "scan hash enrichment is non-fatal": "Hash enrichment failed" in engine_code and "catch (OperationCanceledException) { throw; }" in engine_code,
+    "scan thumbnail enrichment is non-fatal": "Thumbnail enrichment failed" in engine_code and "ThumbnailService.ExtractAsync" in engine_code,
     "filesystem enumeration fails closed": "scan was stopped to prevent an incomplete library from being treated as authoritative" in discovery_code and "throw new IOException" in discovery_code,
     "filesystem discovery does not silently swallow enumeration errors": "catch { files = Array.Empty<string>(); }" not in discovery_code and "catch { dirs = Array.Empty<string>(); }" not in discovery_code,
     "missing library roots fail closed": "At least one library root is required" in engine_code and "NormalizeRoots(roots)" in engine_code,
