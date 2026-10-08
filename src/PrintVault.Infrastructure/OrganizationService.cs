@@ -53,6 +53,7 @@ public sealed class OrganizationService
             if (string.IsNullOrWhiteSpace(model.Category) ||
                 string.Equals(model.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(model.Category, "Unknown", StringComparison.OrdinalIgnoreCase)) continue;
+            if (model.CategoryOverride) continue;
 
             var source = Path.GetFullPath(model.Path);
             if (!source.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
@@ -79,9 +80,23 @@ public sealed class OrganizationService
     {
         if (!Directory.Exists(root)) throw new InvalidOperationException("Library root not found.");
 
+        // This list is the filesystem/category-registry compatibility set. It
+        // intentionally contains every legacy alias used by the consolidation and
+        // reconciliation engines so cleanup cannot leave a second taxonomy behind.
         var legacy = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "06_Cosplay", "08_Aviation", "09_Models", "10_Multi_Color", "Soap Holders", "test eng 8.6", "Cosplay", "Aviation", "Aircraft", "Automotive", "Decor", "Decorative", "Figures", "Gaming", "Game Models", "Multi-Color", "Test Print", "Test Prints", "Other", "Needs Review"
+            "02_Functional", "02_Household",
+            "03_Automotive", "07_Automotive", "Automotive",
+            "03_Decor", "06_Decorative", "Decor", "Decorative",
+            "04_Figures", "Figures",
+            "05_Game_Models", "05_Gaming", "Gaming", "Game Models",
+            "06_Cosplay", "Cosplay",
+            "08_Aviation", "09_Aircraft", "Aviation", "Aircraft",
+            "09_Models", "Models",
+            "07_Multi_Color", "10_Multi_Color", "Multi_Color", "Multi-Color",
+            "08_Test_Print", "11_Test_Print", "Test_Print", "Test Print", "Test Prints",
+            "99_Other", "Other", "Needs Review",
+            "Soap Holders", "test eng 8.6"
         };
 
         var records = repo.GetAll().ToList();
@@ -91,7 +106,9 @@ public sealed class OrganizationService
 
         foreach (var model in records)
         {
-            var categoryIsLegacy = !string.IsNullOrWhiteSpace(model.Category) && legacy.Contains(model.Category.Trim());
+            var categoryIsLegacy = !model.CategoryOverride &&
+                !string.IsNullOrWhiteSpace(model.Category) &&
+                legacy.Contains(model.Category.Trim());
             if (categoryIsLegacy)
             {
                 legacyCategories++;
@@ -229,11 +246,21 @@ public sealed class OrganizationService
                 if (!Directory.EnumerateFileSystemEntries(dir).Any())
                     Directory.Delete(dir, false);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                throw new IOException($"PrintVault could not inspect legacy folder '{dir}' while performing taxonomy cleanup. Cleanup was stopped to avoid a false-clean result.", ex);
+            }
         }
 
-        return Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
-            .Count(dir => legacy.Contains(Path.GetFileName(dir)));
+        try
+        {
+            return Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                .Count(dir => legacy.Contains(Path.GetFileName(dir)));
+        }
+        catch (Exception ex)
+        {
+            throw new IOException("PrintVault could not verify remaining legacy taxonomy folders. Cleanup was not considered successful.", ex);
+        }
     }
 
     private bool IsInsideLegacyFolder(string path, IReadOnlySet<string> legacy)
