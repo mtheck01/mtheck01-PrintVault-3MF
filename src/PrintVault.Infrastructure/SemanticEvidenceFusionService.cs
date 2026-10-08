@@ -625,11 +625,11 @@ public sealed class SemanticEvidenceFusionService
 
     private static bool IsContextualEntityWithArtifactCue(
         MultilingualEntityMatch entity,
-        ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
-          string[] Hits) best)
+        (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) cue,
+        string[] hits)
     {
-        if (best.Hits is null || best.Hits.Length == 0) return false;
-        if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
+        if (hits.Length == 0) return false;
+        if (!string.Equals(cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
 
         // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
         // by a model whose actual printable subject is a figure. Only treat the entity as
