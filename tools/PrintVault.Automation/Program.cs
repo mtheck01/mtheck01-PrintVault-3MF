@@ -82,19 +82,27 @@ try
         Console.WriteLine($"SCAN_ROOT={scanRoot}");
         Console.WriteLine($"SCAN_MODE={scanMode}");
         var scanEngine = new LibraryEngine();
+        var lastFailed = 0;
         var scanProgress = new Progress<ScanProgress>(p =>
         {
+            lastFailed = p.Failed;
             if (p.Processed == p.Discovered || p.Processed % 100 == 0)
                 Console.WriteLine($"SCAN_PROGRESS={p.Processed}/{p.Discovered} INDEXED={p.Indexed} FAILED={p.Failed}");
         });
         var scanned = await scanEngine.ScanAsync(new[] { scanRoot }, scanMode, default, scanProgress);
         var persisted = scanEngine.Repository.GetAll().Count;
+        Console.WriteLine($"SCAN_FAILED={lastFailed}");
         Console.WriteLine($"SCAN_DISCOVERED={scanned.Count}");
         Console.WriteLine($"SCAN_PERSISTED={persisted}");
         if (persisted != scanned.Count)
         {
             Console.Error.WriteLine($"SCAN_PERSISTENCE_MISMATCH=EXPECTED:{scanned.Count};ACTUAL:{persisted}");
             return 21;
+        }
+        if (lastFailed != 0)
+        {
+            Console.Error.WriteLine($"SCAN_FAILED_FILES={lastFailed}; catalog was preserved, but scan is not considered a pass.");
+            return 22;
         }
         Console.WriteLine("SCAN=PASS");
         return 0;
