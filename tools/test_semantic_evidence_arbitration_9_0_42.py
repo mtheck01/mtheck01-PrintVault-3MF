@@ -14,6 +14,9 @@ checks = [
     ("confidence calibration remains present", "value * 100.0" in fusion),
     ("contextual setting entities cannot override figure artifact cues", "IsContextualEntityWithArtifactCue" in fusion and "Artifact lexical evidence + contextual named entity" in fusion),
     ("Hogwarts-style building entity is treated as contextual for figures", "entity.Subtype.Contains(\"Castle\"" in fusion and "best.Cue.Category, \"Figures & Characters\"" in fusion),
+    ("empty lexical cue state is explicit", "var hasBestCue = cueHits.Count > 0;" in fusion and "var bestHits = hasBestCue ? cueHits[0].Hits : Array.Empty<string>();" in fusion),
+    ("empty lexical cue cannot dereference default tuple", "var best = cueHits.FirstOrDefault();" not in fusion and "best." not in fusion),
+    ("contextual entity guard requires real lexical cue", "hasBestCue && IsContextualEntityWithArtifactCue(entity, bestCue, bestHits)" in fusion),
 ]
 
 failed = [name for name, ok in checks if not ok]
