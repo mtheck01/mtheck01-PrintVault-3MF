@@ -195,21 +195,24 @@ public sealed class CategoryReconciliationService
         var manifest = LoadManifest(out var error);
         if (manifest == null) return new(0, 0, 0, new[] { error ?? "No category reconciliation is available to undo." });
 
+        var candidates = repo.GetAll().ToDictionary(x => x.Path, StringComparer.OrdinalIgnoreCase);
         var changed = 0;
         foreach (var entry in manifest.Entries.Reverse())
         {
-            var model = repo.Get(entry.Path);
-            if (model == null)
+            if (!candidates.TryGetValue(entry.Path, out var model))
             {
                 warnings.Add($"Model no longer exists in the catalog: {entry.Path}");
                 continue;
             }
+
             model.Category = entry.PreviousCategory;
             model.Tags = entry.PreviousTags;
             model.CategoryOverride = entry.PreviousCategoryOverride;
-            repo.Upsert(model);
             changed++;
         }
+
+        if (changed > 0)
+            repo.SaveAll(candidates.Values, new HashSet<string>(candidates.Keys, StringComparer.OrdinalIgnoreCase));
 
         if (warnings.Count == 0) TryDeleteManifest(warnings);
         return new CategoryReconciliationResult(changed, 0, 0, warnings);
