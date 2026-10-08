@@ -136,6 +136,7 @@ public sealed class CategoryReconciliationService
                 .Where(x => string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+            var changedForItem = 0;
             foreach (var model in models)
             {
                 if (model.CategoryOverride)
@@ -148,11 +149,12 @@ public sealed class CategoryReconciliationService
                 model.Category = item.TargetCategory;
                 model.Tags = ReplaceCategoryTag(model.Tags, item.SourceCategory, item.TargetCategory);
                 changed++;
+                changedForItem++;
             }
 
             var remainingInCandidate = candidates.Values.Any(x =>
                 string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase));
-            if (!remainingInCandidate)
+            if (changedForItem > 0 && !remainingInCandidate)
                 retired++;
         }
 
