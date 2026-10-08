@@ -146,7 +146,7 @@ public sealed class LibraryEngine : ILibraryEngine
         return models.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public async Task<LibraryRebuildResult> RebuildAsync(IEnumerable<string> roots, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
+    public async Task<LibraryRebuildResult> RebuildAsync(IEnumerable<string> roots, CancellationToken token = default, IProgress<ScanProgress>? progress = null, bool preserveMetadata = true)
     {
         // A rebuild deliberately ignores file timestamps and previous built-in classifications.
         // User-defined categories remain authoritative; the analyzer must re-evaluate everything else.
@@ -180,7 +180,9 @@ public sealed class LibraryEngine : ILibraryEngine
                 previous.TryGetValue(path, out var old);
                 var oldCategory = old?.Category ?? "Uncategorized";
                 var folderCategory = GetTopLevelCustomCategory(rootList, path);
-                var customCategory = old?.CategoryOverride == true ? oldCategory : ((!IsLegacyCategory(oldCategory) && IsCustomCategory(oldCategory)) ? oldCategory : (!IsLegacyCategory(folderCategory) ? folderCategory : null));
+                var customCategory = preserveMetadata
+                    ? (old?.CategoryOverride == true ? oldCategory : ((!IsLegacyCategory(oldCategory) && IsCustomCategory(oldCategory)) ? oldCategory : (!IsLegacyCategory(folderCategory) ? folderCategory : null)))
+                    : null;
 
                 var m = new ModelRecord
                 {
@@ -190,10 +192,14 @@ public sealed class LibraryEngine : ILibraryEngine
                     Size = fi.Length,
                     ModifiedUtc = fi.LastWriteTimeUtc,
                     Category = customCategory ?? "Uncategorized",
-                    CategoryOverride = old?.CategoryOverride ?? false,
-                    PrintMethod = old?.PrintMethod ?? "Unknown", PrintMethodConfidence = old?.PrintMethodConfidence ?? 0, PrintMethodEvidence = old?.PrintMethodEvidence ?? "", PrintMethodOverride = old?.PrintMethodOverride ?? false, SpecialType = old?.SpecialType ?? "",
-                    Favorite = old?.Favorite ?? false,
-                    Tags = old?.Tags ?? ""
+                    CategoryOverride = preserveMetadata && (old?.CategoryOverride ?? false),
+                    PrintMethod = preserveMetadata ? old?.PrintMethod ?? "Unknown" : "Unknown",
+                    PrintMethodConfidence = preserveMetadata ? old?.PrintMethodConfidence ?? 0 : 0,
+                    PrintMethodEvidence = preserveMetadata ? old?.PrintMethodEvidence ?? "" : "",
+                    PrintMethodOverride = preserveMetadata && (old?.PrintMethodOverride ?? false),
+                    SpecialType = preserveMetadata ? old?.SpecialType ?? "" : "",
+                    Favorite = preserveMetadata && (old?.Favorite ?? false),
+                    Tags = preserveMetadata ? old?.Tags ?? "" : ""
                 };
 
                 var a = analyzer.Analyze(path, fi.Name);
@@ -237,7 +243,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 catch { m.Hash = ""; }
                 try
                 {
-                    m.ThumbnailPath = old?.ThumbnailPath;
+                    m.ThumbnailPath = preserveMetadata ? old?.ThumbnailPath : null;
                     if (!m.HasThumbnail) m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
                 }
                 catch (OperationCanceledException) { throw; }
