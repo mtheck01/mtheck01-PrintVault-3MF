@@ -628,7 +628,7 @@ public sealed class SemanticEvidenceFusionService
         ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
           string[] Hits) best)
     {
-        if (bestHits.Length == 0) return false;
+        if (best.Hits is null || best.Hits.Length == 0) return false;
         if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
 
         // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
