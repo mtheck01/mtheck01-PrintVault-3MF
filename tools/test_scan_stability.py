@@ -22,6 +22,8 @@ checks = {
     "rebuild requires full discovered-file count": "persisted.Count != models.Count || persisted.Count != files.Count" in engine_code,
     "filesystem enumeration fails closed": "scan was stopped to prevent an incomplete library from being treated as authoritative" in discovery_code and "throw new IOException" in discovery_code,
     "filesystem discovery does not silently swallow enumeration errors": "catch { files = Array.Empty<string>(); }" not in discovery_code and "catch { dirs = Array.Empty<string>(); }" not in discovery_code,
+    "missing library roots fail closed": "At least one library root is required" in engine_code and "NormalizeRoots(roots)" in engine_code,
+    "reparse inspection failures fail closed": "could not inspect directory" in discovery_code and "throw new IOException" in discovery_code,
 }
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
