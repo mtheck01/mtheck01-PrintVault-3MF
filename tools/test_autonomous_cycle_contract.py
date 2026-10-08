@@ -160,3 +160,9 @@ assert "explicit dispatch required to retry" not in workflow
 legacy_repo = "mtheck01/" + "PrintVault-3MF"
 assert legacy_repo not in workflow
 assert "mtheck01/mtheck01-PrintVault-3MF" in workflow
+
+
+# Regression PASS must never be granted for an improved-but-dirty library.
+assert "Any remaining conflict is a non-passing state" in workflow
+assert "if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }" not in workflow
+assert "return "FAIL"" in workflow
