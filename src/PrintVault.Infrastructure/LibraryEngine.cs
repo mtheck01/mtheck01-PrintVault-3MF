@@ -95,7 +95,17 @@ public sealed class LibraryEngine : ILibraryEngine
                     // Preserve user tags; the intelligence layer stores its own suggested tags separately.
                     if (doHash)
                     {
-                        m.Hash = await HashAsync(path, ct);
+                        try
+                        {
+                            m.Hash = await HashAsync(path, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            m.Hash = "";
+                            m.RiskFlags = string.Join(", ", new[] { m.RiskFlags, "HashEnrichmentFailed", ex.GetType().Name }
+                                .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase));
+                            Console.Error.WriteLine($"SCAN_ENRICHMENT_FAILURE path={path} stage=Hash exception={ex.GetType().FullName} message={ex.Message}");
+                        }
                     }
                     if (changed)
                     {
@@ -106,7 +116,19 @@ public sealed class LibraryEngine : ILibraryEngine
                 }
 
                 if (doThumbnail && !m.HasThumbnail)
-                    m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
+                {
+                    try
+                    {
+                        m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        m.ThumbnailPath = null;
+                        m.RiskFlags = string.Join(", ", new[] { m.RiskFlags, "ThumbnailEnrichmentFailed", ex.GetType().Name }
+                            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase));
+                        Console.Error.WriteLine($"SCAN_ENRICHMENT_FAILURE path={path} stage=Thumbnail exception={ex.GetType().FullName} message={ex.Message}");
+                    }
+                }
 
                 result[i] = m;
                 Interlocked.Increment(ref indexed);
