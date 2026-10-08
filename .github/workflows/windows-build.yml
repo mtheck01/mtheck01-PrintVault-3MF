@@ -196,9 +196,10 @@ jobs:
             throw "Missing PRINTVAULT_RELEASE_TOKEN. Production release is fail-closed."
           }
 
-      # The autonomous cycle already triggers directly from pushes to main.
-      # Do not dispatch it again here; duplicate dispatches caused a false CI failure
-      # when GitHub reported the workflow_dispatch trigger as unavailable.
+      # Autonomous validation is triggered by the main push event when available,
+      # with its scheduled zero-credit watchdog as the fallback for API-created commits.
+      # Do not dispatch a second autonomous cycle from this workflow; duplicate runs
+      # would race the single-cycle concurrency lease.
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
