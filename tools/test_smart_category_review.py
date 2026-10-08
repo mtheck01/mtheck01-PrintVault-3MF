@@ -5,7 +5,7 @@ models=(root/'src/PrintVault.Core/Models.cs').read_text(encoding='utf-8')
 ui=(root/'src/PrintVault/MainWindow.xaml.cs').read_text(encoding='utf-8')
 xaml=(root/'src/PrintVault/MainWindow.xaml').read_text(encoding='utf-8')
 checks={
- 'metadata-only service': 'never moves files' in svc and 'repo.Upsert(model)' in svc,
+ 'atomic metadata-only service': 'never moves files' in svc and 'repo.SaveAll(candidates.Values' in svc and 'File.Move' not in svc,
  'protected overrides': 'CategoryOverride' in svc and 'Protected' in svc,
  'confidence': 'ConfidencePercent' in svc and 'confidence < 70' in svc and 'Math.Min(confidence, 82)' in svc,
  'terrain categories': 'Buildings' in svc and 'Nature & Scenery' in svc and 'Tabletop Terrain' in svc and 'Props & Accessories' in svc,
