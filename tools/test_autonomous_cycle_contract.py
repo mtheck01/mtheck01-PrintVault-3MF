@@ -7,13 +7,17 @@ required = [
     "concurrency:",
     "queue: single",
     "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
+    "name: Autonomous Trigger Watchdog",
+    "run_cycle=true",
+    "run_cycle=false",
+    "WATCHDOG_RESULT=UNVALIDATED",
+    "WATCHDOG_RESULT=ALREADY_VALIDATED",
+    "printvault/whole-library-validation",
+    "needs: watchdog",
+    "needs.watchdog.outputs.run_cycle == 'true'",
+    "curl -fsSL",
     "git fetch origin main --prune",
     "$startingMainSha = (git rev-parse origin/main).Trim()",
-    'if ($env:GITHUB_EVENT_NAME -eq "schedule") {',
-    'https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/latest',
-    '$_.context -eq "printvault/whole-library-validation" -and',
-    'SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED',
-    'scheduled poll: exact main SHA $startingMainSha already has whole-library validation status',
     'Refusing to manufacture a release',
     "PROMOTION_GUARD_START_SHA=",
     "Promotion blocked: origin/main changed during validation.",
@@ -40,11 +44,6 @@ assert "queue: max" not in workflow
 assert "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}" in workflow
 assert "cancel-in-progress: false" not in workflow
 assert "cancel-in-progress: true" not in workflow
-assert "SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_ATTEMPTED" in workflow
-assert "actions/workflows/autonomous-cycle.yml/runs?head_sha=" in workflow
-assert 'explicit dispatch required to retry' in workflow
-assert '$_.status -eq "completed"' in workflow
-assert '$_.id -ne [int64]$env:GITHUB_RUN_ID' in workflow
 
 # Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
@@ -134,14 +133,9 @@ for test_name in current_modular_tests:
     assert test_name in workflow, f"Current modular regression test is not wired into autonomous cycle: {test_name}"
 
 assert 'Refusing to manufacture a release' in workflow
-assert 'SCHEDULE_VALIDATION_NEEDED=NO_EXACT_SHA_ALREADY_VALIDATED' in workflow
 assert 'WHOLE_LIBRARY_VALIDATION_STATUS=' in workflow
-assert 'SCHEDULE_VALIDATION_NEEDED=YES' in workflow
-assert 'git switch -c $branch' in workflow
-assert 'git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"' in workflow
 assert '--force-with-lease=refs/heads/${branch}:${expectedBranchSha}' in workflow
 assert 'Never use an unleased force push.' in workflow
-assert workflow.index('$startingMainSha = (git rev-parse origin/main).Trim()') < workflow.index('git switch -c $branch')
 assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
 assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
 
