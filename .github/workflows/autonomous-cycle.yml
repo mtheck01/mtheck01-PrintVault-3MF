@@ -35,11 +35,10 @@ permissions:
   issues: write
 
 concurrency:
-  # Exactly one cycle may run and at most one pending cycle may wait.
-  # A scheduled poll is a safety net, not a backlog generator. Never cancel the
-  # active engineering cycle, but replace obsolete pending polls with the newest one.
-  group: printvault-autonomous-cycle
-  queue: single
+  # Keep PR forensic validation isolated from the main-branch safety poll.
+  # A scheduled main poll must never cancel a PR engineering run that is proving
+  # a repair. Main push/schedule runs share one lane; each PR gets its own lane.
+  group: printvault-autonomous-cycle-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
