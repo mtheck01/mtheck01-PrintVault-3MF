@@ -43,7 +43,8 @@ public sealed class LibraryEngine : ILibraryEngine
             try
             {
                 var fi = new FileInfo(path);
-                if (!fi.Exists) return;
+                if (!fi.Exists)
+                    throw new FileNotFoundException($"Library file disappeared during scan: {path}", path);
 
                 existing.TryGetValue(path, out var m);
                 var changed = m is null || m.Size != fi.Length || m.ModifiedUtc != fi.LastWriteTimeUtc;
@@ -232,12 +233,14 @@ public sealed class LibraryEngine : ILibraryEngine
                 // A corrupt/unsupported thumbnail or hash is a property of the enrichment step,
                 // not a reason to lose the catalog record.
                 try { m.Hash = await HashAsync(path, ct); }
+                catch (OperationCanceledException) { throw; }
                 catch { m.Hash = ""; }
                 try
                 {
                     m.ThumbnailPath = old?.ThumbnailPath;
                     if (!m.HasThumbnail) m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
                 }
+                catch (OperationCanceledException) { throw; }
                 catch { m.ThumbnailPath = null; }
 
                 result[i] = m;
@@ -277,23 +280,23 @@ public sealed class LibraryEngine : ILibraryEngine
         CancellationToken token = default, IProgress<(int processed, int total, int reclassified, int failed)>? progress = null)
     {
         var models = repo.GetAll();
+        var result = new ModelRecord?[models.Count];
         var reclassified = 0;
         var failed = 0;
         var processed = 0;
 
-        // Category repair is deliberately classification-only. It must not re-hash 1,758
-        // files or regenerate thumbnails; those enrichment operations are unrelated to
-        // category reconciliation and were making the autonomous repair stage unnecessarily
-        // long and cancellable.
-        await Parallel.ForEachAsync(models, new ParallelOptions
+        // Work on fresh candidate records so a failed analysis can never partially
+        // mutate the committed catalog in memory. Any failure aborts before persistence.
+        await Parallel.ForEachAsync(Enumerable.Range(0, models.Count), new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 12),
             CancellationToken = token
-        }, (model, ct) =>
+        }, (i, ct) =>
         {
             try
             {
                 ct.ThrowIfCancellationRequested();
+                var model = repo.Get(models[i].Path) ?? throw new InvalidOperationException($"Catalog record disappeared during reconciliation: {models[i].Path}");
                 var before = model.Category;
                 var a = analyzer.Analyze(model.Path, model.Name);
                 if (!model.CategoryOverride && IsBuiltInOrUnresolved(before))
@@ -323,6 +326,7 @@ public sealed class LibraryEngine : ILibraryEngine
                         Interlocked.Increment(ref reclassified);
                 }
 
+                result[i] = model;
                 return ValueTask.CompletedTask;
             }
             catch (OperationCanceledException) { throw; }
@@ -335,7 +339,15 @@ public sealed class LibraryEngine : ILibraryEngine
         });
 
         token.ThrowIfCancellationRequested();
-        repo.SaveAll(models, new HashSet<string>(models.Select(m => m.Path), StringComparer.OrdinalIgnoreCase));
+        if (failed > 0)
+            throw new InvalidOperationException(
+                $"Category reconciliation aborted safely: {failed:N0} of {models.Count:N0} records failed analysis. The existing catalog was left unchanged.");
+
+        var candidates = result.Where(x => x is not null).Select(x => x!).ToList();
+        if (candidates.Count != models.Count)
+            throw new InvalidOperationException($"Category reconciliation produced an incomplete candidate set: expected {models.Count:N0}, produced {candidates.Count:N0}.");
+
+        repo.SaveAll(candidates, new HashSet<string>(models.Select(m => m.Path), StringComparer.OrdinalIgnoreCase));
         var persisted = repo.GetAll().Count;
         if (persisted != models.Count)
             throw new InvalidOperationException($"Category reconciliation lost records: expected {models.Count:N0}, persisted {persisted:N0}.");
