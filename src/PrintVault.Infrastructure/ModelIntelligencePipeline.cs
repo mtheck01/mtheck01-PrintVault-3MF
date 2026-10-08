@@ -25,7 +25,7 @@ public sealed class ModelIntelligencePipeline
 
     public bool Apply(ModelRecord model)
     {
-        if (model is null || model.CategoryOverride) return false;
+        if (model is null) return false;
         var context = new ModelIntelligenceContext(model);
         foreach (var stage in stages) stage.Execute(context);
         return context.StageEvidence.Any(e =>
