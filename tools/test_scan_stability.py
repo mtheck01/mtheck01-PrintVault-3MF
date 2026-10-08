@@ -14,7 +14,7 @@ checks = {
     "selection cleared before replacement": "Models.UnselectAll();" in code,
     "selection restoration": "FirstOrDefault(x => string.Equals(x.Path, selectedModel.Path" in code,
     "cancellation checked before UI replacement": "token.ThrowIfCancellationRequested();" in code,
-    "scan failure preserves existing catalog record": "existing.TryGetValue(path, out var previous)" in engine_code and "result[i] = previous;" in engine_code,
+    "scan failure reloads committed catalog record": "existing.ContainsKey(path) && File.Exists(path)" in engine_code and "result[i] = repo.Get(path);" in engine_code,
     "scan failure only preserves existing file": "existing.TryGetValue(path, out var previous) && File.Exists(path)" in engine_code,
     "scan reports failure instead of deleting record": "Interlocked.Increment(ref failed);" in engine_code and "repo.SaveAll(models, stale);" in engine_code,
     "rebuild fails closed before catalog commit": "if (failed > 0)" in engine_code and "The existing catalog was left unchanged" in engine_code,
