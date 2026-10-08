@@ -36,11 +36,12 @@ permissions:
 
 concurrency:
   # Exactly one cycle may run and at most one pending cycle may wait.
-  # A scheduled poll is a safety net, not a backlog generator. Never cancel the
-  # active engineering cycle, but replace obsolete pending polls with the newest one.
+  # A newer push supersedes an older source commit, so its validation run must
+  # be cancelled rather than leaving the repaired commit waiting behind obsolete work.
+  # Scheduled polls never cancel an active engineering run.
   group: printvault-autonomous-cycle
   queue: single
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   cycle:
