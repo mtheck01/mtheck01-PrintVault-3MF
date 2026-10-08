@@ -745,7 +745,8 @@ jobs:
             Write-Host "WHOLE_LIBRARY_GATE_CLEAN=FALSE CONFLICTS=$($r.Conflicts) ANALYZED=$($r.AnalyzedConflicts) ACTIONABLE=$actionable"
             if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
             if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
-            if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
+            # PASS is reserved exclusively for a completely clean whole-library result.
+            # Any remaining conflict is a non-passing state, even if it improves on baseline.
             return "FAIL"
           }
           $deterministicRepairAttempted = $false
