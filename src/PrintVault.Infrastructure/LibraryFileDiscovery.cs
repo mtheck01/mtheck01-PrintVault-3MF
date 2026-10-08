@@ -11,12 +11,20 @@ public sealed class LibraryFileDiscovery
     public IReadOnlyList<string> Discover3MfFiles(IEnumerable<string> roots)
     {
         ArgumentNullException.ThrowIfNull(roots);
-        var rootList = roots.Where(Directory.Exists)
+        var requested = roots
+            .Where(x => !string.IsNullOrWhiteSpace(x))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        if (requested.Length == 0)
+            throw new ArgumentException("At least one library root is required.", nameof(roots));
 
-        return rootList
+        var missing = requested.Where(x => !Directory.Exists(x)).ToArray();
+        if (missing.Length > 0)
+            throw new DirectoryNotFoundException(
+                $"PrintVault library root(s) are unavailable: {string.Join("; ", missing)}. Discovery was stopped to prevent an empty/incomplete catalog from becoming authoritative.");
+
+        return requested
             .SelectMany(SafeEnumerate3Mf)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -38,7 +46,10 @@ public sealed class LibraryFileDiscovery
                         StringComparison.OrdinalIgnoreCase))
                     continue;
             }
-            catch { continue; }
+            catch (Exception ex)
+            {
+                throw new IOException($"PrintVault could not inspect directory '{dir}' while checking reparse-point safety. Discovery was stopped to prevent an incomplete library from being treated as authoritative.", ex);
+            }
 
             string[] files;
             try
