@@ -111,6 +111,7 @@ public sealed class CategoryReconciliationService
     {
         var warnings = new List<string>();
         var undo = new List<CategoryReconciliationUndoEntry>();
+        var candidates = repo.GetAll().ToDictionary(x => x.Path, StringComparer.OrdinalIgnoreCase);
         var changed = 0;
         var retired = 0;
         var protectedFiles = 0;
@@ -121,7 +122,6 @@ public sealed class CategoryReconciliationService
 
             if (item.FileCount == 0)
             {
-                retireCategory?.Invoke(item.SourceCategory);
                 retired++;
                 continue;
             }
@@ -132,11 +132,10 @@ public sealed class CategoryReconciliationService
                 continue;
             }
 
-            var models = repo.GetAll()
+            var models = candidates.Values
                 .Where(x => string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var changedForItem = 0;
             foreach (var model in models)
             {
                 if (model.CategoryOverride)
@@ -148,20 +147,43 @@ public sealed class CategoryReconciliationService
                 undo.Add(new CategoryReconciliationUndoEntry(model.Path, model.Category, model.Tags, model.CategoryOverride));
                 model.Category = item.TargetCategory;
                 model.Tags = ReplaceCategoryTag(model.Tags, item.SourceCategory, item.TargetCategory);
-                repo.Upsert(model);
                 changed++;
-                changedForItem++;
             }
 
-            if (models.Count == 0) retireCategory?.Invoke(item.SourceCategory);
-            else if (changedForItem > 0 || models.All(x => x.CategoryOverride || string.Equals(x.Category, item.TargetCategory, StringComparison.OrdinalIgnoreCase)))
+            if (models.Count == 0 || models.All(x => x.CategoryOverride || string.Equals(x.Category, item.TargetCategory, StringComparison.OrdinalIgnoreCase)))
+                retired++;
+        }
+
+        // Persist the complete candidate set in one SQLite transaction. Never leave a
+        // partially reconciled taxonomy behind if one record write fails.
+        if (undo.Count > 0)
+        {
+            SaveManifest(new CategoryReconciliationUndoManifest(DateTime.UtcNow, undo));
+            try
             {
-                var remaining = repo.GetAll().Any(x => string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase));
-                if (!remaining) { retireCategory?.Invoke(item.SourceCategory); retired++; }
+                repo.SaveAll(candidates.Values, new HashSet<string>(candidates.Keys, StringComparer.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                // Keep the manifest as a recovery record; the database transaction did
+                // not commit, so UndoLast remains safe if the caller retries.
+                throw;
             }
         }
 
-        if (undo.Count > 0) SaveManifest(new CategoryReconciliationUndoManifest(DateTime.UtcNow, undo));
+        if (retireCategory != null)
+        {
+            foreach (var item in plan.Items.Where(x => selectedSources.Contains(x.SourceCategory)))
+            {
+                var remaining = repo.GetAll().Any(x => string.Equals(x.Category, item.SourceCategory, StringComparison.OrdinalIgnoreCase));
+                if (!remaining)
+                {
+                    try { retireCategory(item.SourceCategory); }
+                    catch (Exception ex) { warnings.Add($"Could not retire category '{item.SourceCategory}' from the registry: {ex.Message}"); }
+                }
+            }
+        }
+
         return new CategoryReconciliationResult(changed, retired, protectedFiles, warnings);
     }
 
