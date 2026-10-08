@@ -51,6 +51,8 @@ assert "AUTO_REPAIR: ${{ inputs.auto_repair || true }}" not in workflow
 assert "PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || github.event_name == 'push' || github.event_name == 'schedule' }}" in workflow
 assert "PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}" not in workflow
 assert "PULL_REQUEST_FORENSIC_ONLY" in workflow
+assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+assert "Fork PRs are never executed on the persistent Windows runner." in workflow
 assert "PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}" in workflow
 assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}" in workflow
 
