@@ -40,7 +40,6 @@ concurrency:
   # be cancelled rather than leaving the repaired commit waiting behind obsolete work.
   # Scheduled polls never cancel an active engineering run.
   group: printvault-autonomous-cycle
-  queue: single
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
