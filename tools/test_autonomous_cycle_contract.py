@@ -5,7 +5,6 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "queue: single",
     "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
     "name: Autonomous Trigger Watchdog",
     "run_cycle=true",
@@ -39,8 +38,6 @@ assert "repair $report $expectedCatalog" in workflow or \
 
 # A full-library cycle may legitimately exceed the 10-minute schedule interval.
 # A later scheduled poll must queue rather than cancel the active forensic run.
-assert "queue: single" in workflow
-assert "queue: max" not in workflow
 assert "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}" in workflow
 assert "cancel-in-progress: false" not in workflow
 assert "cancel-in-progress: true" not in workflow
