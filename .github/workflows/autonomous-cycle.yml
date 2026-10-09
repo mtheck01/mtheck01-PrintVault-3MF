@@ -451,6 +451,7 @@ jobs:
               "test_ui_navigation.py",
               "test_scan_modes.py",
               "test_scan_progress.py",
+              "test_scan_failure_diagnostics.py",
               "test_semantic_evidence_large_scale_fix_9_0_38.py",
               "test_semantic_evidence_large_scale_fix_9_0_39.py",
               "test_semantic_evidence_large_scale_fix_9_0_40.py",
