@@ -90,6 +90,11 @@ try
         }
         Console.WriteLine($"SCAN_ROOT={scanRoot}");
         Console.WriteLine($"SCAN_MODE={scanMode}");
+        // Preserve per-file exception details as a workflow artifact when a scan fails.
+        // LibraryEngine writes the collected diagnostics once after parallel processing.
+        var scanDiagnosticsPath = Path.GetFullPath(Path.Combine("build_logs", "scan-failures.json"));
+        Environment.SetEnvironmentVariable("PRINTVAULT_SCAN_DIAGNOSTICS_PATH", scanDiagnosticsPath);
+        Console.WriteLine($"SCAN_DIAGNOSTICS_TARGET={scanDiagnosticsPath}");
         var scanEngine = new LibraryEngine();
         var lastFailed = 0;
         var scanProgress = new Progress<ScanProgress>(p =>
