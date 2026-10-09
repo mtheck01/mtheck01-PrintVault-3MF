@@ -24,5 +24,5 @@ for item in required_engine:
 
 assert 'Path.Combine("build_logs", "scan-failures.json")' in program
 assert 'Environment.SetEnvironmentVariable("PRINTVAULT_SCAN_DIAGNOSTICS_PATH", scanDiagnosticsPath)' in program
-assert "tools/PrintVault.Automation" in workflow or "PrintVault.Automation" in workflow
+assert '"test_scan_failure_diagnostics.py"' in workflow, "Autonomous source gate must run the diagnostics contract"
 print("PASS: per-file scan failures retain path, exception, and retry-relevant context")
