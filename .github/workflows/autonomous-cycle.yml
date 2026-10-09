@@ -177,9 +177,13 @@ jobs:
               $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
               $body = @{ state = $statusState; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
               try {
-                Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
-                Write-Host "CYCLE_COMMIT_STATUS=$statusState"
-              } catch { Write-Warning "Unable to publish cycle commit status: $($_.Exception.Message)" }
+                # GitHub commit-status descriptions are limited to 140 chars; use the
+                # documented statuses API and never let status telemetry fail the cycle.
+                $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json"
+                Write-Host "CYCLE_COMMIT_STATUS=$statusState CONTEXT=$($response.context)"
+              } catch {
+                Write-Warning "Cycle status telemetry unavailable (non-fatal): $($_.Exception.Message)"
+              }
             }
           }
 
