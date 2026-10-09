@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text.Json;
 using PrintVault.Core;
 
 namespace PrintVault.Infrastructure;
@@ -20,6 +22,7 @@ public sealed class LibraryEngine : ILibraryEngine
             "1",
             StringComparison.OrdinalIgnoreCase);
         var files = fileDiscovery.Discover3MfFiles(rootList);
+        var scanFailures = new ConcurrentQueue<object>();
 
         progress?.Report(new ScanProgress("Indexing", files.Count, 0, 0, 0, files.Count == 0 ? 100 : 0));
 
@@ -133,8 +136,17 @@ public sealed class LibraryEngine : ILibraryEngine
                 Interlocked.Increment(ref indexed);
             }
             catch (OperationCanceledException) { throw; }
-            catch
+            catch (Exception ex)
             {
+                scanFailures.Enqueue(new
+                {
+                    Path = path,
+                    ExceptionType = ex.GetType().FullName ?? ex.GetType().Name,
+                    Message = ex.Message,
+                    Detail = ex.ToString(),
+                    ExistingRecord = existing.ContainsKey(path),
+                    FileStillExists = File.Exists(path)
+                });
                 // A transient per-file analysis/enrichment failure must never turn
                 // an existing catalog record into a "stale" record. Preserve the
                 // last known record while reporting the failure so the next scan
@@ -157,6 +169,21 @@ public sealed class LibraryEngine : ILibraryEngine
         });
 
         token.ThrowIfCancellationRequested();
+
+        // A non-zero scan failure count must be diagnosable by file and exception.
+        // The caller supplies a CI artifact path; diagnostics are written once after
+        // parallel processing to avoid concurrent append/truncation races.
+        var diagnosticsPath = Environment.GetEnvironmentVariable("PRINTVAULT_SCAN_DIAGNOSTICS_PATH");
+        if (!string.IsNullOrWhiteSpace(diagnosticsPath))
+        {
+            var fullDiagnosticsPath = Path.GetFullPath(diagnosticsPath);
+            var diagnosticsDirectory = Path.GetDirectoryName(fullDiagnosticsPath);
+            if (!string.IsNullOrWhiteSpace(diagnosticsDirectory)) Directory.CreateDirectory(diagnosticsDirectory);
+            File.WriteAllText(fullDiagnosticsPath, JsonSerializer.Serialize(scanFailures.ToArray(), new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine($"SCAN_DIAGNOSTICS={fullDiagnosticsPath}");
+            Console.WriteLine($"SCAN_DIAGNOSTIC_RECORDS={scanFailures.Count}");
+        }
+
         stale.ExceptWith(result.Where(x => x is not null).Select(x => x!.Path));
         var models = result.Where(x => x is not null).Select(x => x!).ToList();
 
