@@ -1025,6 +1025,7 @@ jobs:
               exit 0
             }
 
+            # Refusing to manufacture a release: publication is permitted only after the clean whole-library gate and promotion guards below.
             # Never publish a candidate while the whole-library scan still reports
             # any conflicts. A low/zero ACTIONABLE count is not a clean library.
             if ($remainingConflicts -gt 0) {
