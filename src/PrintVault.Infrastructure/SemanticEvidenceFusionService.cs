@@ -632,9 +632,14 @@ public sealed class SemanticEvidenceFusionService
         // contextual when its own subtype identifies a setting/structure/landmark; a normal
         // building model still wins through the building lexical cue.
         if (!string.Equals(entity.Category, "Buildings", StringComparison.OrdinalIgnoreCase)) return false;
-        return entity.Subtype.Contains("Building", StringComparison.OrdinalIgnoreCase) ||
-               entity.Subtype.Contains("Landmark", StringComparison.OrdinalIgnoreCase) ||
-               entity.Subtype.Contains("Castle", StringComparison.OrdinalIgnoreCase);
+
+        // Entity subtype is supplied by multilingual matching data and may be null even
+        // though the record's nominal contract is non-nullable. A missing subtype means
+        // there is no contextual evidence; it must not abort the entire file's analysis.
+        var entitySubtype = entity.Subtype ?? string.Empty;
+        return entitySubtype.Contains("Building", StringComparison.OrdinalIgnoreCase) ||
+               entitySubtype.Contains("Landmark", StringComparison.OrdinalIgnoreCase) ||
+               entitySubtype.Contains("Castle", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string InferType(string category, string subtype)
