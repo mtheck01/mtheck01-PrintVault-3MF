@@ -196,7 +196,7 @@ def main():
             'run_cycle=true',
             'printvault/whole-library-validation',
             'WATCHDOG_RESULT=UNVALIDATED',
-            "queue: single",
+            "concurrency:",
             'python ".\\tools\\forensic_repository_audit.py"',
             "MODULE_PASS=$pass/2",
             "MODULE_LOCKS=CREATED",
