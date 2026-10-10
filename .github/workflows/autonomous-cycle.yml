@@ -30,17 +30,10 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   contents: write
   statuses: write
   issues: write
-
-concurrency:
-  # Exactly one cycle may run and at most one pending cycle may wait.
-  # A newer push supersedes an older source commit, so its validation run must
-  # be cancelled rather than leaving the repaired commit waiting behind obsolete work.
-  # Scheduled polls never cancel an active engineering run.
-  group: printvault-autonomous-cycle
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   watchdog:
@@ -66,16 +59,42 @@ jobs:
           if echo "${statuses}" | jq -e '.[] | select(.context == "printvault/whole-library-validation" and .state == "success")' >/dev/null; then
             echo "run_cycle=false" >> "${GITHUB_OUTPUT}"
             echo "WATCHDOG_RESULT=ALREADY_VALIDATED"
-          else
-            echo "run_cycle=true" >> "${GITHUB_OUTPUT}"
-            echo "WATCHDOG_RESULT=UNVALIDATED"
+            echo "WATCHDOG_SHA=${GITHUB_SHA}"
+            exit 0
           fi
+
+          # Do not let the 15-minute scheduled poll replace a pending validation
+          # run. The workflow-level concurrency lock used to block this watchdog
+          # behind the Windows cycle, then GitHub replaced the pending workflow
+          # with each newer schedule before it could acquire a runner.
+          runs="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous-cycle.yml/runs?per_page=100")"
+          current_run="${GITHUB_RUN_ID}"
+          while IFS= read -r run_id; do
+            [[ -z "${run_id}" || "${run_id}" == "${current_run}" ]] && continue
+            jobs="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+            if echo "${jobs}" | jq -e '.jobs[]? | select(.name == "Build Install Run Test Repair Repeat" and (.status == "queued" or .status == "in_progress"))' >/dev/null; then
+              echo "run_cycle=false" >> "${GITHUB_OUTPUT}"
+              echo "WATCHDOG_RESULT=VALIDATION_ALREADY_QUEUED_OR_RUNNING"
+              echo "WATCHDOG_EXISTING_RUN=${run_id}"
+              echo "WATCHDOG_SHA=${GITHUB_SHA}"
+              exit 0
+            fi
+          done < <(echo "${runs}" | jq -r '.workflow_runs[]? | select(.status == "in_progress" or .status == "queued") | .id')
+
+          echo "run_cycle=true" >> "${GITHUB_OUTPUT}"
+          echo "WATCHDOG_RESULT=UNVALIDATED_NO_ACTIVE_CYCLE"
           echo "WATCHDOG_SHA=${GITHUB_SHA}"
 
   cycle:
     needs: watchdog
     if: needs.watchdog.outputs.run_cycle == 'true' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
     name: Build Install Run Test Repair Repeat
+    # Serialize only the expensive Windows cycle, not the lightweight watchdog.
+    # A scheduled watchdog can now see an existing queued/running cycle and exit
+    # successfully instead of waiting in the same workflow-level concurrency group.
+    concurrency:
+      group: printvault-autonomous-cycle-v2
+      cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
 
