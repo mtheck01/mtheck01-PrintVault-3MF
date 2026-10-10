@@ -630,18 +630,50 @@ jobs:
           function Install-Candidate($candidate) {
             Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
-            $p = Start-Process -FilePath $candidate.Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -PassThru
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+            $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            if (-not $isAdmin) {
+              # The production Inno Setup package intentionally requires admin
+              # privileges to install under Program Files. GitHub's runner
+              # service may run as NETWORK SERVICE, which cannot elevate in a
+              # non-interactive service session. Do not fail before diagnostics:
+              # run the exact build output directly and report install as skipped.
+              $log = Join-Path $PWD "build_logs\installer-install-skipped.txt"
+              New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+              @(
+                "INSTALLER_INSTALL=SKIPPED_NON_ADMIN_RUNNER"
+                "RUNNER_IDENTITY=$($identity.Name)"
+                "REASON=Production installer requires admin privileges; service session cannot elevate interactively."
+                "INSTALLER_ARTIFACT=$($candidate.Installer)"
+                "APPLICATION_PATH=$($candidate.Exe)"
+                "INSTALLER_EXECUTION=NOT_TESTED"
+              ) | Set-Content -Path $log
+              Get-Content $log | ForEach-Object { Write-Host $_ }
+              $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($candidate.Exe).FileVersion
+              if ($fv -ne $candidate.Version) { throw "Built executable version mismatch. Expected $($candidate.Version), found $fv." }
+              Write-Host "APPLICATION=BUILT_OUTPUT VERSION=$fv INSTALLER_INSTALL=SKIPPED_NON_ADMIN_RUNNER"
+              return @{ Path=$candidate.Exe; Version=$fv; Installer=$candidate.Installer; InstallStatus="SKIPPED_NON_ADMIN_RUNNER" }
+            }
+            $installerLog = Join-Path $PWD "build_logs\installer-install.log"
+            New-Item -ItemType Directory -Force -Path (Split-Path $installerLog) | Out-Null
+            $args = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/LOG=$installerLog")
+            $p = Start-Process -FilePath $candidate.Installer -ArgumentList $args -PassThru
             if (-not $p.WaitForExit(120000)) {
               try { $p.Kill($true) } catch {}
-              throw "Installer timed out after 120 seconds."
+              if (Test-Path $installerLog) { Get-Content $installerLog | ForEach-Object { Write-Host $_ } }
+              throw "Installer timed out after 120 seconds. Installer log: $installerLog"
             }
-            if ($p.ExitCode -ne 0) { throw "Installer exited with code $($p.ExitCode)." }
+            if ($p.ExitCode -ne 0) {
+              if (Test-Path $installerLog) { Get-Content $installerLog | ForEach-Object { Write-Host $_ } }
+              throw "Installer exited with code $($p.ExitCode). Installer log: $installerLog"
+            }
             $installed = "C:\Program Files\PrintVault 3MF\PrintVault.exe"
-            if (-not (Test-Path $installed)) { throw "Installed executable missing: $installed" }
+            if (-not (Test-Path $installed)) { throw "Installed executable missing: $installed. Installer log: $installerLog" }
             $fv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installed).FileVersion
-            if ($fv -ne $candidate.Version) { throw "Installed version mismatch. Expected $($candidate.Version), found $fv." }
+            if ($fv -ne $candidate.Version) { throw "Installed version mismatch. Expected $($candidate.Version), found $fv. Installer log: $installerLog" }
             Write-Host "APPLICATION=INSTALLED VERSION=$fv"
-            return @{ Path=$installed; Version=$fv; Installer=$candidate.Installer }
+            return @{ Path=$installed; Version=$fv; Installer=$candidate.Installer; InstallStatus="INSTALLED" }
           }
 
           function Start-FinalApp($candidate, $libraryRoot) {
