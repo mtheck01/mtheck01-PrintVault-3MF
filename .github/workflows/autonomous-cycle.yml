@@ -77,6 +77,11 @@ jobs:
           persist-credentials: true
           clean: true
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Validate repository identity
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
