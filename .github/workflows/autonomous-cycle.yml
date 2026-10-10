@@ -77,19 +77,26 @@ jobs:
           persist-credentials: true
           clean: true
 
-      - name: Install Python without external PowerShell setup scripts
+      - name: Install portable Python runtime
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = "Stop"
           $pythonRoot = Join-Path $env:RUNNER_TEMP "printvault-python"
-          $installer = Join-Path $env:RUNNER_TEMP "python-3.12.10-amd64.exe"
+          $archive = Join-Path $env:RUNNER_TEMP "python-3.12.10-embed-amd64.zip"
+          if (Test-Path $pythonRoot) { Remove-Item $pythonRoot -Recurse -Force }
           New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
-          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $installer
-          $process = Start-Process -FilePath $installer -ArgumentList @("/quiet", "InstallAllUsers=0", "Include_launcher=0", "Include_test=0", "Include_pip=1", "PrependPath=0", "TargetDir=$pythonRoot") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Python installer failed with exit code $($process.ExitCode)." }
-          if (-not (Test-Path (Join-Path $pythonRoot "python.exe"))) { throw "Python installer completed without python.exe at $pythonRoot." }
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $pythonRoot -Force
+          $pythonExe = Join-Path $pythonRoot "python.exe"
+          if (-not (Test-Path $pythonExe)) { throw "Portable Python archive did not contain python.exe." }
+          $pth = Get-ChildItem $pythonRoot -Filter "python*._pth" | Select-Object -First 1
+          if ($null -eq $pth) { throw "Portable Python archive did not contain a python._pth configuration file." }
+          $pthContent = Get-Content $pth.FullName
+          if ($pthContent -notcontains "import site") { Add-Content -Path $pth.FullName -Value "import site" }
           Add-Content -Path $env:GITHUB_PATH -Value $pythonRoot
-          & (Join-Path $pythonRoot "python.exe") --version
+          & $pythonExe --version
+          & $pythonExe -c "import ast, json, pathlib, subprocess, urllib.request; print('PYTHON_STDLIB_PREFLIGHT=PASS')"
+          if ($LASTEXITCODE -ne 0) { throw "Portable Python standard-library preflight failed." }
 
       - name: Validate repository identity
         shell: powershell -ExecutionPolicy Bypass -File {0}
