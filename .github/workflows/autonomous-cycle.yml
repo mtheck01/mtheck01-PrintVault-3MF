@@ -657,8 +657,8 @@ jobs:
             }
             $installerLog = Join-Path $PWD "build_logs\installer-install.log"
             New-Item -ItemType Directory -Force -Path (Split-Path $installerLog) | Out-Null
-            $args = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/LOG=$installerLog")
-            $p = Start-Process -FilePath $candidate.Installer -ArgumentList $args -PassThru
+            $installerArgs = @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/LOG=$installerLog")
+            $p = Start-Process -FilePath $candidate.Installer -ArgumentList $installerArgs -PassThru
             if (-not $p.WaitForExit(120000)) {
               try { $p.Kill($true) } catch {}
               if (Test-Path $installerLog) { Get-Content $installerLog | ForEach-Object { Write-Host $_ } }
