@@ -196,7 +196,7 @@ def main():
     else:
         w = workflow.read_text(encoding="utf-8")
         required = [
-            "on:\\n  workflow_dispatch:",
+            "on:\n  workflow_dispatch:",
             "group: printvault-manual-engineering-cycle",
             "cancel-in-progress: false",
             'name: Autonomous Trigger Watchdog',
