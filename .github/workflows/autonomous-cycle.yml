@@ -1,15 +1,8 @@
 name: PrintVault Autonomous Cycle
 
+# SAFETY PAUSE: no push, pull-request, or scheduled execution.
+# Resume only by an explicit human workflow_dispatch after runner and scan gates are verified.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  schedule:
-    # Backstop for commits that do not emit a push workflow event.
-    # The run is zero-credit and self-gates before heavy validation.
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       max_attempts:
@@ -35,12 +28,9 @@ permissions:
   issues: write
 
 concurrency:
-  # Exactly one cycle may run and at most one pending cycle may wait.
-  # A newer push supersedes an older source commit, so its validation run must
-  # be cancelled rather than leaving the repaired commit waiting behind obsolete work.
-  # Scheduled polls never cancel an active engineering run.
-  group: printvault-autonomous-cycle
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+  # Manual-only until runner availability and full-library validation are verified.
+  group: printvault-manual-engineering-cycle
+  cancel-in-progress: false
 
 jobs:
   watchdog:
@@ -74,7 +64,7 @@ jobs:
 
   cycle:
     needs: watchdog
-    if: needs.watchdog.outputs.run_cycle == 'true' && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
+    if: needs.watchdog.outputs.run_cycle == 'true' && github.event_name == 'workflow_dispatch'
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
