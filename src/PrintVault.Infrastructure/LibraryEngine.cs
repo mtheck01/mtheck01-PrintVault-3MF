@@ -133,17 +133,15 @@ public sealed class LibraryEngine : ILibraryEngine
                 Interlocked.Increment(ref indexed);
             }
             catch (OperationCanceledException) { throw; }
-            catch
+            catch (Exception ex)
             {
-                // A transient per-file analysis/enrichment failure must never turn
-                // an existing catalog record into a "stale" record. Preserve the
-                // last known record while reporting the failure so the next scan
-                // can retry the file instead of silently deleting it from the DB.
+                // Preserve the catalog, but emit exact failure evidence to the scan log.
+                Console.Error.WriteLine("SCAN_FILE_FAILURE path=\"" + path + "\" exception=" + ex.GetType().FullName + ": " + ex.Message);
+                Console.Error.WriteLine(ex.StackTrace);
+                // A transient per-file failure must never turn an existing record stale.
                 if (existing.ContainsKey(path) && File.Exists(path))
                 {
-                    // The in-memory ModelRecord may already have been partially
-                    // mutated before the failure. Reload the last committed copy
-                    // instead of preserving that partially updated object.
+                    // Reload the last committed record rather than retain partial mutation.
                     result[i] = repo.Get(path);
                 }
                 Interlocked.Increment(ref failed);
