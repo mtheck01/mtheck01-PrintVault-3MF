@@ -93,7 +93,7 @@ jobs:
     # A scheduled watchdog can now see an existing queued/running cycle and exit
     # successfully instead of waiting in the same workflow-level concurrency group.
     concurrency:
-      group: printvault-autonomous-cycle
+      group: printvault-autonomous-cycle-v2
       cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 120
