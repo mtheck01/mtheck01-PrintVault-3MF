@@ -98,6 +98,14 @@ jobs:
           & $pythonExe -c "import ast, json, pathlib, subprocess, urllib.request; print('PYTHON_STDLIB_PREFLIGHT=PASS')"
           if ($LASTEXITCODE -ne 0) { throw "Portable Python standard-library preflight failed." }
 
+      - name: Configure Git safe directory for service account
+        shell: powershell -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config --global --add safe.directory "$env:GITHUB_WORKSPACE"
+          git config --global --get-all safe.directory
+          if ($LASTEXITCODE -ne 0) { throw "Unable to configure Git safe.directory for the runner service account." }
+
       - name: Validate repository identity
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
