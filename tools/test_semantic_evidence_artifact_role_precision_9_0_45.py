@@ -45,6 +45,9 @@ checks = [
     ("subject lexical cues are explicitly prevented from winning", "subject-domain lexical cues" in fusion),
     ("generic suffixes cannot promote without context", "ContextualArtifactRoleSuffixes.Contains(role" in fusion and "HasContextualArtifactRole(subject, role)" in fusion),
     ("bounded role grammar is not a free-form contains rule", "not a free-form" in fusion),
+    ("missing entity subtype is treated as absent contextual evidence", "var entitySubtype = entity.Subtype ?? string.Empty;" in fusion and
+        "entitySubtype.Contains(\"Building\"" in fusion and "entitySubtype.Contains(\"Landmark\"" in fusion and
+        "entitySubtype.Contains(\"Castle\"" in fusion),
 ]
 
 failed = [name for name, ok in checks if not ok]
