@@ -5,7 +5,9 @@ workflow = (ROOT / ".github" / "workflows" / "autonomous-cycle.yml").read_text(e
 
 required = [
     "concurrency:",
-    "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
+    "workflow_dispatch:",
+    "group: printvault-manual-engineering-cycle",
+    "cancel-in-progress: false",
     "name: Autonomous Trigger Watchdog",
     "run_cycle=true",
     "run_cycle=false",
@@ -36,11 +38,14 @@ assert "repair $report $expectedCatalog" in workflow or \
        'repair $report $expectedCatalog' in workflow, \
     "Missing autonomous repair invocation"
 
-# A full-library cycle may legitimately exceed the 10-minute schedule interval.
-# A later scheduled poll must queue rather than cancel the active forensic run.
-assert "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}" in workflow
-assert "cancel-in-progress: false" not in workflow
-assert "cancel-in-progress: true" not in workflow
+# The workflow is intentionally manual-only while runner and whole-library
+# validation are being stabilized. It must not cancel an active run.
+assert "workflow_dispatch:" in workflow
+assert "group: printvault-manual-engineering-cycle" in workflow
+assert "cancel-in-progress: false" in workflow
+assert "  push:" not in workflow
+assert "  pull_request:" not in workflow
+assert 'cron: "*/15 * * * *"' not in workflow
 
 # Non-dispatch validation must remain zero-credit. OpenAI repair is opt-in only.
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
