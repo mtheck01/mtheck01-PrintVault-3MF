@@ -78,7 +78,7 @@ jobs:
           clean: true
 
       - name: Validate repository identity
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = "Stop"
           if ($env:GITHUB_REPOSITORY -ne "mtheck01/mtheck01-PrintVault-3MF") {
@@ -87,7 +87,7 @@ jobs:
           python ".\tools\test_repository_identity.py"
 
       - name: Validate runner
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = "Stop"
           if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "dotnet is required." }
@@ -97,7 +97,7 @@ jobs:
           python --version
 
       - name: Deterministic autonomous intake preflight
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = "Stop"
           for ($pass = 1; $pass -le 2; $pass++) {
@@ -110,7 +110,7 @@ jobs:
           Write-Host "AUTONOMOUS_INTAKE_PREFLIGHT=PASS"
 
       - name: Run autonomous cycle
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -File {0}
         env:
           RELEASE_TOKEN: ${{ secrets.PrintVaultReleaseAutomation }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1043,7 +1043,7 @@ jobs:
           throw "Autonomous cycle exhausted its attempt budget."
       - name: Cleanup PrintVault process
         if: always()
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           Get-Process "PrintVault" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           Write-Host "PRINTVAULT_PROCESS_CLEANUP=PASS"
