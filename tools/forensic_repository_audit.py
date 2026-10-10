@@ -46,6 +46,12 @@ def line_number(text, offset):
     return text.count("\n", 0, offset) + 1
 
 def classify_version(path, value, line_text):
+    # Python runtime versions embedded in workflow download URLs are toolchain
+    # versions, not PrintVault application release references.
+    if path == ".github/workflows/autonomous-cycle.yml" and (
+        "python-" in line_text.lower() or "python/" in line_text.lower()
+    ):
+        return "tooling-metadata"
     if value == CURRENT_VERSION:
         return "current"
     if path.startswith(HISTORICAL_TEST_PREFIX):
@@ -190,8 +196,9 @@ def main():
     else:
         w = workflow.read_text(encoding="utf-8")
         required = [
-            "cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}",
-            'cron: "*/15 * * * *"',
+            "on:\\n  workflow_dispatch:",
+            "group: printvault-manual-engineering-cycle",
+            "cancel-in-progress: false",
             'name: Autonomous Trigger Watchdog',
             'run_cycle=true',
             'printvault/whole-library-validation',
