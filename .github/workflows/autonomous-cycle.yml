@@ -8,18 +8,18 @@ on:
       max_attempts:
         description: "Maximum build/test/repair attempts"
         required: true
-        default: "5"
+        default: "1"
         type: choice
         options: ["1", "2", "3", "4", "5"]
       auto_repair:
         description: "Allow the repair agent to generate and test the next patch"
         required: true
-        default: true
+        default: false
         type: boolean
       publish_on_pass:
         description: "Publish and promote the first candidate that passes all gates"
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -151,7 +151,7 @@ jobs:
           MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}
           AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}
           PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}
-          PUBLISH_ON_PASS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_on_pass || true }}
+          PUBLISH_ON_PASS: ${{ inputs.publish_on_pass }}
         run: |
           $ErrorActionPreference = "Stop"
           $maxAttempts = [int]$env:MAX_ATTEMPTS
