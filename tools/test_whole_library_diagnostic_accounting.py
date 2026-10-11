@@ -8,6 +8,10 @@ workflow = (ROOT / ".github/workflows/autonomous-cycle.yml").read_text(encoding=
 checks = {
     "records analyzed is distinct from conflict review rows": "RECORDS_ANALYZED=" in program and "CONFLICT_REVIEW_ROWS=" in program,
     "all successful analyses emit a per-record outcome": "outcomes.Add(new RootCauseOutcome(" in service,
+    "unresolved records are included in root-cause rows": "inferenceMissing || IsUnresolvedCategory(inferred)" in service and "rootCauseRows.Add(row)" in service,
+    "root-cause summaries aggregate unresolved records": "rootCauseRows.GroupBy(x => x.Cause)" in service and "rootCauseRows.GroupBy(x => x.Disposition)" in service,
+    "unresolved outcomes get an actionable diagnostic disposition": 'return "UNRESOLVED_ENGINE_GAP";' in service,
+    "report separately preserves conflict-review counts": "conflictReviewRowCount" in service and "rootCauseRecords = rootCauseRows.Count" in service,
     "full outcome CSV is written": "BuildOutcomesCsv(outcomes)" in service and "OUTCOMES_CSV=" in program,
     "resolved and unresolved outcomes are counted": "resolvedInferences" in service and "unresolvedInferences" in service,
     "missing inference is tracked": "missingInferenceResults" in service and "MISSING_INFERENCE" in service,
