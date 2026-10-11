@@ -7,6 +7,7 @@ source = (ROOT / "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs
 required = [
     r"(?<=[\p{Ll}\p{Nd}])(?=[\p{Lu}])",
     r"(?<=[\p{Lu}])(?=[\p{Lu}][\p{Ll}])",
+    r"(?<=[\p{L}])(?=[\p{Nd}])|(?<=[\p{Nd}])(?=[\p{L}])",
     "private static string Normalize(string value)",
 ]
 missing = [item for item in required if item not in source]
@@ -18,6 +19,7 @@ if missing:
 def normalize(value):
     value = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value)
     value = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", value)
+    value = re.sub(r"(?<=[A-Za-z])(?=[0-9])|(?<=[0-9])(?=[A-Za-z])", " ", value)
     return re.sub(r"\s+", " ", value.replace("+", " ").replace("_", " ")).strip().lower()
 
 fixtures = {
