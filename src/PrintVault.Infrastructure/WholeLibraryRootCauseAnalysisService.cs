@@ -128,7 +128,17 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 if (inferenceMissing) missingInferenceResults++;
                 if (IsUnresolvedCategory(inferred)) unresolvedInferences++;
                 else resolvedInferences++;
-                if (f.EvidenceQuality > 0 && evidenceItems.Any(e => !string.IsNullOrWhiteSpace(e)))
+                var hasIndependentSemanticEvidence = !string.Equals(f.Basis, "Stored classification", StringComparison.OrdinalIgnoreCase) &&
+                    evidenceItems.Any(e =>
+                        e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Named entity:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Subject identity:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Explicit object role:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Role-aware artifact arbitration:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Source-derived analyzer semantics:", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Artifact cue outranks", StringComparison.OrdinalIgnoreCase) ||
+                        e.StartsWith("Organizer role:", StringComparison.OrdinalIgnoreCase));
+                if (!IsUnresolvedCategory(inferred) && f.EvidenceQuality > 0 && hasIndependentSemanticEvidence)
                     evidenceBearingResults++;
                 if (f.ReviewRequired) reviewRequiredResults++;
             }
