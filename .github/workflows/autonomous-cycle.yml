@@ -783,7 +783,12 @@ jobs:
               Write-Host "REGRESSION_GATE=FAIL_REASON=NON_INFORMATIVE_ANALYSIS"
               return "FAIL"
             }
-            Write-Host "ANALYSIS_COVERAGE=PASS RECORDS=$($r.RecordsAnalyzed) RESOLVED=$($r.ResolvedInferences) UNRESOLVED=$($r.UnresolvedInferences) EVIDENCE=$($r.EvidenceBearingResults) REVIEW=$($r.ReviewRequiredResults) MISSING=$($r.MissingInferenceResults)"
+            $unresolvedPercent = if ($r.RecordsAnalyzed -gt 0) { 100.0 * $r.UnresolvedInferences / $r.RecordsAnalyzed } else { 0.0 }
+            if ($unresolvedPercent -gt 50.0) {
+              Write-Host "REGRESSION_GATE=FAIL_REASON=UNRESOLVED_RATE MAX=50% ACTUAL=$([math]::Round($unresolvedPercent,1))%"
+              return "FAIL"
+            }
+            Write-Host "ANALYSIS_COVERAGE=PASS RECORDS=$($r.RecordsAnalyzed) RESOLVED=$($r.ResolvedInferences) UNRESOLVED=$($r.UnresolvedInferences) UNRESOLVED_PERCENT=$([math]::Round($unresolvedPercent,1)) EVIDENCE=$($r.EvidenceBearingResults) REVIEW=$($r.ReviewRequiredResults) MISSING=$($r.MissingInferenceResults)"
             $lexical = if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) { [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT } else { 0 }
             $resolution = if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) { [int]$r.Dispositions.RESOLUTION_CANDIDATE } else { 0 }
             $baselineLexical = [int]$baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT
