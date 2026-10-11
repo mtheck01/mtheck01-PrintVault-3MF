@@ -478,6 +478,7 @@ jobs:
               "test_semantic_evidence_dimensional_arbitration_9_0_44.py",
               "test_semantic_evidence_artifact_role_precision_9_0_45.py",
               "test_semantic_evidence_unresolved_category_gate_9_0_46.py",
+              "test_whole_library_diagnostic_accounting.py",
               "test_8_6_library_lifecycle.py",
               "test_browse_sorting.py",
               "test_category_dropdown_fix3.py",
@@ -898,8 +899,8 @@ jobs:
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             $currentFingerprint = Get-SourceFingerprint
-            if ($script:SourceModuleLocks.Count -ne 40) {
-              throw "Module lock ledger is incomplete: expected 40, found $($script:SourceModuleLocks.Count)."
+            if ($script:SourceModuleLocks.Count -ne 41) {
+              throw "Module lock ledger is incomplete: expected 41, found $($script:SourceModuleLocks.Count)."
             }
             foreach ($lock in $script:SourceModuleLocks) {
               if ($lock.Passes -lt 2 -or $lock.Fingerprint -ne $currentFingerprint) {
