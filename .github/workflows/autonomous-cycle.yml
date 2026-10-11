@@ -900,8 +900,11 @@ jobs:
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             $currentFingerprint = Get-SourceFingerprint
-            if ($script:SourceModuleLocks.Count -ne 41) {
-              throw "Module lock ledger is incomplete: expected 41, found $($script:SourceModuleLocks.Count)."
+            # The source-test list is the single source of truth. Do not hard-code
+            # a historical module count here: adding a valid regression test must
+            # not make the post-diagnostic gate contradict the lock creation gate.
+            if ($script:SourceModuleLocks.Count -ne $script:SourceModuleCount) {
+              throw "Module lock ledger is incomplete: expected $($script:SourceModuleCount), found $($script:SourceModuleLocks.Count)."
             }
             foreach ($lock in $script:SourceModuleLocks) {
               if ($lock.Passes -lt 2 -or $lock.Fingerprint -ne $currentFingerprint) {
