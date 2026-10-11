@@ -266,7 +266,7 @@ public sealed class OrganizationService
     private bool IsInsideLegacyFolder(string path, IReadOnlySet<string> legacy)
     {
         var relative = Path.GetRelativePath(root, Path.GetFullPath(path));
-        if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) return false;
+        if (relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal) || Path.IsPathRooted(relative)) return false;
         var parts = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
         return parts.Any(part => legacy.Contains(part));
     }
