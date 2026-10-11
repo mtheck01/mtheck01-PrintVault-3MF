@@ -11,7 +11,7 @@ required = [
     "!storedCategoryIsUnresolved",
     "var actionableConflict = categoriesDiffer",
     'Regex.Replace(value, @"(?<=[a-z])(?=[A-Z])", " ")',
-    'Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ")',
+    r'Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ")',
 ]
 
 failed = [x for x in required if x not in fusion]
@@ -19,7 +19,7 @@ extra_checks = {
     "3MF analyzer tokenizes original-case filenames": "NormalizeSemanticSeparators(name);" in analyzer,
     "3MF analyzer tokenizes embedded object/metadata names before lowercasing": "NormalizeSemanticSeparators(semanticText.ToString())" in analyzer,
     "3MF analyzer splits CamelCase": 'Regex.Replace(value, @"(?<=[a-z])(?=[A-Z])", " ")' in analyzer,
-    "3MF analyzer splits letter/digit boundaries": 'Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ")' in analyzer,
+    "3MF analyzer splits letter/digit boundaries": r'Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ")' in analyzer,
 }
 for x in required:
     print(("PASS: " if x not in failed else "FAIL: ") + x)
