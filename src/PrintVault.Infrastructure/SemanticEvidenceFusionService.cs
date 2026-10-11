@@ -624,7 +624,9 @@ public sealed class SemanticEvidenceFusionService
         ( (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label) Cue,
           string[] Hits) best)
     {
-        if (best.Hits.Length == 0) return false;
+        // A default ValueTuple has null reference-type fields even though the tuple itself is non-null.
+        // Guard both arrays before inspecting their contents so missing cue evidence is treated as absent.
+        if (best.Hits is null || best.Hits.Length == 0 || best.Cue.Terms is null) return false;
         if (!string.Equals(best.Cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase)) return false;
 
         // Building/landmark entities such as Hogwarts or the Eiffel Tower can be referenced
