@@ -98,16 +98,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var stage = intelligence.Analyze(m);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
-                recordsAnalyzed++;
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var inferenceMissing = string.IsNullOrWhiteSpace(inferred);
-                if (inferenceMissing) missingInferenceResults++;
-                if (IsUnresolvedCategory(inferred)) unresolvedInferences++;
-                else resolvedInferences++;
-                if (f.EvidenceQuality > 0 && f.Evidence.Any(e => !string.IsNullOrWhiteSpace(e)))
-                    evidenceBearingResults++;
-                if (f.ReviewRequired) reviewRequiredResults++;
                 var conflict = !IsUnresolvedCategory(stored) &&
                                !IsUnresolvedCategory(inferred) &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
@@ -130,6 +123,13 @@ public sealed class WholeLibraryRootCauseAnalysisService
                     m.Id, m.Name, m.Path, stored, inferred, f.SemanticType, f.Subtype, f.Family,
                     f.ClassificationConfidence, f.EvidenceQuality, f.ReviewRequired, f.Basis,
                     string.Join(" | ", f.Evidence), outcome));
+                recordsAnalyzed++;
+                if (inferenceMissing) missingInferenceResults++;
+                if (IsUnresolvedCategory(inferred)) unresolvedInferences++;
+                else resolvedInferences++;
+                if (f.EvidenceQuality > 0 && f.Evidence.Any(e => !string.IsNullOrWhiteSpace(e)))
+                    evidenceBearingResults++;
+                if (f.ReviewRequired) reviewRequiredResults++;
             }
             catch (Exception ex)
             {
