@@ -677,7 +677,20 @@ public sealed class SemanticEvidenceFusionService
     }
 
     private static string Normalize(string value)
-        => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"\s+", " ").Trim().ToLowerInvariant();
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        // Catalog filenames commonly concatenate semantic words (ArticulatedCuteSnail),
+        // acronym prefixes (OPtruck), and model numbers (Truck14). Split these boundaries
+        // before lowercasing so lexical/entity cue tables can see real tokens. Keep
+        // hyphens intact because aircraft designations such as A-10 depend on them.
+        value = value.Replace('+', ' ').Replace('_', ' ');
+        value = Regex.Replace(value, @"\b([A-Z]{2})(?=[a-z])", "$1 ");
+        value = Regex.Replace(value, @"(?<=[A-Z])(?=[A-Z][a-z])", " ");
+        value = Regex.Replace(value, @"(?<=[a-z])(?=[A-Z])", " ");
+        value = Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ");
+        return Regex.Replace(value, @"\s+", " ").Trim().ToLowerInvariant();
+    }
 
     private static int ClampScore(double value)
     {
