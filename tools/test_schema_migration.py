@@ -1,6 +1,11 @@
 import os
 import sqlite3
 import tempfile
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_SOURCE = (ROOT / 'src/PrintVault.Infrastructure/LibraryRepository.cs').read_text(encoding='utf-8')
 
 MIGRATIONS = [
     ('Path', "TEXT NOT NULL DEFAULT ''"), ('Name', "TEXT NOT NULL DEFAULT ''"),
@@ -9,8 +14,21 @@ MIGRATIONS = [
     ('Tags', "TEXT DEFAULT ''"), ('Family', "TEXT DEFAULT ''"), ('Slicer', "TEXT DEFAULT ''"),
     ('Materials', "TEXT DEFAULT ''"), ('ObjectCount', 'INTEGER DEFAULT 0'), ('Dimensions', "TEXT DEFAULT ''"),
     ('IntelligenceScore', 'REAL DEFAULT 0'), ('PrintReady', 'INTEGER DEFAULT 0'),
-    ('DuplicateGroup', "TEXT DEFAULT ''"), ('Hash', "TEXT DEFAULT ''")
+    ('DuplicateGroup', "TEXT DEFAULT ''"), ('Hash', "TEXT DEFAULT ''"),
+    ('SemanticType', "TEXT DEFAULT ''"), ('Subtype', "TEXT DEFAULT ''"),
+    ('SuggestedTags', "TEXT DEFAULT ''"), ('IntelligenceReason', "TEXT DEFAULT ''"),
+    ('RiskFlags', "TEXT DEFAULT ''"), ('PrintMethod', "TEXT DEFAULT 'Unknown'"),
+    ('PrintMethodConfidence', 'REAL DEFAULT 0'), ('PrintMethodEvidence', "TEXT DEFAULT ''"),
+    ('SpecialType', "TEXT DEFAULT ''"), ('CategoryOverride', 'INTEGER DEFAULT 0'),
+    ('PrintMethodOverride', 'INTEGER DEFAULT 0'), ('OriginalLanguage', "TEXT DEFAULT 'Unknown'"),
+    ('TranslatedTitle', "TEXT DEFAULT ''"), ('TranslationConfidence', 'INTEGER DEFAULT 0'),
+    ('TranslationEvidence', "TEXT DEFAULT ''")
 ]
+
+# Keep this SQLite migration fixture aligned with the production migration declaration.
+for name, _ in MIGRATIONS:
+    assert re.search(r'\(\s*"' + re.escape(name) + r'"\s*,', REPOSITORY_SOURCE), f"production migration declaration missing: {name}"
+assert 'private const int CurrentSchemaVersion = 5;' in REPOSITORY_SOURCE
 
 # Windows-safe SQLite temp handling: close the temp file before SQLite opens it.
 with tempfile.TemporaryDirectory(prefix='PrintVaultSchemaTest_') as temp_dir:

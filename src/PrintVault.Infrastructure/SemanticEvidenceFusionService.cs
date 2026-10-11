@@ -590,7 +590,7 @@ public sealed class SemanticEvidenceFusionService
             // Subject identity and artifact category are complementary dimensions. An
             // entity/category mismatch is not actionable when a stronger artifact channel
             // (role or source-derived analyzer) established the printable object's category.
-            semanticChannelsAgree = strongSourceDerivedAnalyzer || (entity.Category.Equals(category, StringComparison.OrdinalIgnoreCase));
+            semanticChannelsAgree = strongSourceDerivedAnalyzer || string.Equals(entity.Category, category, StringComparison.OrdinalIgnoreCase);
         }
         var strongAlternative = strongSourceDerivedAnalyzer ||
                                 aviationConvergence ||
@@ -632,9 +632,13 @@ public sealed class SemanticEvidenceFusionService
         // contextual when its own subtype identifies a setting/structure/landmark; a normal
         // building model still wins through the building lexical cue.
         if (!string.Equals(entity.Category, "Buildings", StringComparison.OrdinalIgnoreCase)) return false;
-        return entity.Subtype.Contains("Building", StringComparison.OrdinalIgnoreCase) ||
-               entity.Subtype.Contains("Landmark", StringComparison.OrdinalIgnoreCase) ||
-               entity.Subtype.Contains("Castle", StringComparison.OrdinalIgnoreCase);
+
+        // Entity records may establish an entity/domain without a subtype.
+        // Missing subtype is not exceptional; it simply provides no contextual cue.
+        var subtype = entity.Subtype ?? string.Empty;
+        return subtype.Contains("Building", StringComparison.OrdinalIgnoreCase) ||
+               subtype.Contains("Landmark", StringComparison.OrdinalIgnoreCase) ||
+               subtype.Contains("Castle", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string InferType(string category, string subtype)

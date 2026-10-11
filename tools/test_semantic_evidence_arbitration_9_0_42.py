@@ -13,7 +13,7 @@ checks = [
     ("analyzer family has deterministic fallback", "InferFamily(analyzerCategory)" in fusion),
     ("confidence calibration remains present", "value * 100.0" in fusion),
     ("contextual setting entities cannot override figure artifact cues", "IsContextualEntityWithArtifactCue" in fusion and "Artifact lexical evidence + contextual named entity" in fusion),
-    ("Hogwarts-style building entity is treated as contextual for figures", "entity.Subtype.Contains(\"Castle\"" in fusion and "best.Cue.Category, \"Figures & Characters\"" in fusion),
+    ("Hogwarts-style building entity is treated as contextual for figures", "subtype.Contains(\"Castle\"" in fusion and "best.Cue.Category, \"Figures & Characters\"" in fusion),
 ]
 
 failed = [name for name, ok in checks if not ok]
