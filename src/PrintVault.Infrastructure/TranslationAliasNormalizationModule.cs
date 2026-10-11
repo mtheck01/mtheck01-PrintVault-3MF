@@ -34,7 +34,7 @@ public sealed class TranslationAliasNormalizationModule
             ["展示"]="display", ["收纳"]="storage", ["盒"]="box", ["架"]="rack", ["灯"]="lamp",
             ["钥匙扣"]="keychain", ["工具"]="tool", ["玩具"]="toy", ["装饰"]="decor",
             ["桌面收纳"]="desk organizer", ["理线器"]="cable organizer",
-            ["蝙蝠车"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts",
+            ["蝙蝠车"]="batmobile", ["蝙蝠車"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts",
             ["蝙蝠俠"]="batman", ["蜘蛛人"]="spider-man", ["鋼鐵人"]="iron man",
             ["打印模型"]="3d printed model", ["3D打印"]="3d printing", ["模型打印"]="model printing"
         };
@@ -110,19 +110,30 @@ public sealed class TranslationAliasNormalizationModule
         // Translate only when the source provides unambiguous glossary evidence.
         // This lets aliases such as 汽车模型, 飛行機, and 자동차 모델 converge
         // with their English equivalents without guessing at ambiguous Han-only text.
-        var candidates = new List<string>();
+        var candidates = new List<(string Language, string Translation, int LongestEvidence)>();
         foreach (var language in new[] { "Chinese", "Japanese", "Korean" })
         {
             var glossary = GetGlossary(language);
-            if (!glossary.Keys.Any(term => normalized.Contains(term, StringComparison.Ordinal)))
+            var matchedLengths = glossary.Keys
+                .Where(term => normalized.Contains(term, StringComparison.Ordinal))
+                .Select(term => term.Length)
+                .ToArray();
+            if (matchedLengths.Length == 0)
                 continue;
 
             var translated = Translate(normalized, language).TranslatedText;
             if (!string.IsNullOrWhiteSpace(translated))
-                candidates.Add(Normalize(translated).ToLowerInvariant());
+                candidates.Add((language, Normalize(translated).ToLowerInvariant(), matchedLengths.Max()));
         }
 
-        var distinct = candidates.Distinct(StringComparer.Ordinal).ToArray();
+        // Prefer a more specific phrase over a nested generic character (e.g. a
+        // traditional-Chinese named alias containing 車 must beat Japanese 車 alone).
+        var longestEvidence = candidates.Select(x => x.LongestEvidence).DefaultIfEmpty(0).Max();
+        var distinct = candidates
+            .Where(x => x.LongestEvidence == longestEvidence)
+            .Select(x => x.Translation)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var canonical = distinct.Length == 1 ? distinct[0] : normalized.ToLowerInvariant();
         return canonical.Length == 0 ? null : canonical;
     }
