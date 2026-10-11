@@ -355,7 +355,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 return ValueTask.CompletedTask;
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { Console.Error.WriteLine($"CATEGORY_RECONCILIATION_FAILURE path=\"{model.Path}\" exception={ex.GetType().FullName}: {ex.Message}"); Console.Error.WriteLine(ex.StackTrace); Interlocked.Increment(ref failed); return ValueTask.CompletedTask; }
+            catch (Exception ex) { Console.Error.WriteLine($"CATEGORY_RECONCILIATION_FAILURE path=\"{models[i].Path}\" exception={ex.GetType().FullName}: {ex.Message}"); Console.Error.WriteLine(ex.StackTrace); Interlocked.Increment(ref failed); return ValueTask.CompletedTask; }
             finally
             {
                 var done = Interlocked.Increment(ref processed);
