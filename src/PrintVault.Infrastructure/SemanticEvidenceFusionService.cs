@@ -683,6 +683,9 @@ public sealed class SemanticEvidenceFusionService
         // so existing high-precision phrase matching can recognize their semantic terms.
         var separated = Regex.Replace(value ?? string.Empty, @"(?<=[\p{Ll}\p{Nd}])(?=[\p{Lu}])", " ");
         separated = Regex.Replace(separated, @"(?<=[\p{Lu}])(?=[\p{Lu}][\p{Ll}])", " ");
+        // Split letter/digit transitions too: otherwise "Phone17" stays one token and
+        // the existing word-boundary matcher cannot recognize "phone" in that title.
+        separated = Regex.Replace(separated, @"(?<=[\p{L}])(?=[\p{Nd}])|(?<=[\p{Nd}])(?=[\p{L}])", " ");
         return Regex.Replace(separated.Replace('+', ' ').Replace('_', ' '), @"\s+", " ")
             .Trim().ToLowerInvariant();
     }
