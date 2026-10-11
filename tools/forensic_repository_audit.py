@@ -60,7 +60,7 @@ def classify_version(path, value, line_text):
     # contract (for example, "Test CamelCase semantic recovery 9.0.47").
     # These are test identifiers, not operational application-version settings.
     if path.startswith(".github/workflows/") and re.search(
-        r"(?i)\\b(?:name:\\s*)?test\\b.*" + re.escape(value), line_text
+        r"(?i)\b(?:name:\s*)?test\b.*" + re.escape(value), line_text
     ):
         return "historical-test-fixture"
     if "baseline-" in line_text or "baseline" in line_text.lower():
