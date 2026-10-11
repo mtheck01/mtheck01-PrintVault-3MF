@@ -315,17 +315,39 @@ try
     Console.WriteLine($"CATALOG={resultReport.Catalog}");
     Console.WriteLine($"PROCESSED={resultReport.Processed}");
     Console.WriteLine($"CONFLICTS={resultReport.Conflicts}");
-    Console.WriteLine($"ANALYZED={resultReport.AnalyzedConflicts}");
+    Console.WriteLine($"RECORDS_ANALYZED={resultReport.RecordsAnalyzed}");
+    Console.WriteLine($"CONFLICT_REVIEW_ROWS={resultReport.AnalyzedConflicts}");
+    Console.WriteLine($"RESOLVED_INFERENCES={resultReport.ResolvedInferences}");
+    Console.WriteLine($"UNRESOLVED_INFERENCES={resultReport.UnresolvedInferences}");
+    Console.WriteLine($"EVIDENCE_BEARING_RESULTS={resultReport.EvidenceBearingResults}");
+    Console.WriteLine($"REVIEW_REQUIRED_RESULTS={resultReport.ReviewRequiredResults}");
+    Console.WriteLine($"MISSING_INFERENCE_RESULTS={resultReport.MissingInferenceResults}");
+    Console.WriteLine($"OUTCOME_FINGERPRINT={resultReport.OutcomeFingerprint}");
     Console.WriteLine($"FAILURES={resultReport.Failed}");
     Console.WriteLine($"REPORT={resultReport.ReportPath}");
     Console.WriteLine($"CSV={resultReport.CsvPath}");
+    Console.WriteLine($"OUTCOMES_CSV={resultReport.OutcomesCsvPath}");
     Console.WriteLine($"JSON={resultReport.JsonPath}");
 
     if (resultReport.Failed != 0)
         return 10;
     if (expectedCatalog.HasValue && (resultReport.Catalog != expectedCatalog.Value || resultReport.Processed != expectedCatalog.Value))
         return 11;
+    if (resultReport.RecordsAnalyzed != resultReport.Processed ||
+        resultReport.ResolvedInferences + resultReport.UnresolvedInferences != resultReport.RecordsAnalyzed ||
+        resultReport.MissingInferenceResults != 0)
+    {
+        Console.Error.WriteLine("DIAGNOSTIC_ACCOUNTING=FAIL");
+        return 12;
+    }
+    if (resultReport.Catalog > 0 &&
+        (resultReport.ResolvedInferences == 0 || resultReport.EvidenceBearingResults == 0))
+    {
+        Console.Error.WriteLine("DIAGNOSTIC_EVIDENCE_COVERAGE=FAIL");
+        return 13;
+    }
 
+    Console.WriteLine("DIAGNOSTIC_ACCOUNTING=PASS");
     return 0;
 }
 catch (Exception ex)

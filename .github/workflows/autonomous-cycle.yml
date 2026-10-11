@@ -478,6 +478,7 @@ jobs:
               "test_semantic_evidence_dimensional_arbitration_9_0_44.py",
               "test_semantic_evidence_artifact_role_precision_9_0_45.py",
               "test_semantic_evidence_unresolved_category_gate_9_0_46.py",
+              "test_whole_library_diagnostic_accounting.py",
               "test_8_6_library_lifecycle.py",
               "test_browse_sorting.py",
               "test_category_dropdown_fix3.py",
@@ -727,6 +728,8 @@ jobs:
 
             Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.*" |
               Copy-Item -Destination $artifactDir -Force
+            Get-ChildItem $reportDir -Filter "whole-library-outcomes.*.csv" |
+              Copy-Item -Destination $artifactDir -Force
 
             Write-Host "WHOLE_LIBRARY_REPORT=$($json.FullName)"
             return $json.FullName
@@ -763,9 +766,24 @@ jobs:
             if ([string]::IsNullOrWhiteSpace($reportPath)) { throw "Regression gate received an empty report path." }
             if (-not (Test-Path $reportPath)) { throw "Regression report does not exist: $reportPath" }
             $r = Get-Content $reportPath -Raw | ConvertFrom-Json
-            if ($r.Failed -ne 0) { return "FAIL" }
-            if ($null -eq $expectedCatalog) { return "FAIL" }
-            if ($r.Catalog -ne $expectedCatalog -or $r.Processed -ne $expectedCatalog) { return "FAIL" }
+            if ($r.Failed -ne 0) { Write-Host "REGRESSION_GATE=FAIL_REASON=ANALYSIS_FAILURES"; return "FAIL" }
+            if ($null -eq $expectedCatalog) { Write-Host "REGRESSION_GATE=FAIL_REASON=EXPECTED_CATALOG_MISSING"; return "FAIL" }
+            if ($r.Catalog -ne $expectedCatalog -or $r.Processed -ne $expectedCatalog) { Write-Host "REGRESSION_GATE=FAIL_REASON=CATALOG_COVERAGE"; return "FAIL" }
+
+            # A zero-conflict report is not sufficient. Require complete, non-missing
+            # per-record inference accounting and a non-empty evidence-backed result set.
+            if ($r.RecordsAnalyzed -ne $expectedCatalog) { Write-Host "REGRESSION_GATE=FAIL_REASON=RECORDS_ANALYZED_MISMATCH"; return "FAIL" }
+            if (($r.ResolvedInferences + $r.UnresolvedInferences) -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=INFERENCE_ACCOUNTING"; return "FAIL" }
+            if ($r.MissingInferenceResults -ne 0) { Write-Host "REGRESSION_GATE=FAIL_REASON=MISSING_INFERENCE"; return "FAIL" }
+            if ([string]::IsNullOrWhiteSpace([string]$r.OutcomeFingerprint)) { Write-Host "REGRESSION_GATE=FAIL_REASON=OUTCOME_FINGERPRINT_MISSING"; return "FAIL" }
+            $inferredTotal = 0
+            foreach ($property in $r.InferredCategories.PSObject.Properties) { $inferredTotal += [int]$property.Value }
+            if ($inferredTotal -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=CATEGORY_DISTRIBUTION_ACCOUNTING"; return "FAIL" }
+            if ($expectedCatalog -gt 0 -and ($r.ResolvedInferences -le 0 -or $r.EvidenceBearingResults -le 0)) {
+              Write-Host "REGRESSION_GATE=FAIL_REASON=NON_INFORMATIVE_ANALYSIS"
+              return "FAIL"
+            }
+            Write-Host "ANALYSIS_COVERAGE=PASS RECORDS=$($r.RecordsAnalyzed) RESOLVED=$($r.ResolvedInferences) UNRESOLVED=$($r.UnresolvedInferences) EVIDENCE=$($r.EvidenceBearingResults) REVIEW=$($r.ReviewRequiredResults) MISSING=$($r.MissingInferenceResults)"
             $lexical = if ($null -ne $r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT) { [int]$r.Causes.LEXICAL_CLASSIFIER_DISAGREEMENT } else { 0 }
             $resolution = if ($null -ne $r.Dispositions.RESOLUTION_CANDIDATE) { [int]$r.Dispositions.RESOLUTION_CANDIDATE } else { 0 }
             $baselineLexical = [int]$baseline.causes.LEXICAL_CLASSIFIER_DISAGREEMENT
@@ -866,16 +884,23 @@ jobs:
             if ($reportData.Catalog -ne $reportData2.Catalog -or
                 $reportData.Processed -ne $reportData2.Processed -or
                 $reportData.Conflicts -ne $reportData2.Conflicts -or
-                $reportData.Failed -ne $reportData2.Failed) {
-              throw "Whole-library reproducibility gate failed: pass1 and pass2 disagree."
+                $reportData.Failed -ne $reportData2.Failed -or
+                $reportData.RecordsAnalyzed -ne $reportData2.RecordsAnalyzed -or
+                $reportData.ResolvedInferences -ne $reportData2.ResolvedInferences -or
+                $reportData.UnresolvedInferences -ne $reportData2.UnresolvedInferences -or
+                $reportData.EvidenceBearingResults -ne $reportData2.EvidenceBearingResults -or
+                $reportData.ReviewRequiredResults -ne $reportData2.ReviewRequiredResults -or
+                $reportData.MissingInferenceResults -ne $reportData2.MissingInferenceResults -or
+                $reportData.OutcomeFingerprint -ne $reportData2.OutcomeFingerprint) {
+              throw "Whole-library reproducibility gate failed: per-record outcomes or accounting differ between passes."
             }
-            Write-Host "WHOLE_LIBRARY_TWO_PASS=PASS CATALOG=$($reportData.Catalog) PROCESSED=$($reportData.Processed) CONFLICTS=$($reportData.Conflicts)"
+            Write-Host "WHOLE_LIBRARY_TWO_PASS=PASS CATALOG=$($reportData.Catalog) PROCESSED=$($reportData.Processed) RECORDS_ANALYZED=$($reportData.RecordsAnalyzed) RESOLVED=$($reportData.ResolvedInferences) UNRESOLVED=$($reportData.UnresolvedInferences) CONFLICTS=$($reportData.Conflicts) FINGERPRINT=$($reportData.OutcomeFingerprint)"
             $report = $report2
             $sourceTestFailures = @($script:SourceTestFailures)
             Write-Host "SOURCE_TEST_FAILURE_COUNT=$($sourceTestFailures.Count)"
             $currentFingerprint = Get-SourceFingerprint
-            if ($script:SourceModuleLocks.Count -ne 40) {
-              throw "Module lock ledger is incomplete: expected 40, found $($script:SourceModuleLocks.Count)."
+            if ($script:SourceModuleLocks.Count -ne 41) {
+              throw "Module lock ledger is incomplete: expected 41, found $($script:SourceModuleLocks.Count)."
             }
             foreach ($lock in $script:SourceModuleLocks) {
               if ($lock.Passes -lt 2 -or $lock.Fingerprint -ne $currentFingerprint) {

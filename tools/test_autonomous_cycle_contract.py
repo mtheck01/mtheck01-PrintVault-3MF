@@ -68,7 +68,7 @@ assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
-assert "expected 40, found" in workflow
+assert "expected 41, found" in workflow
 assert "timeout-minutes: 120" in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
 
