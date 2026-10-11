@@ -346,6 +346,13 @@ try
         Console.Error.WriteLine("DIAGNOSTIC_EVIDENCE_COVERAGE=FAIL");
         return 13;
     }
+    if (resultReport.RecordsAnalyzed > 0 &&
+        resultReport.UnresolvedInferences * 2 > resultReport.RecordsAnalyzed)
+    {
+        var unresolvedPercent = 100.0 * resultReport.UnresolvedInferences / resultReport.RecordsAnalyzed;
+        Console.Error.WriteLine($"DIAGNOSTIC_UNRESOLVED_RATE=FAIL MAX=50% ACTUAL={unresolvedPercent:F1}%");
+        return 14;
+    }
 
     Console.WriteLine("DIAGNOSTIC_ACCOUNTING=PASS");
     return 0;
