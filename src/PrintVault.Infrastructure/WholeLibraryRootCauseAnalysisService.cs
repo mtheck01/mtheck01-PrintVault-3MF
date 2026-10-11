@@ -70,6 +70,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var json = Path.Combine(dir, $"whole-library-root-cause.{stamp}.json");
 
         var rows = new List<RootCauseRow>();
+        var failureDetails = new List<string>();
         var failed = 0;
         var conflicts = 0;
         for (var i = 0; i < models.Count; i++)
@@ -95,7 +96,14 @@ public sealed class WholeLibraryRootCauseAnalysisService
                         string.Join(" | ", f.Evidence)));
                 }
             }
-            catch { failed++; }
+            catch (Exception ex)
+            {
+                failed++;
+                var detail = $"path=\"{m.Path}\" exception={ex.GetType().FullName}: {ex.Message}";
+                failureDetails.Add(detail + Environment.NewLine + ex.StackTrace);
+                Console.Error.WriteLine("ROOT_CAUSE_ANALYSIS_FAILURE " + detail);
+                Console.Error.WriteLine(ex.StackTrace);
+            }
             progress?.Report((i + 1, models.Count, "Analyzing"));
         }
 
@@ -109,6 +117,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             conflicts,
             analyzedConflicts = rows.Count,
             failed,
+            failureDetails,
             causes,
             dispositions,
             dataSource = source,
@@ -122,7 +131,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         File.WriteAllText(json, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
         File.WriteAllText(csv, BuildCsv(rows), Encoding.UTF8);
         File.WriteAllText(report, BuildReport(
-            created, models.Count, rows, conflicts, failed, causes, dispositions, repository.DatabasePath,
+            created, models.Count, rows, conflicts, failed, failureDetails, causes, dispositions, repository.DatabasePath,
             source, repositoryCountBeforeSync, activeSnapshotCount, repositoryCountAfterSync,
             synchronizedFromActiveCatalog, catalogMismatch), Encoding.UTF8);
         return new WholeLibraryRootCauseResult(created, models.Count, models.Count, conflicts, rows.Count, failed, causes, dispositions, report, csv, json);
@@ -197,7 +206,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
 
     private static string BuildReport(
         DateTime created, int catalog, IReadOnlyList<RootCauseRow> rows, int conflicts, int failed,
-        IReadOnlyDictionary<string,int> causes, IReadOnlyDictionary<string,int> dispositions, string db,
+        IReadOnlyList<string> failureDetails, IReadOnlyDictionary<string,int> causes, IReadOnlyDictionary<string,int> dispositions, string db,
         string source, int repositoryCountBeforeSync, int activeSnapshotCount, int repositoryCountAfterSync,
         bool synchronizedFromActiveCatalog, bool catalogMismatch)
     {
@@ -216,6 +225,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Stored classification conflicts: {conflicts:N0}");
         sb.AppendLine($"Conflict/review rows analyzed: {rows.Count:N0}");
         sb.AppendLine($"Failures: {failed:N0}");
+        if (failureDetails.Count > 0)
+        {
+            sb.AppendLine(); sb.AppendLine("FAILURE DETAILS");
+            foreach (var detail in failureDetails) sb.AppendLine(detail);
+        }
         sb.AppendLine(); sb.AppendLine("ROOT CAUSES");
         foreach (var x in causes) sb.AppendLine($"{x.Key}: {x.Value:N0}");
         sb.AppendLine(); sb.AppendLine("DISPOSITIONS");
