@@ -125,6 +125,9 @@ jobs:
       - name: Test test_semantic_evidence_unresolved_category_gate_9_0_46
         shell: pwsh
         run: python ".\\tools\\test_semantic_evidence_unresolved_category_gate_9_0_46.py"
+      - name: Test whole-library diagnostic accounting
+        shell: pwsh
+        run: python ".\\tools\\test_whole_library_diagnostic_accounting.py"
 
       - name: Build installer
         shell: cmd
