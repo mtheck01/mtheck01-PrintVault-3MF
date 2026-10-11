@@ -98,20 +98,20 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var stage = intelligence.Analyze(m);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
+                var evidenceItems = f.Evidence ?? Array.Empty<string>();
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var inferenceMissing = string.IsNullOrWhiteSpace(inferred);
                 var conflict = !IsUnresolvedCategory(stored) &&
                                !IsUnresolvedCategory(inferred) &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
-                if (conflict) conflicts++;
                 if (conflict || f.ReviewRequired)
                 {
                     var cause = DetermineCause(m, entity, f, conflict);
                     var disposition = DetermineDisposition(m, f, cause, conflict);
                     rows.Add(new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
-                        string.Join(" | ", f.Evidence)));
+                        string.Join(" | ", evidenceItems)));
                 }
 
                 var outcome = inferenceMissing ? "MISSING_INFERENCE"
@@ -122,12 +122,13 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 outcomes.Add(new RootCauseOutcome(
                     m.Id, m.Name, m.Path, stored, inferred, f.SemanticType, f.Subtype, f.Family,
                     f.ClassificationConfidence, f.EvidenceQuality, f.ReviewRequired, f.Basis,
-                    string.Join(" | ", f.Evidence), outcome));
+                    string.Join(" | ", evidenceItems), outcome));
+                if (conflict) conflicts++;
                 recordsAnalyzed++;
                 if (inferenceMissing) missingInferenceResults++;
                 if (IsUnresolvedCategory(inferred)) unresolvedInferences++;
                 else resolvedInferences++;
-                if (f.EvidenceQuality > 0 && f.Evidence.Any(e => !string.IsNullOrWhiteSpace(e)))
+                if (f.EvidenceQuality > 0 && evidenceItems.Any(e => !string.IsNullOrWhiteSpace(e)))
                     evidenceBearingResults++;
                 if (f.ReviewRequired) reviewRequiredResults++;
             }
