@@ -677,7 +677,15 @@ public sealed class SemanticEvidenceFusionService
     }
 
     private static string Normalize(string value)
-        => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"\s+", " ").Trim().ToLowerInvariant();
+    {
+        // Imported 3MF titles often use compact CamelCase (ArticulatedCuteSnail,
+        // FeketeSárkány, FakePhone17ProMax). Split word boundaries before lowercasing
+        // so existing high-precision phrase matching can recognize their semantic terms.
+        var separated = Regex.Replace(value ?? string.Empty, @"(?<=[\p{Ll}\p{Nd}])(?=[\p{Lu}])", " ");
+        separated = Regex.Replace(separated, @"(?<=[\p{Lu}])(?=[\p{Lu}][\p{Ll}])", " ");
+        return Regex.Replace(separated.Replace('+', ' ').Replace('_', ' '), @"\s+", " ")
+            .Trim().ToLowerInvariant();
+    }
 
     private static int ClampScore(double value)
     {
