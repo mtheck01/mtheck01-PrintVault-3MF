@@ -27,7 +27,7 @@ MIGRATIONS = [
 
 # Keep this SQLite migration fixture aligned with the production migration declaration.
 for name, _ in MIGRATIONS:
-    assert re.search(r'\\(\s*"' + re.escape(name) + r'"\s*,', REPOSITORY_SOURCE), f"production migration declaration missing: {name}"
+    assert re.search(r'\(\s*"' + re.escape(name) + r'"\s*,', REPOSITORY_SOURCE), f"production migration declaration missing: {name}"
 assert 'private const int CurrentSchemaVersion = 5;' in REPOSITORY_SOURCE
 
 # Windows-safe SQLite temp handling: close the temp file before SQLite opens it.
