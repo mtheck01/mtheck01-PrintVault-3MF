@@ -56,6 +56,30 @@ Console.WriteLine("LANGUAGE_CHALLENGE_ASSEMBLY_PROVENANCE=PASS_HASH");
 var service = new LanguageIntelligenceService();
 var failures = 0;
 
+// Alias normalization must converge translated terms to the same deterministic key.
+var aliasCases = new[]
+{
+    ("ZH-CANONICAL", "汽车模型", "car model"),
+    ("JA-CANONICAL", "飛行機", "airplane"),
+    ("KO-CANONICAL", "자동차 모델", "car model"),
+    ("ZH-TRADITIONAL-CANONICAL", "蝙蝠車", "batmobile"),
+    ("CJK-SHARED-TERM", "船", "ship"),
+};
+foreach (var c in aliasCases)
+{
+    var actual = TranslationAliasNormalizationModule.CanonicalizeAlias(c.Item2);
+    var expected = TranslationAliasNormalizationModule.CanonicalizeAlias(c.Item3);
+    var pass = string.Equals(actual, expected, StringComparison.Ordinal);
+    Console.WriteLine($"ALIAS|{c.Item1}|actual={actual}|expected={expected}|pass={pass}");
+    if (!pass) failures++;
+}
+if (TranslationAliasNormalizationModule.CanonicalizeAlias(null) is not null ||
+    TranslationAliasNormalizationModule.CanonicalizeAlias("   ") is not null)
+{
+    Console.WriteLine("ALIAS|EMPTY-INPUT|pass=False");
+    failures++;
+}
+
 foreach (var c in cases)
 {
     var result = service.Analyze(c.Item2);

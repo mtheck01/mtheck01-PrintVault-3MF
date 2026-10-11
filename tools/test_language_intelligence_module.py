@@ -24,6 +24,8 @@ checks = {
     "japanese glossary": '["飛行機"]=' in module,
     "korean glossary": '["자동차"]=' in module,
     "canonical alias boundary": "CanonicalizeAlias" in module and "CanonicalizeAlias" in entity,
+    "canonical alias performs glossary-backed translation": "GetGlossary(language)" in module and "Translate(normalized, language)" in module,
+    "ambiguous multilingual aliases remain conservative": "distinct.Length == 1 ? distinct[0]" in module,
     "mixed language detection": "mixed-language signal" in svc,
     "confidence bounded": "Math.Clamp" in svc,
     "offline design": "does not call a network" in svc,

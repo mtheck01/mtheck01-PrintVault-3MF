@@ -66,6 +66,14 @@ jobs:
         shell: pwsh
         run: python ".\tools\test_release_preflight_contract.py"
 
+      - name: Test language intelligence module contract
+        shell: pwsh
+        run: python ".\\tools\\test_language_intelligence_module.py"
+
+      - name: Test executable language detection and alias convergence
+        shell: pwsh
+        run: python ".\\tools\\test_language_detection_challenge.py"
+
       - name: Test test_source_integrity
         shell: pwsh
         run: python ".\tools\test_source_integrity.py"
