@@ -143,7 +143,7 @@ public sealed class ThreeMfAnalyzer
         var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var evidence = new List<string>();
         var risk = new List<string> { "Autonomous classification-only pass" };
-        var semantic = NormalizeSemanticSeparators(name.ToLowerInvariant());
+        var semantic = NormalizeSemanticSeparators(name);
         var scored = Signals
             .Select(s => (s, score: TokenScore(semantic, s.Phrase, s.Weight)))
             .Where(x => x.score > 0)
@@ -231,11 +231,11 @@ public sealed class ThreeMfAnalyzer
                     try { using var es=e.Open(); using var sr=new StreamReader(es); allText.Append(' ').Append(sr.ReadToEnd()); } catch { }
                 }
                 low=allText.ToString().ToLowerInvariant();
-                var semanticLow=semanticText.ToString().ToLowerInvariant();
+                
                 special=DetectSpecialType(low, z);
                 // Normalize common filename separators before semantic scoring. '+' and '_'
                 // are frequently used as spaces in model repositories.
-                var semanticScoringText = NormalizeSemanticSeparators(semanticLow);
+                var semanticScoringText = NormalizeSemanticSeparators(semanticText.ToString());
                 var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
                 if(special is not null)
                 {
@@ -334,7 +334,20 @@ public sealed class ThreeMfAnalyzer
     }
 
     private static string NormalizeSemanticSeparators(string value)
-        => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"[\\/|]+", " ");
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        // Split CamelCase, acronym-to-word boundaries, and adjacent letters/digits before
+        // lowercasing. This makes filenames such as ArticulatedCuteSnail, 70ElephantF,
+        // and Truck14 usable by the same bounded whole-token semantic scorer.
+        value = value.Replace('+', ' ').Replace('_', ' ');
+        value = Regex.Replace(value, @"\b([A-Z]{2})(?=[a-z])", "$1 ");
+        value = Regex.Replace(value, @"(?<=[A-Z])(?=[A-Z][a-z])", " ");
+        value = Regex.Replace(value, @"(?<=[a-z])(?=[A-Z])", " ");
+        value = Regex.Replace(value, @"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ");
+        value = Regex.Replace(value, @"[\\/|]+", " ");
+        return Regex.Replace(value, @"\s+", " ").Trim().ToLowerInvariant();
+    }
 
     private static string ComputeDimensions(List<XElement> vertices,string unit)
     {
