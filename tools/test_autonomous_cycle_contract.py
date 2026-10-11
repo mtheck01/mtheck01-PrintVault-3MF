@@ -68,7 +68,12 @@ assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
-assert "expected 41, found" in workflow
+assert "if ($script:SourceModuleLocks.Count -ne $script:SourceModuleCount)" in workflow, \
+    "Module-lock gate must derive its expected count from the authoritative source-test list"
+assert "expected $($script:SourceModuleCount), found $($script:SourceModuleLocks.Count)" in workflow, \
+    "Module-lock failure must report the dynamic expected and actual counts"
+assert "if ($script:SourceModuleLocks.Count -ne 41)" not in workflow, \
+    "Hard-coded module-lock count can drift when tests are added"
 assert "timeout-minutes: 120" in workflow
 assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") < workflow.index("Promotion blocked: origin/main changed during validation.")
 
