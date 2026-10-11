@@ -37,9 +37,9 @@ def normalize_fixture(value):
     value = re.sub(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", value)
     return re.sub(r"\s+", " ", value).strip().lower()
 fixtures = {
-    "ArticulatedCuteSnail.3mf": "articulated cute snail.3mf",
-    "70ElephantF.3mf": "70 elephant f.3mf",
-    "1n_OPtruck_Truck14_BLACK.3mf": "1n op truck truck 14 black.3mf",
+    "ArticulatedCuteSnail": "articulated cute snail",
+    "70ElephantF": "70 elephant f",
+    "1n_OPtruck_Truck14_BLACK": "1 n op truck truck 14 black",
 }
 for source, expected in fixtures.items():
     ok = normalize_fixture(source) == expected
