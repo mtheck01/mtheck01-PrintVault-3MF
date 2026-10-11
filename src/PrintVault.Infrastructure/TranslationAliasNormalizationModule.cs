@@ -103,7 +103,28 @@ public sealed class TranslationAliasNormalizationModule
     public static string? CanonicalizeAlias(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
-        return Normalize(text).ToLowerInvariant();
+
+        var normalized = Normalize(text);
+        if (normalized.Length == 0) return null;
+
+        // Translate only when the source provides unambiguous glossary evidence.
+        // This lets aliases such as 汽车模型, 飛行機, and 자동차 모델 converge
+        // with their English equivalents without guessing at ambiguous Han-only text.
+        var candidates = new List<string>();
+        foreach (var language in new[] { "Chinese", "Japanese", "Korean" })
+        {
+            var glossary = GetGlossary(language);
+            if (!glossary.Keys.Any(term => normalized.Contains(term, StringComparison.Ordinal)))
+                continue;
+
+            var translated = Translate(normalized, language).TranslatedText;
+            if (!string.IsNullOrWhiteSpace(translated))
+                candidates.Add(Normalize(translated).ToLowerInvariant());
+        }
+
+        var distinct = candidates.Distinct(StringComparer.Ordinal).ToArray();
+        var canonical = distinct.Length == 1 ? distinct[0] : normalized.ToLowerInvariant();
+        return canonical.Length == 0 ? null : canonical;
     }
 
     internal static IReadOnlyDictionary<string, string> GetGlossary(string language)
