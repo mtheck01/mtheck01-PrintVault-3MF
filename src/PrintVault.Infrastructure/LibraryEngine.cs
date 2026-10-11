@@ -259,20 +259,20 @@ public sealed class LibraryEngine : ILibraryEngine
                 // not a reason to lose the catalog record.
                 try { m.Hash = await HashAsync(path, ct); }
                 catch (OperationCanceledException) { throw; }
-                catch { m.Hash = ""; }
+                catch (Exception ex) { Console.Error.WriteLine($"REBUILD_HASH_ENRICHMENT_FAILURE path=\"{path}\" exception={ex.GetType().FullName}: {ex.Message}"); m.Hash = ""; }
                 try
                 {
                     m.ThumbnailPath = preserveMetadata ? old?.ThumbnailPath : null;
                     if (!m.HasThumbnail) m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
                 }
                 catch (OperationCanceledException) { throw; }
-                catch { m.ThumbnailPath = null; }
+                catch (Exception ex) { Console.Error.WriteLine($"REBUILD_THUMBNAIL_ENRICHMENT_FAILURE path=\"{path}\" exception={ex.GetType().FullName}: {ex.Message}"); m.ThumbnailPath = null; }
 
                 result[i] = m;
                 Interlocked.Increment(ref indexed);
             }
             catch (OperationCanceledException) { throw; }
-            catch { Interlocked.Increment(ref failed); }
+            catch (Exception ex) { Console.Error.WriteLine($"REBUILD_FILE_FAILURE path=\"{path}\" exception={ex.GetType().FullName}: {ex.Message}"); Console.Error.WriteLine(ex.StackTrace); Interlocked.Increment(ref failed); }
             finally
             {
                 var processed = Interlocked.Increment(ref n);
@@ -355,7 +355,7 @@ public sealed class LibraryEngine : ILibraryEngine
                 return ValueTask.CompletedTask;
             }
             catch (OperationCanceledException) { throw; }
-            catch { Interlocked.Increment(ref failed); return ValueTask.CompletedTask; }
+            catch (Exception ex) { Console.Error.WriteLine($"CATEGORY_RECONCILIATION_FAILURE path=\"{model.Path}\" exception={ex.GetType().FullName}: {ex.Message}"); Console.Error.WriteLine(ex.StackTrace); Interlocked.Increment(ref failed); return ValueTask.CompletedTask; }
             finally
             {
                 var done = Interlocked.Increment(ref processed);
@@ -448,7 +448,7 @@ public sealed class LibraryEngine : ILibraryEngine
             {
                 var rootFull = Path.GetFullPath(libraryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 var relative = Path.GetRelativePath(rootFull, fileFull);
-                if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) continue;
+                if (relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal) || Path.IsPathRooted(relative)) continue;
                 var parts = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 2) continue;
                 var top = parts[0].Trim();
