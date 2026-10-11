@@ -56,6 +56,13 @@ def classify_version(path, value, line_text):
         return "current"
     if path.startswith(HISTORICAL_TEST_PREFIX):
         return "historical-test-fixture"
+    # Workflow step labels can intentionally retain the version of a regression
+    # contract (for example, "Test CamelCase semantic recovery 9.0.47").
+    # These are test identifiers, not operational application-version settings.
+    if path.startswith(".github/workflows/") and re.search(
+        r"(?i)\\b(?:name:\\s*)?test\\b.*" + re.escape(value), line_text
+    ):
+        return "historical-test-fixture"
     if "baseline-" in line_text or "baseline" in line_text.lower():
         return "baseline/validation-fixture"
     if path.startswith("automation/") and value.startswith("9.0."):
