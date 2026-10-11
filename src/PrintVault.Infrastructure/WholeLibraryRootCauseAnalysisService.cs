@@ -79,7 +79,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var csv = Path.Combine(dir, $"whole-library-root-cause.{stamp}.csv");
         var json = Path.Combine(dir, $"whole-library-root-cause.{stamp}.json");
 
+        // Conflict/review rows preserve the legacy gate semantics. Root-cause rows are a
+        // separate population and MUST include every unresolved inference; otherwise the
+        // diagnostic reports 1,099 unresolved records but an empty ROOT CAUSES section.
         var rows = new List<RootCauseRow>();
+        var rootCauseRows = new List<RootCauseRow>();
         var outcomes = new List<RootCauseOutcome>();
         var failureDetails = new List<string>();
         var failed = 0;
@@ -105,13 +109,16 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var conflict = !IsUnresolvedCategory(stored) &&
                                !IsUnresolvedCategory(inferred) &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
-                if (conflict || f.ReviewRequired)
+                if (conflict || f.ReviewRequired || inferenceMissing || IsUnresolvedCategory(inferred))
                 {
                     var cause = DetermineCause(m, entity, f, conflict);
                     var disposition = DetermineDisposition(m, f, cause, conflict);
-                    rows.Add(new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
+                    var row = new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
-                        string.Join(" | ", evidenceItems)));
+                        string.Join(" | ", evidenceItems));
+                    rootCauseRows.Add(row);
+                    if (conflict || f.ReviewRequired)
+                        rows.Add(row);
                 }
 
                 var outcome = inferenceMissing ? "MISSING_INFERENCE"
@@ -143,8 +150,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
             progress?.Report((i + 1, models.Count, "Analyzing"));
         }
 
-        var causes = rows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-        var dispositions = rows.GroupBy(x => x.Disposition).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var causes = rootCauseRows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var dispositions = rootCauseRows.GroupBy(x => x.Disposition).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var inferredCategories = outcomes
             .GroupBy(x => string.IsNullOrWhiteSpace(x.InferredCategory) ? "<MISSING>" : x.InferredCategory, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count())
@@ -160,6 +167,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             recordsAnalyzed,
             conflicts,
             analyzedConflicts = rows.Count,
+            rootCauseRecords = rootCauseRows.Count,
             failed,
             resolvedInferences,
             unresolvedInferences,
@@ -177,14 +185,15 @@ public sealed class WholeLibraryRootCauseAnalysisService
             repositoryCountAfterSync,
             synchronizedFromActiveCatalog,
             catalogMismatch,
-            rows,
+            rows = rootCauseRows,
+            conflictReviewRows = rows,
             outcomes
         };
         File.WriteAllText(json, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllText(csv, BuildCsv(rows), Encoding.UTF8);
+        File.WriteAllText(csv, BuildCsv(rootCauseRows), Encoding.UTF8);
         File.WriteAllText(outcomesCsv, BuildOutcomesCsv(outcomes), Encoding.UTF8);
         File.WriteAllText(report, BuildReport(
-            created, models.Count, rows, conflicts, failed, failureDetails, causes, dispositions, repository.DatabasePath,
+            created, models.Count, rootCauseRows, rows.Count, conflicts, failed, failureDetails, causes, dispositions, repository.DatabasePath,
             source, repositoryCountBeforeSync, activeSnapshotCount, repositoryCountAfterSync,
             synchronizedFromActiveCatalog, catalogMismatch, recordsAnalyzed, resolvedInferences,
             unresolvedInferences, evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
@@ -204,6 +213,23 @@ public sealed class WholeLibraryRootCauseAnalysisService
     private static string DetermineCause(ModelRecord m, MultilingualEntityMatch? entity, SemanticEvidenceFusionResult f, bool conflict)
     {
         var text = $"{m.Name} {m.TranslatedTitle} {m.Tags} {m.SuggestedTags} {m.IntelligenceReason}".ToLowerInvariant();
+        if (IsUnresolvedCategory(f.Category))
+        {
+            // Diagnose unresolved outcomes before conflict heuristics. The previous
+            // implementation only created rows for conflicts/review, silently excluding
+            // the entire unresolved population from the root-cause report.
+            if (entity is not null) return "UNRESOLVED_ENTITY_MATCH_NOT_PROMOTED";
+            if (f.Evidence.Any(e => e.StartsWith("Context-only signals:", StringComparison.OrdinalIgnoreCase)))
+                return "UNRESOLVED_CONTEXT_ONLY_SIGNALS";
+            if (m.TranslationConfidence >= 70 || f.Evidence.Any(e => e.StartsWith("Translation evidence:", StringComparison.OrdinalIgnoreCase)))
+                return "UNRESOLVED_TRANSLATION_NOT_PROMOTED";
+            if (IsObjectRoleMismatch(text, m, f)) return "UNRESOLVED_ARTIFACT_ROLE_NOT_PROMOTED";
+            if (string.IsNullOrWhiteSpace(m.IntelligenceReason) ||
+                m.IntelligenceReason.Contains("No strong semantic signal", StringComparison.OrdinalIgnoreCase))
+                return "UNRESOLVED_NO_STRONG_ANALYZER_SIGNAL";
+            if (f.EvidenceQuality < 50) return "UNRESOLVED_LOW_EVIDENCE_QUALITY";
+            return "UNRESOLVED_OTHER_CLASSIFICATION_GAP";
+        }
         if (IsObjectRoleMismatch(text, m, f)) return "OBJECT_ROLE_MISMATCH";
         if (entity is not null && conflict) return "ENTITY_EVIDENCE_OVERRIDES_STORED";
         if (m.CategoryOverride) return "MANUAL_CATEGORY_OVERRIDE_CONFLICT";
@@ -219,6 +245,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
 
     private static string DetermineDisposition(ModelRecord m, SemanticEvidenceFusionResult f, string cause, bool conflict)
     {
+        if (IsUnresolvedCategory(f.Category)) return "UNRESOLVED_ENGINE_GAP";
         if (!conflict && !f.ReviewRequired) return "NO_CONFLICT";
         if (cause == "MANUAL_CATEGORY_OVERRIDE_CONFLICT") return "PROTECTED_REVIEW";
         if (cause == "INSUFFICIENT_INDEPENDENT_EVIDENCE" || f.EvidenceQuality < 75) return "REVIEW_INSUFFICIENT_EVIDENCE";
@@ -276,8 +303,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
     private static string Csv(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
 
     private static string BuildReport(
-        DateTime created, int catalog, IReadOnlyList<RootCauseRow> rows, int conflicts, int failed,
-        IReadOnlyList<string> failureDetails, IReadOnlyDictionary<string,int> causes, IReadOnlyDictionary<string,int> dispositions, string db,
+        DateTime created, int catalog, IReadOnlyList<RootCauseRow> rootCauseRows, int conflictReviewRowCount,
+        int conflicts, int failed, IReadOnlyList<string> failureDetails,
+        IReadOnlyDictionary<string,int> causes, IReadOnlyDictionary<string,int> dispositions, string db,
         string source, int repositoryCountBeforeSync, int activeSnapshotCount, int repositoryCountAfterSync,
         bool synchronizedFromActiveCatalog, bool catalogMismatch,
         int recordsAnalyzed, int resolvedInferences, int unresolvedInferences, int evidenceBearingResults,
@@ -298,7 +326,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Processed: {catalog - failed:N0}");
         sb.AppendLine($"Stored classification conflicts: {conflicts:N0}");
         sb.AppendLine($"Records analyzed: {recordsAnalyzed:N0}");
-        sb.AppendLine($"Conflict/review rows: {rows.Count:N0}");
+        sb.AppendLine($"Root-cause records: {rootCauseRows.Count:N0}");
+        sb.AppendLine($"Conflict/review rows: {conflictReviewRowCount:N0}");
         sb.AppendLine($"Resolved inferences: {resolvedInferences:N0}");
         sb.AppendLine($"Unresolved inferences: {unresolvedInferences:N0}");
         sb.AppendLine($"Evidence-bearing results: {evidenceBearingResults:N0}");
@@ -322,7 +351,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Catalog == Resolved + Unresolved + Failures: {catalog == resolvedInferences + unresolvedInferences + failed}");
         sb.AppendLine($"Records analyzed == outcomes exported: {recordsAnalyzed == inferredCategories.Values.Sum()}");
         sb.AppendLine($"Missing inference results == 0: {missingInferenceResults == 0}");
-        sb.AppendLine($"Failures + conflict/review rows <= catalog: {failed + rows.Count <= catalog}");
+        sb.AppendLine($"Failures + conflict/review rows <= catalog: {failed + conflictReviewRowCount <= catalog}");
+        sb.AppendLine($"Unresolved inferences have root-cause rows: {rootCauseRows.Count(x => IsUnresolvedCategory(x.InferredCategory)) == unresolvedInferences}");
         sb.AppendLine("MODE: READ-ONLY FORENSIC PASS — no classifications, files, or database records were changed.");
         return sb.ToString();
     }
