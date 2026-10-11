@@ -56,7 +56,7 @@ public sealed class TranslationAliasNormalizationModule
             ["헬리콥터"]="helicopter", ["로켓"]="rocket", ["배"]="ship", ["성"]="castle",
             ["집"]="house", ["건물"]="building", ["탑"]="tower", ["용"]="dragon", ["공룡"]="dinosaur",
             ["도구"]="tool", ["수납"]="storage", ["인형"]="figure", ["피규어"]="figure",
-            ["정리함"]="organizer"
+            ["모델"]="model", ["정리함"]="organizer"
         };
 
     public static string Normalize(string? text)
