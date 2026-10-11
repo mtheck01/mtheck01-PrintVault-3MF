@@ -113,7 +113,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         {
             createdUtc = created,
             catalog = models.Count,
-            processed = models.Count,
+            processed = models.Count - failed,
             conflicts,
             analyzedConflicts = rows.Count,
             failed,
@@ -221,7 +221,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Catalog synchronized from active UI snapshot: {synchronizedFromActiveCatalog}");
         sb.AppendLine($"Repository/UI catalog mismatch after sync: {catalogMismatch}");
         sb.AppendLine($"Catalog: {catalog:N0}");
-        sb.AppendLine($"Processed: {catalog:N0}");
+        sb.AppendLine($"Processed: {catalog - failed:N0}");
         sb.AppendLine($"Stored classification conflicts: {conflicts:N0}");
         sb.AppendLine($"Conflict/review rows analyzed: {rows.Count:N0}");
         sb.AppendLine($"Failures: {failed:N0}");
@@ -235,7 +235,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine(); sb.AppendLine("DISPOSITIONS");
         foreach (var x in dispositions) sb.AppendLine($"{x.Key}: {x.Value:N0}");
         sb.AppendLine(); sb.AppendLine("ACCOUNTING");
-        sb.AppendLine("Catalog == Processed: TRUE");
+        sb.AppendLine($"Catalog == Processed + Failures: {catalog == (catalog - failed) + failed}");
         sb.AppendLine($"Failures + analyzed rows <= catalog: {failed + rows.Count <= catalog}");
         sb.AppendLine("MODE: READ-ONLY FORENSIC PASS — no classifications, files, or database records were changed.");
         return sb.ToString();
