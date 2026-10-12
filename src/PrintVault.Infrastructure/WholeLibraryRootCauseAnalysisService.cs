@@ -121,7 +121,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
                 if (conflict || f.ReviewRequired || inferenceMissing || IsUnresolvedCategory(inferred))
                 {
-                    var cause = DetermineCause(m, entity, f, conflict);
+                    var cause = DetermineCause(sourceModel, entity, f, conflict);
                     var disposition = DetermineDisposition(m, f, cause, conflict);
                     var row = new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
