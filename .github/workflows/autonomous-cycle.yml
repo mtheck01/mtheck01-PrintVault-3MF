@@ -335,7 +335,29 @@ jobs:
                 try { $proc.Kill() } catch {}
                 try { $proc.WaitForExit(10000) | Out-Null } catch {}
                 try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | ForEach-Object { Write-Host "EXTERNAL_KILL=$_"} } catch { Write-Warning "Process-tree termination failed: $($_.Exception.Message)" }
-                throw "External process timed out after $timeoutSeconds seconds: $filePath (process tree terminated)"
+
+                # Preserve child output BEFORE throwing. Previously timeout exited this
+                # function without awaiting redirected streams, discarding progress and
+                # exception evidence needed to diagnose slow whole-library runs.
+                try { $proc.WaitForExit() } catch {}
+                try { $stdout = $stdoutTask.GetAwaiter().GetResult() } catch { $stdout = "EXTERNAL_STDOUT_CAPTURE_FAILED: $($_.Exception.Message)" }
+                try { $stderr = $stderrTask.GetAwaiter().GetResult() } catch { $stderr = "EXTERNAL_STDERR_CAPTURE_FAILED: $($_.Exception.Message)" }
+                New-Item -ItemType Directory -Force -Path (Split-Path $logPath) | Out-Null
+                Set-Content -Path $logPath -Value $stdout -NoNewline -Encoding UTF8
+                Set-Content -Path $errPath -Value $stderr -NoNewline -Encoding UTF8
+                Write-Host "EXTERNAL_TIMEOUT_LOG_SAVED=$logPath"
+                Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN"
+                if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+                  $stdout -split '\r?\n' | Select-Object -Last 200 | ForEach-Object { Write-Host $_ }
+                }
+                Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_END"
+                Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_BEGIN"
+                if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+                  $stderr -split '\r?\n' | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
+                }
+                Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_END"
+                $proc.Dispose()
+                throw "External process timed out after $timeoutSeconds seconds: $filePath (captured logs: $logPath, $errPath)"
               }
             }
 
@@ -720,7 +742,8 @@ jobs:
 
             Write-Host "WHOLE_LIBRARY=RUN"
             Write-CycleStatus "WHOLE_LIBRARY_RUN" "rootcause pass=$Pass"
-            $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 900
+            Write-Host "WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=2400"
+            $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 2400
             if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
 
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
