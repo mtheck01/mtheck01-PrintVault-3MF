@@ -230,6 +230,27 @@ public sealed class WholeLibraryRootCauseAnalysisService
             return model;
         }
 
+        // Source-level 3MF inspection is the expensive stage: it opens and parses each
+        // archive. Re-running it for every already-classified record made the forensic
+        // pass scale with the entire archive corpus even when the stored record already
+        // contains usable semantic metadata. Inspect source files when it can change the
+        // diagnostic: unresolved categories or missing core semantic metadata. Every
+        // catalog record still passes through the intelligence fusion and accounting
+        // stages below, so the audit remains whole-library rather than a partial scan.
+        var category = source.Category?.Trim() ?? string.Empty;
+        var unresolvedCategory = IsUnresolvedCategory(category);
+        var missingSemanticMetadata =
+            string.IsNullOrWhiteSpace(source.SemanticType) ||
+            string.IsNullOrWhiteSpace(source.Subtype) ||
+            string.IsNullOrWhiteSpace(source.Family) ||
+            string.IsNullOrWhiteSpace(source.IntelligenceReason);
+        if (!unresolvedCategory && !missingSemanticMetadata)
+        {
+            details.Add("SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA");
+            trace = details;
+            return model;
+        }
+
         try
         {
             var analysis = sourceAnalyzer.Analyze(source.Path, source.Name);
