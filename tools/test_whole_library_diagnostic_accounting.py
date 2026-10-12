@@ -8,6 +8,10 @@ workflow = (ROOT / ".github/workflows/autonomous-cycle.yml").read_text(encoding=
 checks = {
     "records analyzed is distinct from conflict review rows": "RECORDS_ANALYZED=" in program and "CONFLICT_REVIEW_ROWS=" in program,
     "all successful analyses emit a per-record outcome": "outcomes.Add(new RootCauseOutcome(" in service,
+    "forensic analysis re-runs source-derived 3MF analysis": "sourceAnalyzer.Analyze(source.Path, source.Name)" in service and "AnalyzeSourceForForensics(m, out var sourceTrace)" in service,
+    "forensic evidence includes per-stage trace": "Concat(stage.StageEvidence)" in service and "SOURCE_ANALYZER:COMPLETED" in service,
+    "source-analysis errors are explicit instead of silent": "SOURCE_ANALYZER:FAILED:" in service,
+    "forensic source enrichment uses an isolated record copy": "CloneForForensics(source)" in service and "private static ModelRecord CloneForForensics" in service,
     "unresolved records are included in root-cause rows": "inferenceMissing || IsUnresolvedCategory(inferred)" in service and "rootCauseRows.Add(row)" in service,
     "root-cause summaries aggregate unresolved records": "rootCauseRows.GroupBy(x => x.Cause)" in service and "rootCauseRows.GroupBy(x => x.Disposition)" in service,
     "unresolved outcomes get an actionable diagnostic disposition": 'return "UNRESOLVED_ENGINE_GAP";' in service,
