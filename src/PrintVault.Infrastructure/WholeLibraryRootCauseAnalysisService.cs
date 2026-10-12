@@ -33,6 +33,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
 {
     private readonly LibraryRepository repository;
     private readonly ModelIntelligencePipeline intelligence = new();
+    private readonly ThreeMfAnalyzer sourceAnalyzer = new();
 
     public WholeLibraryRootCauseAnalysisService(LibraryRepository repository) => this.repository = repository;
 
@@ -99,10 +100,19 @@ public sealed class WholeLibraryRootCauseAnalysisService
             var m = models[i];
             try
             {
-                var stage = intelligence.Analyze(m);
+                // Reconstruct the production evidence path before running the read-only intelligence stages.
+                // The old forensic pass fused only persisted ModelRecord fields, so it could not
+                // discover source-derived semantics that a fresh 3MF analysis would produce.
+                var sourceModel = AnalyzeSourceForForensics(m, out var sourceTrace);
+                var stage = intelligence.Analyze(sourceModel);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
-                var evidenceItems = f.Evidence ?? Array.Empty<string>();
+                var evidenceItems = (f.Evidence ?? Array.Empty<string>())
+                    .Concat(sourceTrace)
+                    .Concat(stage.StageEvidence)
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var inferenceMissing = string.IsNullOrWhiteSpace(inferred);
@@ -204,6 +214,80 @@ public sealed class WholeLibraryRootCauseAnalysisService
             evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
             inferredCategories, outcomeFingerprint, outcomesCsv);
     }
+
+    /// <summary>
+    /// Produces an isolated source-enriched copy for forensic analysis. It never persists
+    /// changes to the repository and preserves manual/custom category decisions.
+    /// </summary>
+    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, out IReadOnlyList<string> trace)
+    {
+        var model = CloneForForensics(source);
+        var details = new List<string>();
+        if (string.IsNullOrWhiteSpace(source.Path) || !File.Exists(source.Path))
+        {
+            details.Add("SOURCE_ANALYZER:SKIPPED_FILE_MISSING");
+            trace = details;
+            return model;
+        }
+
+        try
+        {
+            var analysis = sourceAnalyzer.Analyze(source.Path, source.Name);
+            var currentCategory = source.Category?.Trim() ?? string.Empty;
+            var currentIsBuiltIn = BuiltInCategories.All.Contains(currentCategory, StringComparer.OrdinalIgnoreCase);
+            var currentIsUnresolved = IsUnresolvedCategory(currentCategory);
+            var mayReplaceCategory = !source.CategoryOverride && (currentIsUnresolved || currentIsBuiltIn);
+
+            if (mayReplaceCategory && !string.IsNullOrWhiteSpace(analysis.Category))
+                model.Category = analysis.Category;
+
+            model.IntelligenceScore = analysis.Confidence;
+            model.IntelligenceReason = analysis.Reason ?? string.Empty;
+            model.SemanticType = analysis.SemanticType ?? string.Empty;
+            model.Subtype = analysis.Subtype ?? string.Empty;
+            model.Family = analysis.Family ?? string.Empty;
+            model.SuggestedTags = analysis.SuggestedTags ?? string.Empty;
+            model.RiskFlags = analysis.RiskFlags ?? string.Empty;
+            model.PrintMethod = analysis.PrintMethod ?? model.PrintMethod;
+            model.PrintMethodConfidence = analysis.PrintMethodConfidence;
+            model.PrintMethodEvidence = analysis.PrintMethodEvidence ?? model.PrintMethodEvidence;
+            model.SpecialType = analysis.SpecialType ?? model.SpecialType;
+            model.ObjectCount = analysis.ObjectCount;
+            model.Dimensions = analysis.Dimensions ?? model.Dimensions;
+            model.Slicer = analysis.Slicer ?? model.Slicer;
+            model.Materials = analysis.Materials ?? model.Materials;
+            model.PrintReady = analysis.PrintReady;
+
+            details.Add($"SOURCE_ANALYZER:COMPLETED:{analysis.Category}:{analysis.Confidence:0.00}");
+            details.Add($"SOURCE_ANALYZER_CATEGORY_PROMOTION:{(mayReplaceCategory ? "ELIGIBLE" : "PROTECTED_CUSTOM_OR_OVERRIDE")}");
+            if (string.Equals(analysis.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase))
+                details.Add("SOURCE_ANALYZER:UNRESOLVED_LOW_OR_MISSING_SEMANTIC_SIGNAL");
+        }
+        catch (Exception ex)
+        {
+            // A per-file analyzer exception is explicit evidence, not a silent no-signal result.
+            details.Add($"SOURCE_ANALYZER:FAILED:{ex.GetType().Name}:{ex.Message}");
+        }
+
+        trace = details;
+        return model;
+    }
+
+    private static ModelRecord CloneForForensics(ModelRecord source) => new()
+    {
+        Id = source.Id, Path = source.Path, Name = source.Name, Category = source.Category,
+        Size = source.Size, ModifiedUtc = source.ModifiedUtc, ThumbnailPath = source.ThumbnailPath,
+        Favorite = source.Favorite, Tags = source.Tags, Family = source.Family, Slicer = source.Slicer,
+        Materials = source.Materials, ObjectCount = source.ObjectCount, Dimensions = source.Dimensions,
+        IntelligenceScore = source.IntelligenceScore, PrintReady = source.PrintReady, DuplicateGroup = source.DuplicateGroup,
+        Hash = source.Hash, SemanticType = source.SemanticType, Subtype = source.Subtype,
+        SuggestedTags = source.SuggestedTags, IntelligenceReason = source.IntelligenceReason,
+        RiskFlags = source.RiskFlags, PrintMethod = source.PrintMethod, PrintMethodConfidence = source.PrintMethodConfidence,
+        PrintMethodEvidence = source.PrintMethodEvidence, SpecialType = source.SpecialType,
+        CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
+        OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
+        TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence
+    };
 
     private static bool IsUnresolvedCategory(string? category)
         => string.IsNullOrWhiteSpace(category) ||
