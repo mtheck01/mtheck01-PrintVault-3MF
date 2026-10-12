@@ -348,12 +348,12 @@ jobs:
                 Write-Host "EXTERNAL_TIMEOUT_LOG_SAVED=$logPath"
                 Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN"
                 if (-not [string]::IsNullOrWhiteSpace($stdout)) {
-                  $stdout -split '\\r?\\n' | Select-Object -Last 200 | ForEach-Object { Write-Host $_ }
+                  $stdout -split '\r?\n' | Select-Object -Last 200 | ForEach-Object { Write-Host $_ }
                 }
                 Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_END"
                 Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_BEGIN"
                 if (-not [string]::IsNullOrWhiteSpace($stderr)) {
-                  $stderr -split '\\r?\\n' | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
+                  $stderr -split '\r?\n' | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
                 }
                 Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_END"
                 $proc.Dispose()
