@@ -144,7 +144,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
                 if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
                 {
-                    var cause = DetermineCause(m, entity, f, conflict);
+                    var cause = DetermineCause(m, sourceModel, entity, f, conflict);
                     var disposition = DetermineDisposition(m, f, cause, conflict);
                     var row = new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
@@ -365,9 +365,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
            string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase);
 
-    private static string DetermineCause(ModelRecord m, MultilingualEntityMatch? entity, SemanticEvidenceFusionResult f, bool conflict)
+    private static string DetermineCause(ModelRecord original, ModelRecord analyzed, MultilingualEntityMatch? entity, SemanticEvidenceFusionResult f, bool conflict)
     {
-        var text = $"{m.Name} {m.TranslatedTitle} {m.Tags} {m.SuggestedTags} {m.IntelligenceReason}".ToLowerInvariant();
+        // Use the enriched forensic copy for analyzer/translation evidence, but preserve
+        // original stored fields for override and custom-category diagnostics.
+        var text = $"{original.Name} {analyzed.TranslatedTitle} {original.Tags} {original.SuggestedTags} {analyzed.IntelligenceReason}".ToLowerInvariant();
         if (IsUnresolvedCategory(f.Category))
         {
             // Diagnose unresolved outcomes before conflict heuristics. The previous
@@ -376,23 +378,23 @@ public sealed class WholeLibraryRootCauseAnalysisService
             if (entity is not null) return "UNRESOLVED_ENTITY_MATCH_NOT_PROMOTED";
             if (f.Evidence.Any(e => e.StartsWith("Context-only signals:", StringComparison.OrdinalIgnoreCase)))
                 return "UNRESOLVED_CONTEXT_ONLY_SIGNALS";
-            if (m.TranslationConfidence >= 70 || f.Evidence.Any(e => e.StartsWith("Translation evidence:", StringComparison.OrdinalIgnoreCase)))
+            if (analyzed.TranslationConfidence >= 70 || f.Evidence.Any(e => e.StartsWith("Translation evidence:", StringComparison.OrdinalIgnoreCase)))
                 return "UNRESOLVED_TRANSLATION_NOT_PROMOTED";
-            if (IsObjectRoleMismatch(text, m, f)) return "UNRESOLVED_ARTIFACT_ROLE_NOT_PROMOTED";
-            if (string.IsNullOrWhiteSpace(m.IntelligenceReason) ||
-                m.IntelligenceReason.Contains("No strong semantic signal", StringComparison.OrdinalIgnoreCase))
+            if (IsObjectRoleMismatch(text, original, f)) return "UNRESOLVED_ARTIFACT_ROLE_NOT_PROMOTED";
+            if (string.IsNullOrWhiteSpace(analyzed.IntelligenceReason) ||
+                analyzed.IntelligenceReason.Contains("No strong semantic signal", StringComparison.OrdinalIgnoreCase))
                 return "UNRESOLVED_NO_STRONG_ANALYZER_SIGNAL";
             if (f.EvidenceQuality < 50) return "UNRESOLVED_LOW_EVIDENCE_QUALITY";
             return "UNRESOLVED_OTHER_CLASSIFICATION_GAP";
         }
-        if (IsObjectRoleMismatch(text, m, f)) return "OBJECT_ROLE_MISMATCH";
+        if (IsObjectRoleMismatch(text, original, f)) return "OBJECT_ROLE_MISMATCH";
         if (entity is not null && conflict) return "ENTITY_EVIDENCE_OVERRIDES_STORED";
-        if (m.CategoryOverride) return "MANUAL_CATEGORY_OVERRIDE_CONFLICT";
-        if (ContainsFolderLikeCategory(m.Category)) return "FOLDER_OR_CUSTOM_CATEGORY";
-        if (text.Contains("translation evidence", StringComparison.OrdinalIgnoreCase) || m.TranslationConfidence >= 70) return "TRANSLATION_EVIDENCE";
+        if (original.CategoryOverride) return "MANUAL_CATEGORY_OVERRIDE_CONFLICT";
+        if (ContainsFolderLikeCategory(original.Category)) return "FOLDER_OR_CUSTOM_CATEGORY";
+        if (text.Contains("translation evidence", StringComparison.OrdinalIgnoreCase) || analyzed.TranslationConfidence >= 70) return "TRANSLATION_EVIDENCE";
         if (f.Basis.Contains("Lexical", StringComparison.OrdinalIgnoreCase)) return "LEXICAL_CLASSIFIER_DISAGREEMENT";
         if (f.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase)) return "ENTITY_CLASSIFIER_DISAGREEMENT";
-        if (string.IsNullOrWhiteSpace(m.IntelligenceReason)) return "ANALYZER_OR_PARSER_GAP";
+        if (string.IsNullOrWhiteSpace(analyzed.IntelligenceReason)) return "ANALYZER_OR_PARSER_GAP";
         if (f.EvidenceQuality < 75) return "INSUFFICIENT_INDEPENDENT_EVIDENCE";
         if (conflict) return "TAXONOMY_OR_CLASSIFIER_DISAGREEMENT";
         return "OTHER_REVIEW";
