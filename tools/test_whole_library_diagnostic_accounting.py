@@ -16,7 +16,21 @@ checks = {
     "forensic evidence includes per-stage trace": "Concat(stage.StageEvidence)" in service and "SOURCE_ANALYZER:COMPLETED" in service,
     "source-analysis errors are explicit instead of silent": "SOURCE_ANALYZER:FAILED:" in service,
     "forensic source enrichment uses an isolated record copy": "CloneForForensics(source)" in service and "private static ModelRecord CloneForForensics" in service,
-    "expensive source parsing is gated by unresolved or incomplete metadata": "SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA" in service and "if (!unresolvedCategory && !missingSemanticMetadata)" in service,
+    "expensive source parsing is gated by unresolved or incomplete semantic metadata": (
+        "SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA" in service
+        and "if (!unresolvedCategory && !missingSemanticMetadata)" in service
+        and re.search(r"var missingSemanticMetadata\s*=([^;]+);", service, re.DOTALL) is not None
+        and "source.IntelligenceReason" not in re.search(r"var missingSemanticMetadata\s*=([^;]+);", service, re.DOTALL).group(1)
+    ),
+    "forensic pass measures source-preparation cost": (
+        "Stopwatch.GetTimestamp()" in service
+        and "Stopwatch.GetElapsedTime(sourceStarted)" in service
+        and "SOURCE_FORENSICS_ELAPSED_MS=" in service
+    ),
+    "forensic source analysis cannot overwrite a resolved category": (
+        "var mayReplaceCategory = !source.CategoryOverride && currentIsUnresolved;" in service
+        and "analysis.Confidence >= 0.70" in service
+    ),
     "unresolved records are included in root-cause rows": (
         "rootCauseRows.Add(row)" in service
         and re.search(
