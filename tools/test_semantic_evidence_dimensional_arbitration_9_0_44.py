@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 fusion = (ROOT / "src/PrintVault.Infrastructure/SemanticEvidenceFusionService.cs").read_text(encoding="utf-8")
@@ -19,7 +20,7 @@ checks = [
     ("entity mismatch is not automatically an artifact conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
     ("semantic-channel agreement is explicit", "semanticChannelsAgree" in fusion),
     ("strong alternatives require actionable disagreement", "strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved" in fusion),
-    ("unresolved categories are excluded from forensic conflicts", "!IsUnresolvedCategory(stored)" in root_cause and "!IsUnresolvedCategory(inferred)" in root_cause),
+    ("unresolved categories are excluded from forensic conflicts", bool(re.search(r"conflict\s*=\s*!IsUnresolvedCategory\(stored\)\s*&&\s*!(?:IsUnresolvedCategory\(inferred\)|unresolved)\s*&&", root_cause))),
     ("production rebuild uses modular intelligence pipeline", "intelligencePipeline.Apply(m);" in engine),
     ("production semantic fusion stage exists and invokes fusion service", (ROOT / "src/PrintVault.Infrastructure/Intelligence/SemanticFusionStage.cs").exists() and "service.Fuse(" in (ROOT / "src/PrintVault.Infrastructure/Intelligence/SemanticFusionStage.cs").read_text(encoding="utf-8")),
     ("production arbitration stage writes fused artifact classification", "model.Category = result.Category;" in (ROOT / "src/PrintVault.Infrastructure/Intelligence/EvidenceArbitrationStage.cs").read_text(encoding="utf-8")),

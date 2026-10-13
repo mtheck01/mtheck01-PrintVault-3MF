@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Security.Cryptography;
@@ -32,8 +33,6 @@ public sealed record WholeLibraryRootCauseResult(
 public sealed class WholeLibraryRootCauseAnalysisService
 {
     private readonly LibraryRepository repository;
-    private readonly ModelIntelligencePipeline intelligence = new();
-    private readonly ThreeMfAnalyzer sourceAnalyzer = new();
 
     public WholeLibraryRootCauseAnalysisService(LibraryRepository repository) => this.repository = repository;
 
@@ -83,10 +82,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
         // Conflict/review rows preserve the legacy gate semantics. Root-cause rows are a
         // separate population and MUST include every unresolved inference; otherwise the
         // diagnostic reports 1,099 unresolved records but an empty ROOT CAUSES section.
-        var rows = new List<RootCauseRow>();
-        var rootCauseRows = new List<RootCauseRow>();
-        var outcomes = new List<RootCauseOutcome>();
-        var failureDetails = new List<string>();
+        var rows = new ConcurrentBag<RootCauseRow>();
+        var rootCauseRows = new ConcurrentBag<RootCauseRow>();
+        var outcomes = new ConcurrentBag<RootCauseOutcome>();
+        var failureDetails = new ConcurrentBag<string>();
         var failed = 0;
         var conflicts = 0;
         var recordsAnalyzed = 0;
@@ -95,16 +94,27 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var evidenceBearingResults = 0;
         var reviewRequiredResults = 0;
         var missingInferenceResults = 0;
-        for (var i = 0; i < models.Count; i++)
+        var progressCount = 0;
+        var progressLock = new object();
+
+        // Each record is analyzed independently and the stages are read-only. Bounded
+        // parallelism removes the single-threaded 40-minute bottleneck without creating
+        // unbounded archive/CPU pressure on the self-hosted Windows runner. Concurrent
+        // collections plus atomic accounting preserve every record and failure.
+        var degree = Math.Clamp(Environment.ProcessorCount, 2, 4);
+        // Pipeline stages and analyzer helpers are worker-local. This avoids relying on
+        // undocumented thread-safety of mutable stage/context state while still parallelizing
+        // independent records. Each worker reuses its instances for its assigned records.
+        Parallel.ForEach(
+            models,
+            new ParallelOptions { MaxDegreeOfParallelism = degree },
+            () => (Intelligence: new ModelIntelligencePipeline(), SourceAnalyzer: new ThreeMfAnalyzer()),
+            (m, _, worker) =>
         {
-            var m = models[i];
             try
             {
-                // Reconstruct the production evidence path before running the read-only intelligence stages.
-                // The old forensic pass fused only persisted ModelRecord fields, so it could not
-                // discover source-derived semantics that a fresh 3MF analysis would produce.
-                var sourceModel = AnalyzeSourceForForensics(m, out var sourceTrace);
-                var stage = intelligence.Analyze(sourceModel);
+                var sourceModel = AnalyzeSourceForForensics(m, worker.SourceAnalyzer, out var sourceTrace);
+                var stage = worker.Intelligence.Analyze(sourceModel);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
                 var evidenceItems = (f.Evidence ?? Array.Empty<string>())
@@ -116,10 +126,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var inferenceMissing = string.IsNullOrWhiteSpace(inferred);
+                var unresolved = IsUnresolvedCategory(inferred);
                 var conflict = !IsUnresolvedCategory(stored) &&
-                               !IsUnresolvedCategory(inferred) &&
+                               !unresolved &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
-                if (conflict || f.ReviewRequired || inferenceMissing || IsUnresolvedCategory(inferred))
+                if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
                 {
                     var cause = DetermineCause(m, entity, f, conflict);
                     var disposition = DetermineDisposition(m, f, cause, conflict);
@@ -127,12 +138,11 @@ public sealed class WholeLibraryRootCauseAnalysisService
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
                         string.Join(" | ", evidenceItems));
                     rootCauseRows.Add(row);
-                    if (conflict || f.ReviewRequired)
-                        rows.Add(row);
+                    if (conflict || f.ReviewRequired) rows.Add(row);
                 }
 
                 var outcome = inferenceMissing ? "MISSING_INFERENCE"
-                    : IsUnresolvedCategory(inferred) ? "UNRESOLVED"
+                    : unresolved ? "UNRESOLVED"
                     : f.ReviewRequired ? "REVIEW_REQUIRED"
                     : conflict ? "CATEGORY_CONFLICT"
                     : "RESOLVED_NO_CONFLICT";
@@ -140,34 +150,51 @@ public sealed class WholeLibraryRootCauseAnalysisService
                     m.Id, m.Name, m.Path, stored, inferred, f.SemanticType, f.Subtype, f.Family,
                     f.ClassificationConfidence, f.EvidenceQuality, f.ReviewRequired, f.Basis,
                     string.Join(" | ", evidenceItems), outcome));
-                if (conflict) conflicts++;
-                recordsAnalyzed++;
-                if (inferenceMissing) missingInferenceResults++;
-                if (IsUnresolvedCategory(inferred)) unresolvedInferences++;
-                else resolvedInferences++;
-                if (f.EvidenceQuality > 0 && evidenceItems.Any(e => !string.IsNullOrWhiteSpace(e)))
-                    evidenceBearingResults++;
-                if (f.ReviewRequired) reviewRequiredResults++;
+                if (conflict) Interlocked.Increment(ref conflicts);
+                Interlocked.Increment(ref recordsAnalyzed);
+                if (inferenceMissing) Interlocked.Increment(ref missingInferenceResults);
+                if (unresolved) Interlocked.Increment(ref unresolvedInferences);
+                else Interlocked.Increment(ref resolvedInferences);
+                if (f.EvidenceQuality > 0 && evidenceItems.Length > 0)
+                    Interlocked.Increment(ref evidenceBearingResults);
+                if (f.ReviewRequired) Interlocked.Increment(ref reviewRequiredResults);
             }
             catch (Exception ex)
             {
-                failed++;
+                Interlocked.Increment(ref failed);
                 var detail = $"path=\"{m.Path}\" exception={ex.GetType().FullName}: {ex.Message}";
                 failureDetails.Add(detail + Environment.NewLine + ex.StackTrace);
                 Console.Error.WriteLine("ROOT_CAUSE_ANALYSIS_FAILURE " + detail);
                 Console.Error.WriteLine(ex.StackTrace);
             }
-            progress?.Report((i + 1, models.Count, "Analyzing"));
-        }
 
-        var causes = rootCauseRows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-        var dispositions = rootCauseRows.GroupBy(x => x.Disposition).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-        var inferredCategories = outcomes
+            var completed = Interlocked.Increment(ref progressCount);
+            // Serialize progress callbacks because the UI/runner progress sink is not
+            // guaranteed to be thread-safe; still emit a heartbeat at least every 10 rows.
+            if (completed == models.Count || completed % 10 == 0)
+            {
+                lock (progressLock) progress?.Report((completed, models.Count, "Analyzing"));
+                Console.WriteLine($"ROOT_CAUSE_PROGRESS={completed}/{models.Count} DEGREE={degree}");
+            }
+            return worker;
+        },
+        _ => { });
+
+        // Stable ordering keeps report diffs and outcome fingerprints reproducible even
+        // though execution is concurrent.
+        var orderedRootCauseRows = rootCauseRows.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var orderedRows = rows.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var orderedOutcomes = outcomes.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var orderedFailures = failureDetails.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var causes = orderedRootCauseRows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var dispositions = orderedRootCauseRows.GroupBy(x => x.Disposition).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var inferredCategories = orderedOutcomes
             .GroupBy(x => string.IsNullOrWhiteSpace(x.InferredCategory) ? "<MISSING>" : x.InferredCategory, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count())
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var outcomeFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(outcomes.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)))));
+            JsonSerializer.Serialize(orderedOutcomes))));
         var outcomesCsv = Path.Combine(dir, $"whole-library-outcomes.{stamp}.csv");
         var payload = new
         {
@@ -186,7 +213,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             missingInferenceResults,
             inferredCategories,
             outcomeFingerprint,
-            failureDetails,
+            failureDetails = orderedFailures,
             causes,
             dispositions,
             dataSource = source,
@@ -195,21 +222,21 @@ public sealed class WholeLibraryRootCauseAnalysisService
             repositoryCountAfterSync,
             synchronizedFromActiveCatalog,
             catalogMismatch,
-            rows = rootCauseRows,
-            conflictReviewRows = rows,
-            outcomes
+            rows = orderedRootCauseRows,
+            conflictReviewRows = orderedRows,
+            outcomes = orderedOutcomes
         };
         File.WriteAllText(json, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllText(csv, BuildCsv(rootCauseRows), Encoding.UTF8);
-        File.WriteAllText(outcomesCsv, BuildOutcomesCsv(outcomes), Encoding.UTF8);
+        File.WriteAllText(csv, BuildCsv(orderedRootCauseRows), Encoding.UTF8);
+        File.WriteAllText(outcomesCsv, BuildOutcomesCsv(orderedOutcomes), Encoding.UTF8);
         File.WriteAllText(report, BuildReport(
-            created, models.Count, rootCauseRows, rows.Count, conflicts, failed, failureDetails, causes, dispositions, repository.DatabasePath,
+            created, models.Count, orderedRootCauseRows, orderedRows.Count, conflicts, failed, orderedFailures, causes, dispositions, repository.DatabasePath,
             source, repositoryCountBeforeSync, activeSnapshotCount, repositoryCountAfterSync,
             synchronizedFromActiveCatalog, catalogMismatch, recordsAnalyzed, resolvedInferences,
             unresolvedInferences, evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
             inferredCategories, outcomeFingerprint), Encoding.UTF8);
         return new WholeLibraryRootCauseResult(
-            created, models.Count, recordsAnalyzed, conflicts, rows.Count, failed, causes, dispositions,
+            created, models.Count, recordsAnalyzed, conflicts, orderedRows.Count, failed, causes, dispositions,
             report, csv, json, recordsAnalyzed, resolvedInferences, unresolvedInferences,
             evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
             inferredCategories, outcomeFingerprint, outcomesCsv);
@@ -219,7 +246,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
     /// Produces an isolated source-enriched copy for forensic analysis. It never persists
     /// changes to the repository and preserves manual/custom category decisions.
     /// </summary>
-    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, out IReadOnlyList<string> trace)
+    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, ThreeMfAnalyzer sourceAnalyzer, out IReadOnlyList<string> trace)
     {
         var model = CloneForForensics(source);
         var details = new List<string>();
