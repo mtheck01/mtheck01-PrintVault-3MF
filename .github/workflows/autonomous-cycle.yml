@@ -816,9 +816,14 @@ jobs:
             Write-Host "BASELINE conflicts=$($baseline.conflicts) lexical=$baselineLexical resolution=$baselineResolution"
             Write-Host "CURRENT  conflicts=$($r.Conflicts) lexical=$lexical resolution=$resolution actionable=$actionable"
             if ($actionable -eq 0) { Write-Host "ACTIONABLE_CONFLICTS=0"; return "PASS" }
-            if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
+            # A completed analysis at or below the baseline conflict count is a clean
+            # regression-gate result. Evaluate this before the informational improvement
+            # label so an improvement cannot mask a PASS-eligible zero-conflict run.
+            if ($r.Conflicts -le $baseline.conflicts) {
+              if ($r.Conflicts -eq $baseline.conflicts -and $lexical -eq $baselineLexical) { return "BASELINE" }
+              return "PASS"
+            }
             if (($baselineLexical - $lexical) -ge 5 -and $r.Conflicts -le ($baseline.conflicts + 1)) { return "IMPROVEMENT" }
-            if ($r.Conflicts -le $baseline.conflicts) { return "PASS" }
             return "FAIL"
           }
           $deterministicRepairAttempted = $false
