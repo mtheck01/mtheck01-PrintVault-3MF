@@ -58,6 +58,10 @@ checks = {
     "automation rejects empty evidence coverage": "DIAGNOSTIC_EVIDENCE_COVERAGE=FAIL" in program,
     "two-pass gate compares per-record fingerprint": "$reportData.OutcomeFingerprint -ne $reportData2.OutcomeFingerprint" in workflow,
     "regression gate validates record accounting": "REGRESSION_GATE=FAIL_REASON=INFERENCE_ACCOUNTING" in workflow,
+    "regression gate prioritizes a clean baseline-or-better result over improvement labeling": (
+        workflow.find("if ($r.Conflicts -le $baseline.conflicts)") >= 0
+        and workflow.find("if ($r.Conflicts -le $baseline.conflicts)") < workflow.find("return \"IMPROVEMENT\"")
+    ),
     "zero conflicts alone cannot bypass coverage": "REGRESSION_GATE=FAIL_REASON=NON_INFORMATIVE_ANALYSIS" in workflow,
     "outcome CSV is uploaded as a diagnostic artifact": 'Filter "whole-library-outcomes.*.csv"' in workflow,
 }
