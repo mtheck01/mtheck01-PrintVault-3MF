@@ -33,8 +33,6 @@ public sealed record WholeLibraryRootCauseResult(
 public sealed class WholeLibraryRootCauseAnalysisService
 {
     private readonly LibraryRepository repository;
-    private readonly ModelIntelligencePipeline intelligence = new();
-    private readonly ThreeMfAnalyzer sourceAnalyzer = new();
 
     public WholeLibraryRootCauseAnalysisService(LibraryRepository repository) => this.repository = repository;
 
@@ -104,12 +102,19 @@ public sealed class WholeLibraryRootCauseAnalysisService
         // unbounded archive/CPU pressure on the self-hosted Windows runner. Concurrent
         // collections plus atomic accounting preserve every record and failure.
         var degree = Math.Clamp(Environment.ProcessorCount, 2, 4);
-        Parallel.ForEach(models, new ParallelOptions { MaxDegreeOfParallelism = degree }, m =>
+        // Pipeline stages and analyzer helpers are worker-local. This avoids relying on
+        // undocumented thread-safety of mutable stage/context state while still parallelizing
+        // independent records. Each worker reuses its instances for its assigned records.
+        Parallel.ForEach(
+            models,
+            new ParallelOptions { MaxDegreeOfParallelism = degree },
+            () => (Intelligence: new ModelIntelligencePipeline(), SourceAnalyzer: new ThreeMfAnalyzer()),
+            (m, _, worker) =>
         {
             try
             {
-                var sourceModel = AnalyzeSourceForForensics(m, out var sourceTrace);
-                var stage = intelligence.Analyze(sourceModel);
+                var sourceModel = AnalyzeSourceForForensics(m, worker.SourceAnalyzer, out var sourceTrace);
+                var stage = worker.Intelligence.Analyze(sourceModel);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
                 var evidenceItems = (f.Evidence ?? Array.Empty<string>())
@@ -171,7 +176,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 lock (progressLock) progress?.Report((completed, models.Count, "Analyzing"));
                 Console.WriteLine($"ROOT_CAUSE_PROGRESS={completed}/{models.Count} DEGREE={degree}");
             }
-        });
+            return worker;
+        },
+        _ => { });
 
         // Stable ordering keeps report diffs and outcome fingerprints reproducible even
         // though execution is concurrent.
@@ -239,7 +246,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
     /// Produces an isolated source-enriched copy for forensic analysis. It never persists
     /// changes to the repository and preserves manual/custom category decisions.
     /// </summary>
-    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, out IReadOnlyList<string> trace)
+    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, ThreeMfAnalyzer sourceAnalyzer, out IReadOnlyList<string> trace)
     {
         var model = CloneForForensics(source);
         var details = new List<string>();
