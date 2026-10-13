@@ -675,7 +675,7 @@ public sealed class SemanticEvidenceFusionService
         // CJK text commonly has no whitespace between semantic words. Use exact
         // dictionary-phrase containment for CJK cues, while keeping Latin phrases
         // on strict Unicode word boundaries to avoid accidental substring matches.
-        if (phrase.Any(c => c >= '\\u3400' && c <= '\\u9FFF'))
+        if (phrase.Any(c => c >= '\u3400' && c <= '\u9FFF'))
             return text.Contains(phrase, StringComparison.OrdinalIgnoreCase);
 
         if (phrase.Any(char.IsLetterOrDigit) && phrase.All(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || c is '-' or '_'))
