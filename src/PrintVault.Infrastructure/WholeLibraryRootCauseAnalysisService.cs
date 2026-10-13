@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Security.Cryptography;
@@ -94,6 +95,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var evidenceBearingResults = 0;
         var reviewRequiredResults = 0;
         var missingInferenceResults = 0;
+        var sourceAnalyzerInvocations = 0;
+        var sourceAnalyzerSkipped = 0;
+        long sourceForensicsElapsedMilliseconds = 0;
         var progressCount = 0;
         var progressLock = new object();
 
@@ -113,7 +117,15 @@ public sealed class WholeLibraryRootCauseAnalysisService
         {
             try
             {
+                var sourceStarted = Stopwatch.GetTimestamp();
                 var sourceModel = AnalyzeSourceForForensics(m, worker.SourceAnalyzer, out var sourceTrace);
+                Interlocked.Add(ref sourceForensicsElapsedMilliseconds,
+                    (long)Stopwatch.GetElapsedTime(sourceStarted).TotalMilliseconds);
+                if (sourceTrace.Any(e => e.StartsWith("SOURCE_ANALYZER:COMPLETED", StringComparison.OrdinalIgnoreCase) ||
+                                         e.StartsWith("SOURCE_ANALYZER:FAILED:", StringComparison.OrdinalIgnoreCase)))
+                    Interlocked.Increment(ref sourceAnalyzerInvocations);
+                else
+                    Interlocked.Increment(ref sourceAnalyzerSkipped);
                 var stage = worker.Intelligence.Analyze(sourceModel);
                 var entity = stage.Entity;
                 var f = stage.Fusion;
@@ -211,6 +223,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
             evidenceBearingResults,
             reviewRequiredResults,
             missingInferenceResults,
+            sourceAnalyzerInvocations,
+            sourceAnalyzerSkipped,
+            sourceForensicsElapsedMilliseconds,
             inferredCategories,
             outcomeFingerprint,
             failureDetails = orderedFailures,
@@ -234,7 +249,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
             source, repositoryCountBeforeSync, activeSnapshotCount, repositoryCountAfterSync,
             synchronizedFromActiveCatalog, catalogMismatch, recordsAnalyzed, resolvedInferences,
             unresolvedInferences, evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
-            inferredCategories, outcomeFingerprint), Encoding.UTF8);
+            inferredCategories, outcomeFingerprint, sourceAnalyzerInvocations, sourceAnalyzerSkipped,
+            sourceForensicsElapsedMilliseconds), Encoding.UTF8);
         return new WholeLibraryRootCauseResult(
             created, models.Count, recordsAnalyzed, conflicts, orderedRows.Count, failed, causes, dispositions,
             report, csv, json, recordsAnalyzed, resolvedInferences, unresolvedInferences,
@@ -266,11 +282,13 @@ public sealed class WholeLibraryRootCauseAnalysisService
         // stages below, so the audit remains whole-library rather than a partial scan.
         var category = source.Category?.Trim() ?? string.Empty;
         var unresolvedCategory = IsUnresolvedCategory(category);
+        // IntelligenceReason is explanatory text, not a semantic feature. Re-parsing a
+        // large 3MF solely because this note is blank adds archive I/O without improving
+        // category/type inference when the actual semantic fields are already populated.
         var missingSemanticMetadata =
             string.IsNullOrWhiteSpace(source.SemanticType) ||
             string.IsNullOrWhiteSpace(source.Subtype) ||
-            string.IsNullOrWhiteSpace(source.Family) ||
-            string.IsNullOrWhiteSpace(source.IntelligenceReason);
+            string.IsNullOrWhiteSpace(source.Family);
         if (!unresolvedCategory && !missingSemanticMetadata)
         {
             details.Add("SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA");
@@ -282,11 +300,16 @@ public sealed class WholeLibraryRootCauseAnalysisService
         {
             var analysis = sourceAnalyzer.Analyze(source.Path, source.Name);
             var currentCategory = source.Category?.Trim() ?? string.Empty;
-            var currentIsBuiltIn = BuiltInCategories.All.Contains(currentCategory, StringComparer.OrdinalIgnoreCase);
             var currentIsUnresolved = IsUnresolvedCategory(currentCategory);
-            var mayReplaceCategory = !source.CategoryOverride && (currentIsUnresolved || currentIsBuiltIn);
+            // Forensic enrichment must not silently rewrite an existing classification.
+            // Only unresolved records may receive a source-derived category; resolved
+            // built-in categories are compared by fusion and emitted as evidence instead.
+            var mayReplaceCategory = !source.CategoryOverride && currentIsUnresolved;
 
-            if (mayReplaceCategory && !string.IsNullOrWhiteSpace(analysis.Category))
+            if (mayReplaceCategory &&
+                !string.IsNullOrWhiteSpace(analysis.Category) &&
+                analysis.Confidence >= 0.70 &&
+                !IsUnresolvedCategory(analysis.Category))
                 model.Category = analysis.Category;
 
             model.IntelligenceScore = analysis.Confidence;
@@ -442,7 +465,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
         bool synchronizedFromActiveCatalog, bool catalogMismatch,
         int recordsAnalyzed, int resolvedInferences, int unresolvedInferences, int evidenceBearingResults,
         int reviewRequiredResults, int missingInferenceResults, IReadOnlyDictionary<string,int> inferredCategories,
-        string outcomeFingerprint)
+        string outcomeFingerprint, int sourceAnalyzerInvocations, int sourceAnalyzerSkipped,
+        long sourceForensicsElapsedMilliseconds)
     {
         var sb = new StringBuilder();
         sb.AppendLine("PrintVault 3MF — WHOLE-LIBRARY ROOT-CAUSE ANALYSIS");
@@ -466,6 +490,12 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Review-required results: {reviewRequiredResults:N0}");
         sb.AppendLine($"Missing inference results: {missingInferenceResults:N0}");
         sb.AppendLine($"Outcome fingerprint: {outcomeFingerprint}");
+        sb.AppendLine($"Source analyzer invocations: {sourceAnalyzerInvocations:N0}");
+        sb.AppendLine($"Source analyzer skipped: {sourceAnalyzerSkipped:N0}");
+        sb.AppendLine($"Source forensic preparation elapsed (ms): {sourceForensicsElapsedMilliseconds:N0}");
+        sb.AppendLine($"SOURCE_ANALYZER_INVOCATIONS={sourceAnalyzerInvocations}");
+        sb.AppendLine($"SOURCE_ANALYZER_SKIPPED={sourceAnalyzerSkipped}");
+        sb.AppendLine($"SOURCE_FORENSICS_ELAPSED_MS={sourceForensicsElapsedMilliseconds}");
         sb.AppendLine("INFERRED CATEGORY DISTRIBUTION");
         foreach (var x in inferredCategories) sb.AppendLine($"{x.Key}: {x.Value:N0}");
         sb.AppendLine($"Failures: {failed:N0}");
