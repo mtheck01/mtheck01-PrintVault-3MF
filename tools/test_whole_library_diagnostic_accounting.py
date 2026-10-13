@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 service = (ROOT / "src/PrintVault.Infrastructure/WholeLibraryRootCauseAnalysisService.cs").read_text(encoding="utf-8")
@@ -13,11 +14,24 @@ checks = {
     "source-analysis errors are explicit instead of silent": "SOURCE_ANALYZER:FAILED:" in service,
     "forensic source enrichment uses an isolated record copy": "CloneForForensics(source)" in service and "private static ModelRecord CloneForForensics" in service,
     "expensive source parsing is gated by unresolved or incomplete metadata": "SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA" in service and "if (!unresolvedCategory && !missingSemanticMetadata)" in service,
-    "unresolved records are included in root-cause rows": "inferenceMissing || IsUnresolvedCategory(inferred)" in service and "rootCauseRows.Add(row)" in service,
-    "root-cause summaries aggregate unresolved records": "rootCauseRows.GroupBy(x => x.Cause)" in service and "rootCauseRows.GroupBy(x => x.Disposition)" in service,
+    "unresolved records are included in root-cause rows": (
+        "rootCauseRows.Add(row)" in service
+        and re.search(
+            r"if\\s*\\([^)]*(?:inferenceMissing|unresolved|IsUnresolvedCategory\\(inferred\\))[^)]*\\)\\s*\\{?\\s*(?:var cause|var disposition|var row)",
+            service,
+            re.DOTALL,
+        ) is not None
+    ),
+    "root-cause summaries aggregate unresolved records": (
+        re.search(r"(?:orderedRootCauseRows|rootCauseRows)\\.GroupBy\\(x => x\\.Cause\\)", service) is not None
+        and re.search(r"(?:orderedRootCauseRows|rootCauseRows)\\.GroupBy\\(x => x\\.Disposition\\)", service) is not None
+    ),
     "unresolved outcomes get an actionable diagnostic disposition": 'return "UNRESOLVED_ENGINE_GAP";' in service,
     "report separately preserves conflict-review counts": "conflictReviewRowCount" in service and "rootCauseRecords = rootCauseRows.Count" in service,
-    "full outcome CSV is written": "BuildOutcomesCsv(outcomes)" in service and "OUTCOMES_CSV=" in program,
+    "full outcome CSV is written": (
+        re.search(r"File\\.WriteAllText\\(outcomesCsv,\\s*BuildOutcomesCsv\\((?:orderedOutcomes|outcomes)\\)", service) is not None
+        and "OUTCOMES_CSV=" in program
+    ),
     "resolved and unresolved outcomes are counted": "resolvedInferences" in service and "unresolvedInferences" in service,
     "missing inference is tracked": "missingInferenceResults" in service and "MISSING_INFERENCE" in service,
     "category distribution is exported": "inferredCategories" in service,
