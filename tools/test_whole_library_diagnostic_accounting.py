@@ -17,19 +17,19 @@ checks = {
     "unresolved records are included in root-cause rows": (
         "rootCauseRows.Add(row)" in service
         and re.search(
-            r"if\\s*\\([^)]*(?:inferenceMissing|unresolved|IsUnresolvedCategory\\(inferred\\))[^)]*\\)\\s*\\{?\\s*(?:var cause|var disposition|var row)",
+            r"if\s*\([^)]*(?:inferenceMissing|unresolved|IsUnresolvedCategory\(inferred\))[^)]*\)\s*\{?\s*(?:var cause|var disposition|var row)",
             service,
             re.DOTALL,
         ) is not None
     ),
     "root-cause summaries aggregate unresolved records": (
-        re.search(r"(?:orderedRootCauseRows|rootCauseRows)\\.GroupBy\\(x => x\\.Cause\\)", service) is not None
-        and re.search(r"(?:orderedRootCauseRows|rootCauseRows)\\.GroupBy\\(x => x\\.Disposition\\)", service) is not None
+        re.search(r"(?:orderedRootCauseRows|rootCauseRows)\.GroupBy\(x => x\.Cause\)", service) is not None
+        and re.search(r"(?:orderedRootCauseRows|rootCauseRows)\.GroupBy\(x => x\.Disposition\)", service) is not None
     ),
     "unresolved outcomes get an actionable diagnostic disposition": 'return "UNRESOLVED_ENGINE_GAP";' in service,
     "report separately preserves conflict-review counts": "conflictReviewRowCount" in service and "rootCauseRecords = rootCauseRows.Count" in service,
     "full outcome CSV is written": (
-        re.search(r"File\\.WriteAllText\\(outcomesCsv,\\s*BuildOutcomesCsv\\((?:orderedOutcomes|outcomes)\\)", service) is not None
+        re.search(r"File\.WriteAllText\(outcomesCsv,\s*BuildOutcomesCsv\((?:orderedOutcomes|outcomes)\)", service) is not None
         and "OUTCOMES_CSV=" in program
     ),
     "resolved and unresolved outcomes are counted": "resolvedInferences" in service and "unresolvedInferences" in service,
