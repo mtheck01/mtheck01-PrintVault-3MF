@@ -192,6 +192,7 @@ public sealed class ThreeMfAnalyzer
         var evidence=new List<string>();
         XDocument? modelDocument = null;
         var low=name.ToLowerInvariant();
+        var compactName = CompactForTokenMatching(low);
         SpecialDetection? special=null;
         try
         {
@@ -309,7 +310,7 @@ public sealed class ThreeMfAnalyzer
             var pm = DetectPrintMethod(low, z, slicer, materials); printMethod=pm.Method; printMethodConfidence=pm.Confidence; printMethodEvidence=pm.Evidence; if(printMethod!="Unknown") { evidence.Add($"Print method: {printMethod} ({printMethodConfidence:P0})"); tags.Add(printMethod.ToLowerInvariant()); }
             if(ready) score+=0.12; else risk.Add("Structural review recommended");
             score=Math.Clamp(score + (category!="Uncategorized"
-                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(name.ToLowerInvariant(),s.Phrase,s.Weight,CompactForTokenMatching(name.ToLowerInvariant())))*.008))
+                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(low,s.Phrase,s.Weight,compactName))*.008))
                 : 0),0,0.99);
         }
         catch(Exception ex){risk.Add(ex.GetType().Name);ready=false;}
