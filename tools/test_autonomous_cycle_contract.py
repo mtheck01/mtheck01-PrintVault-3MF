@@ -68,8 +68,9 @@ assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "EXTERNAL_TIMEOUT_LOG_SAVED=" in workflow, "Timeouts must preserve redirected child stdout/stderr before throwing"
 assert "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN" in workflow, "Timeout logs must expose final progress/error lines"
-assert 'WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=2400' in workflow, "Root-cause analysis needs an explicit bounded extended timeout"
-assert '$runLog 2400' in workflow, "Root-cause timeout must match the extended diagnostic budget"
+assert 'WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=2400' in workflow, "Root-cause analysis must meet the existing 40-minute budget"
+assert '$runLog 2400' in workflow, "Root-cause timeout must match the existing diagnostic budget"
+assert "timeout-minutes: 120" in workflow, "Keep the existing bounded job budget while validating the optimization"
 assert "Invoke-WholeLibrary -Pass 1" in workflow
 assert "Invoke-WholeLibrary -Pass 2" in workflow
 assert "if ($script:SourceModuleLocks.Count -ne $script:SourceModuleCount)" in workflow, \

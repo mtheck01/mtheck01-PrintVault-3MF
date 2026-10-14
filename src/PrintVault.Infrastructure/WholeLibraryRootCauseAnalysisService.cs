@@ -296,9 +296,13 @@ public sealed class WholeLibraryRootCauseAnalysisService
             return model;
         }
 
+        var analyzerStarted = Stopwatch.GetTimestamp();
+        Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_START id={source.Id} path={JsonSerializer.Serialize(source.Path)}");
         try
         {
             var analysis = sourceAnalyzer.Analyze(source.Path, source.Name);
+            var analyzerElapsedMs = (long)Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds;
+            Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_DONE id={source.Id} elapsed_ms={analyzerElapsedMs} category={JsonSerializer.Serialize(analysis.Category)}");
             var currentCategory = source.Category?.Trim() ?? string.Empty;
             var currentIsUnresolved = IsUnresolvedCategory(currentCategory);
             // Forensic enrichment must not silently rewrite an existing classification.
@@ -337,6 +341,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
         catch (Exception ex)
         {
             // A per-file analyzer exception is explicit evidence, not a silent no-signal result.
+            var analyzerElapsedMs = (long)Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds;
+            Console.Error.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_FAILED id={source.Id} elapsed_ms={analyzerElapsedMs} exception={ex.GetType().Name} message={JsonSerializer.Serialize(ex.Message)}");
             details.Add($"SOURCE_ANALYZER:FAILED:{ex.GetType().Name}:{ex.Message}");
         }
 
