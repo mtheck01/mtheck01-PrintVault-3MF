@@ -16,7 +16,7 @@ checks=[
  ("custom category preservation", "IsCustomCategory(existingCategory)" in engine and "preserveCustomCategory" in engine),
  ("custom folder recovery", "GetTopLevelCustomCategory" in engine and "Path.GetRelativePath" in engine),
  ("filesystem path excluded from semantic scoring", "allText.Append(name)" in an and "Append(path)" not in an),
- ("signal weights applied", ("TokenScore(semanticScoringText,s.Phrase,s.Weight)" in an or "TokenScore(semantic, s.Phrase, s.Weight)" in an)),
+ ("signal weights applied", ("TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText)" in an or "TokenScore(semantic, s.Phrase, s.Weight" in an)),
  ("HueForge first-class detection", "DetectSpecialType" in an and "HueForge" in an and "custom_gcode_per_layer" in an),
  ("Keychain first-class detection", "KeychainTerms" in an and "Keychains" in an and "keychain" in an.lower()),
  ("special type confidence", "special.Score" in an),
