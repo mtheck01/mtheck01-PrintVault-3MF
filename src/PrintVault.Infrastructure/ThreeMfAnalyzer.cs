@@ -149,8 +149,9 @@ public sealed class ThreeMfAnalyzer
         var evidence = new List<string>();
         var risk = new List<string> { "Autonomous classification-only pass" };
         var semantic = NormalizeSemanticSeparators(name.ToLowerInvariant());
+        var compactSemantic = CompactForTokenMatching(semantic);
         var scored = Signals
-            .Select(s => (s, score: TokenScore(semantic, s.Phrase, s.Weight)))
+            .Select(s => (s, score: TokenScore(semantic, s.Phrase, s.Weight, compactSemantic)))
             .Where(x => x.score > 0)
             .GroupBy(x => x.s.Category)
             .Select(g => new { g.Key, Score = g.Sum(x => x.score), Hits = g.OrderByDescending(x => x.score).Take(4).ToList() })
