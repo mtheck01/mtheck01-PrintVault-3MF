@@ -89,15 +89,17 @@ print(f"STATIC AUDIT PASSED — PrintVault {VERSION}")
 main = ROOT / "src" / "PrintVault" / "MainWindow.xaml"
 code = ROOT / "src" / "PrintVault" / "MainWindow.xaml.cs"
 org = ROOT / "src" / "PrintVault.Infrastructure" / "OrganizationService.cs"
+registry_store = ROOT / "src" / "PrintVault.Infrastructure" / "CategoryRegistryStore.cs"
 xaml = main.read_text(encoding="utf-8")
 cs = code.read_text(encoding="utf-8")
 orgcs = org.read_text(encoding="utf-8")
+registrycs = registry_store.read_text(encoding="utf-8")
 checks = {
     "tags_column": 'Header="Tags"' in xaml,
     "tags_inspector": 'InspectorTags' in xaml and 'TagsWindow' in cs,
     "tags_context_action": 'EditTags_Click' in cs and 'GalleryEditTags_Click' in cs,
     "category_manager": 'CategoryManagerWindow' in cs,
-    "custom_category_persistence": 'SaveCategories()' in cs and 'categories.txt' in cs,
+    "custom_category_persistence": 'CategoryRegistryStore' in cs and 'CategoryRegistryStore' in orgcs and 'void Save(' in registrycs and 'categories.txt' in registrycs,
     "db_categories_restored": 'engine.Repository.GetAll().Select(x => x.Category)' in cs,
     "category_tag_preserved": 'ReplaceCategoryTag' in orgcs,
     "scan_defer_refresh_not_used": 'ModelView.DeferRefresh()' not in cs,
@@ -106,3 +108,4 @@ failed = [k for k,v in checks.items() if not v]
 if failed:
     raise SystemExit("UI AUDIT FAILED: " + ", ".join(failed))
 print("UI FEATURE AUDIT PASSED — " + str(len(checks)) + " checks")
+
