@@ -502,6 +502,7 @@ jobs:
               "test_semantic_evidence_unresolved_category_gate_9_0_46.py",
               "test_semantic_camelcase_recovery_9_0_47.py",
               "test_whole_library_diagnostic_accounting.py",
+              "test_category_registry_store.py",
               "test_8_6_library_lifecycle.py",
               "test_browse_sorting.py",
               "test_category_dropdown_fix3.py",

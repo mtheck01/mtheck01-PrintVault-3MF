@@ -6,6 +6,7 @@ public sealed class OrganizationService
 {
     private readonly LibraryRepository repo;
     private readonly string root;
+    private readonly CategoryRegistryStore categoryRegistry = new();
     private readonly Stack<MoveResult> undo = new();
 
     public OrganizationService(LibraryRepository repo, string libraryRoot)
@@ -208,26 +209,12 @@ public sealed class OrganizationService
 
     private int CleanupLegacyCategoryRegistry(IReadOnlySet<string> legacy)
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
-        if (!File.Exists(path)) return 0;
-
-        var lines = File.ReadAllLines(path);
-        var removed = lines.Count(line => legacy.Contains(line.Trim()));
-        var kept = lines
-            .Select(line => line.Trim())
-            .Where(line => line.Length > 0 && !legacy.Contains(line))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        File.WriteAllLines(path, kept);
-        return removed;
+        return categoryRegistry.Remove(legacy);
     }
 
     private int CountLegacyCategoryRegistry(IReadOnlySet<string> legacy)
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
-        if (!File.Exists(path)) return 0;
-        return File.ReadAllLines(path).Count(line => legacy.Contains(line.Trim()));
+        return categoryRegistry.Count(legacy);
     }
 
     private int CountLegacyFolders(IReadOnlySet<string> legacy)

@@ -6,7 +6,8 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     !string.Equals(args[0], "repair", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "cleanup", StringComparison.OrdinalIgnoreCase)))
+    !string.Equals(args[0], "cleanup", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "selftest-category-registry", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
@@ -14,10 +15,14 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     Console.Error.WriteLine("   or: PrintVault.Automation repair");
     Console.Error.WriteLine("   or: PrintVault.Automation organize [libraryRoot]");
     Console.Error.WriteLine("   or: PrintVault.Automation cleanup [libraryRoot]");
+    Console.Error.WriteLine("   or: PrintVault.Automation selftest-category-registry");
     return 2;
 }
 
 var command = args[0];
+
+if (string.Equals(command, "selftest-category-registry", StringComparison.OrdinalIgnoreCase))
+    return CategoryRegistrySelfTest.Run();
 
 var configuredTestRoot = Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT");
 var scanRoot = string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase)
