@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Globalization;
 using System.Text;
@@ -14,6 +15,10 @@ namespace PrintVault.Infrastructure;
 public sealed class ThreeMfAnalyzer
 {
     private readonly ComponentAwareGeometryResolver geometryResolver = new();
+    // Signals are evaluated for every catalog record. Recompiling each phrase regex on
+    // every call evicts patterns from .NET's small regex cache and causes repeated parsing
+    // of the same expressions across the entire library scan.
+    private static readonly ConcurrentDictionary<string, Regex> TokenRegexCache = new(StringComparer.OrdinalIgnoreCase);
     private sealed record Signal(string Category, string Phrase, double Weight, string Tag, string Family, string Type, string Subtype);
     private sealed record SpecialDetection(string Category, double Score, string Family, string Type, string Subtype, string Tag, string Reason);
 
@@ -185,6 +190,7 @@ public sealed class ThreeMfAnalyzer
         var slicer=""; var materials=""; var objects=0; var dimensions=""; var ready=false; var risk=new List<string>(); var printMethod="Unknown"; var printMethodConfidence=0d; var printMethodEvidence="Insufficient print-method evidence"; var specialType="";
         var score=0.12; var tags=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var evidence=new List<string>();
+        XDocument? modelDocument = null;
         var low=name.ToLowerInvariant();
         SpecialDetection? special=null;
         try
@@ -195,6 +201,7 @@ public sealed class ThreeMfAnalyzer
             else
             {
                 using var st=model.Open(); var doc=XDocument.Load(st,LoadOptions.None);
+                modelDocument = doc;
                 var allText=new StringBuilder();
                 var semanticText=new StringBuilder();
                 // Keep two evidence streams. allText is retained for print-method and
@@ -236,7 +243,8 @@ public sealed class ThreeMfAnalyzer
                 // Normalize common filename separators before semantic scoring. '+' and '_'
                 // are frequently used as spaces in model repositories.
                 var semanticScoringText = NormalizeSemanticSeparators(semanticLow);
-                var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
+                var compactSemanticScoringText = CompactForTokenMatching(semanticScoringText);
+                var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
                 if(special is not null)
                 {
                     category=special.Category; family=special.Family; type=special.Type; subtype=special.Subtype; specialType=special.Type;
@@ -296,12 +304,12 @@ public sealed class ThreeMfAnalyzer
             var mat=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach(var e in z.Entries){var n=e.FullName; if(n.Contains("filament",StringComparison.OrdinalIgnoreCase)||n.Contains("material",StringComparison.OrdinalIgnoreCase)){var stem=Path.GetFileNameWithoutExtension(e.Name); if(stem.Length>1) mat.Add(stem);}}
             // Read common 3MF basematerials names from XML text without relying on a schema-specific namespace.
-            if(model!=null){using var ms=model.Open(); var md=XDocument.Load(ms); foreach(var b in md.Descendants().Where(e=>e.Name.LocalName.Equals("base",StringComparison.OrdinalIgnoreCase))){var v=b.Attribute("name")?.Value; if(!string.IsNullOrWhiteSpace(v))mat.Add(v);}}
+            if(modelDocument!=null){foreach(var b in modelDocument.Descendants().Where(e=>e.Name.LocalName.Equals("base",StringComparison.OrdinalIgnoreCase))){var v=b.Attribute("name")?.Value; if(!string.IsNullOrWhiteSpace(v))mat.Add(v);}}
             materials=string.Join(", ",mat.Take(12)); if(mat.Count>0){score+=0.05;tags.Add("material-detected");}
             var pm = DetectPrintMethod(low, z, slicer, materials); printMethod=pm.Method; printMethodConfidence=pm.Confidence; printMethodEvidence=pm.Evidence; if(printMethod!="Unknown") { evidence.Add($"Print method: {printMethod} ({printMethodConfidence:P0})"); tags.Add(printMethod.ToLowerInvariant()); }
             if(ready) score+=0.12; else risk.Add("Structural review recommended");
             score=Math.Clamp(score + (category!="Uncategorized"
-                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(name.ToLowerInvariant(),s.Phrase,s.Weight))*.008))
+                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(name.ToLowerInvariant(),s.Phrase,s.Weight,CompactForTokenMatching(name.ToLowerInvariant())))*.008))
                 : 0),0,0.99);
         }
         catch(Exception ex){risk.Add(ex.GetType().Name);ready=false;}
@@ -313,17 +321,21 @@ public sealed class ThreeMfAnalyzer
         return new IntelligenceResult(category,score,reason,family,objects,dimensions,slicer,materials,ready,type,subtype,suggested,string.Join(", ",risk.Distinct(StringComparer.OrdinalIgnoreCase)),printMethod,printMethodConfidence,printMethodEvidence,specialType);
     }
 
-    private static double TokenScore(string text,string phrase,double weight)
+    private static double TokenScore(string text,string phrase,double weight,string? compactText = null)
     {
         if(string.IsNullOrWhiteSpace(text)) return 0;
         var p=phrase.ToLowerInvariant();
-        var count=Regex.Matches(text,$@"(?<![a-z0-9]){Regex.Escape(p)}(?![a-z0-9])",RegexOptions.IgnoreCase).Count;
+        var matcher=TokenRegexCache.GetOrAdd(p, static value =>
+            new Regex($@"(?<![a-z0-9]){Regex.Escape(value)}(?![a-z0-9])",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant));
+        var count=matcher.Matches(text).Count;
         // Aircraft/model designations are often stored with punctuation differences
-        // (AH-64 vs AH64). Compact matching is therefore allowed only for phrases that
-        // contain a digit or hyphen; ordinary words retain strict whole-token boundaries.
+        // (AH-64 vs AH64). Compact matching is allowed only for phrases that contain a
+        // digit or hyphen. Callers scoring a signal set pass a precomputed compact string,
+        // avoiding a full-text normalization for every individual signal.
         if(count==0 && (p.Any(char.IsDigit) || p.Contains('-')))
         {
-            var compactText=Regex.Replace(text, @"[^a-z0-9]", "");
+            compactText ??= CompactForTokenMatching(text);
             var compactPhrase=Regex.Replace(p, @"[^a-z0-9]", "");
             if(compactPhrase.Length >= 3 && compactText.Contains(compactPhrase, StringComparison.OrdinalIgnoreCase))
                 count=1;
@@ -332,6 +344,9 @@ public sealed class ThreeMfAnalyzer
         var phraseBoost=p.Contains(' ')?1.4:1.0;
         return Math.Min(10,count) * Math.Max(.5,weight / 5.0) * phraseBoost;
     }
+
+    private static string CompactForTokenMatching(string text)
+        => Regex.Replace(text, @"[^a-z0-9]", "");
 
     private static string NormalizeSemanticSeparators(string value)
         => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"[\\/|]+", " ");
