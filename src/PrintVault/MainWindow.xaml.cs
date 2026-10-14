@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private readonly MultilingualEntityService entities = new();
     private readonly ModelIntelligencePipeline intelligencePipeline = new();
     private readonly LibraryStateStore stateStore = new();
+    private readonly CategoryRegistryStore categoryRegistry = new();
     private readonly LearningService learning;
     private OrganizationService? organization;
     public BulkObservableCollection<ModelRecord> ModelsSource { get; } = new();
@@ -162,25 +163,9 @@ public partial class MainWindow : Window
     {
         categories.Clear();
         categories.AddRange(BuiltInCategories.All);
-        var p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "categories.txt");
-        if (File.Exists(p))
-        {
-            try
-            {
-                foreach (var c in File.ReadAllLines(p).Select(x => x.Trim())
-                    .Where(x => x.Length > 0 && !IsLegacyCategory(x) && !categories.Contains(x, StringComparer.OrdinalIgnoreCase)))
-                    categories.Add(c);
-            }
-            catch (Exception ex)
-            {
-                var recovery = p + $".corrupt.{DateTime.UtcNow:yyyyMMdd-HHmmssfff}.txt";
-                try { File.Move(p, recovery, false); }
-                catch (Exception moveEx)
-                {
-                    throw new InvalidDataException("PrintVault category registry is unreadable and could not be preserved for recovery.", new AggregateException(ex, moveEx));
-                }
-            }
-        }
+        foreach (var c in categoryRegistry.Load()
+            .Where(x => !IsLegacyCategory(x) && !categories.Contains(x, StringComparer.OrdinalIgnoreCase)))
+            categories.Add(c);
         foreach (var c in engine.Repository.GetAll().Select(x => x.Category)
             .Where(x => !string.IsNullOrWhiteSpace(x) && !IsLegacyCategory(x))
             .Distinct(StringComparer.OrdinalIgnoreCase))
@@ -213,12 +198,7 @@ public partial class MainWindow : Window
 
     private void SaveCategories()
     {
-        var d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault");
-        Directory.CreateDirectory(d);
-        var path = Path.Combine(d, "categories.txt");
-        var temp = path + ".tmp";
-        File.WriteAllLines(temp, categories.Distinct(StringComparer.OrdinalIgnoreCase));
-        File.Move(temp, path, true);
+        categoryRegistry.Save(categories);
     }
 
     private void ChooseRoot()

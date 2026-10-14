@@ -143,6 +143,11 @@ jobs:
       - name: Test whole-library diagnostic accounting
         shell: pwsh
         run: python ".\\tools\\test_whole_library_diagnostic_accounting.py"
+
+      - name: Test category registry persistence behavior
+        shell: pwsh
+        run: dotnet run --project ".\\tools\\PrintVault.Automation\\PrintVault.Automation.csproj" --configuration Release -- selftest-category-registry
+
       - name: Test autonomous cycle contract
         shell: pwsh
         run: python ".\\tools\\test_autonomous_cycle_contract.py"
