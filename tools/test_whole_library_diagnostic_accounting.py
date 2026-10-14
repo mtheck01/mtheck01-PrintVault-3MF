@@ -71,3 +71,9 @@ for name, passed in checks.items():
 if failed:
     raise SystemExit("WHOLE-LIBRARY DIAGNOSTIC ACCOUNTING FAILED: " + ", ".join(failed))
 print(f"WHOLE-LIBRARY DIAGNOSTIC ACCOUNTING PASSED — {len(checks)} checks")
+
+analyzer = (ROOT / "src/PrintVault.Infrastructure/ThreeMfAnalyzer.cs").read_text(encoding="utf-8")
+assert "TokenRegexCache.GetOrAdd" in analyzer, "Repeated signal scoring must reuse compiled phrase matchers"
+assert "RegexOptions.Compiled | RegexOptions.CultureInvariant" in analyzer, "Cached phrase matchers must be compiled and culture-stable"
+assert "compactSemanticScoringText = CompactForTokenMatching(semanticScoringText)" in analyzer, "Compact text normalization must happen once per model, not once per signal"
+assert "XDocument? modelDocument = null" in analyzer and "if(modelDocument!=null){foreach(var b in modelDocument.Descendants()" in analyzer, "Basematerial extraction must reuse the already-parsed model XML"
