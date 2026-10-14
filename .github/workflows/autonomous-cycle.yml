@@ -67,7 +67,7 @@ jobs:
     if: needs.watchdog.outputs.run_cycle == 'true' && github.event_name == 'workflow_dispatch'
     name: Build Install Run Test Repair Repeat
     runs-on: [self-hosted, windows, x64]
-    timeout-minutes: 180
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -742,8 +742,8 @@ jobs:
 
             Write-Host "WHOLE_LIBRARY=RUN"
             Write-CycleStatus "WHOLE_LIBRARY_RUN" "rootcause pass=$Pass"
-            Write-Host "WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=3600"
-            $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 3600
+            Write-Host "WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=2400"
+            $runExit = Invoke-ExternalWithHeartbeat "dotnet" @("run", "--project", ".\tools\PrintVault.Automation\PrintVault.Automation.csproj", "-c", "Release", "--no-build", "--", "rootcause", $reportDir, "$expectedCatalog") $runLog 2400
             if ($runExit -ne 0) { throw "Whole-library runner failed with exit code $runExit." }
 
             $json = Get-ChildItem $reportDir -Filter "whole-library-root-cause.*.json" |
