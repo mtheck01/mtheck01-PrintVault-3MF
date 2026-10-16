@@ -3,10 +3,44 @@ using System.IO.Compression;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Net;
 using System.Xml.Linq;
 using PrintVault.Core;
 
 namespace PrintVault.Infrastructure;
+
+public sealed record ThreeMfSignalCandidateTrace(string Category, double Score, IReadOnlyList<string> MatchedPhrases);
+
+/// <summary>Bounded, metadata-only diagnostics for a 3MF source analysis.</summary>
+public sealed class ThreeMfAnalysisTrace
+{
+    public bool ArchiveOpened { get; set; }
+    public bool MainModelFound { get; set; }
+    public int ArchiveEntryCount { get; set; }
+    public IReadOnlyList<string> ModelPartEntries { get; set; } = Array.Empty<string>();
+    public IReadOnlyList<string> SemanticInputs { get; set; } = Array.Empty<string>();
+    public bool SemanticInputsTruncated { get; set; }
+    public int SemanticInputCharacters { get; set; }
+    public IReadOnlyList<ThreeMfSignalCandidateTrace> TopCandidates { get; set; } = Array.Empty<ThreeMfSignalCandidateTrace>();
+    public IReadOnlyList<string> SelectedSignals { get; set; } = Array.Empty<string>();
+    public int ObjectCount { get; set; }
+    public int VertexCount { get; set; }
+    public int BuildItemCount { get; set; }
+    public long TotalElapsedMilliseconds { get; set; }
+    public long MainModelXmlLoadMilliseconds { get; set; }
+    public long PackageMetadataReadMilliseconds { get; set; }
+    public long SemanticScoringMilliseconds { get; set; }
+    public long GeometryResolutionMilliseconds { get; set; }
+    public int GeometryModelParts { get; set; }
+    public int GeometryComponentReferences { get; set; }
+    public int GeometryUnresolvedReferences { get; set; }
+    public int GeometryCycles { get; set; }
+    public long GeometryReachableVertices { get; set; }
+    public long GeometryReachableTriangles { get; set; }
+    public string? FailureType { get; set; }
+    public string? FailureMessage { get; set; }
+}
 
 /// <summary>Offline semantic 3MF intelligence engine. It combines filename semantics,
 /// 3MF XML structure, embedded metadata, slicer/material evidence, geometry extents and weighted
@@ -185,27 +219,85 @@ public sealed class ThreeMfAnalyzer
             "Unknown", 0, "Autonomous classification-only pass", "");
     }
 
-    public IntelligenceResult Analyze(string path, string name)
+    public IntelligenceResult Analyze(string path, string name) => AnalyzeCore(path, name, false, out _);
+
+    public IntelligenceResult Analyze(string path, string name, out ThreeMfAnalysisTrace trace)
+        => AnalyzeCore(path, name, true, out trace);
+
+    private IntelligenceResult AnalyzeCore(string path, string name, bool captureTrace, out ThreeMfAnalysisTrace trace)
     {
+        trace = captureTrace ? new ThreeMfAnalysisTrace() : null!;
+        var capturedTrace = trace;
         var category="Uncategorized"; var reason="No strong semantic signal"; var family=""; var type="Unknown"; var subtype="";
         var slicer=""; var materials=""; var objects=0; var dimensions=""; var ready=false; var risk=new List<string>(); var printMethod="Unknown"; var printMethodConfidence=0d; var printMethodEvidence="Insufficient print-method evidence"; var specialType="";
         var score=0.12; var tags=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var evidence=new List<string>();
+        var semanticInputs = captureTrace ? new List<string>() : null;
+        var sourceSemanticEvidence = new StringBuilder();
+        var totalStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
+        void AppendSourceEvidence(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || sourceSemanticEvidence.Length >= 2000) return;
+            var decoded = WebUtility.HtmlDecode(value);
+            var normalized = Regex.Replace(Regex.Replace(decoded, @"<[^>]{1,200}>", " "), @"\s+", " ").Trim();
+            if (normalized.Length == 0) return;
+            if (sourceSemanticEvidence.Length > 0) sourceSemanticEvidence.Append(' ');
+            var remaining = 2000 - sourceSemanticEvidence.Length;
+            sourceSemanticEvidence.Append(normalized.AsSpan(0, Math.Min(normalized.Length, remaining)));
+        }
+        var retainedSemanticInputCharacters = 0;
+        void RecordSemanticInput(string label, string? value)
+        {
+            if (!captureTrace || string.IsNullOrWhiteSpace(value)) return;
+            if (semanticInputs!.Count >= 40 || retainedSemanticInputCharacters >= 4000)
+            {
+                capturedTrace.SemanticInputsTruncated = true;
+                return;
+            }
+            const int maxEntryCharacters = 300;
+            var remaining = 4000 - retainedSemanticInputCharacters;
+            var prefix = label + ": ";
+            var allowedValueLength = Math.Max(0, Math.Min(maxEntryCharacters - prefix.Length, remaining - prefix.Length));
+            var boundedValue = value.Length > allowedValueLength ? value[..allowedValueLength] : value;
+            semanticInputs.Add(prefix + boundedValue);
+            retainedSemanticInputCharacters += prefix.Length + boundedValue.Length;
+            if (boundedValue.Length < value.Length) capturedTrace.SemanticInputsTruncated = true;
+        }
+        if (captureTrace)
+        {
+            RecordSemanticInput("filename", name);
+            trace.SemanticInputs = semanticInputs!;
+            trace.SemanticInputCharacters = (name ?? string.Empty).Length;
+        }
         XDocument? modelDocument = null;
-        var low=name.ToLowerInvariant();
+        var low=(name ?? string.Empty).ToLowerInvariant();
         var compactName = CompactForTokenMatching(low);
         SpecialDetection? special=null;
         try
         {
             using var z=ZipFile.OpenRead(path);
+            if (captureTrace)
+            {
+                trace.ArchiveOpened = true;
+                trace.ArchiveEntryCount = z.Entries.Count;
+                trace.ModelPartEntries = z.Entries
+                    .Where(e => e.FullName.StartsWith("3D/", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".model", StringComparison.OrdinalIgnoreCase))
+                    .Select(e => e.FullName).Take(20).ToArray();
+            }
             var model=z.GetEntry("3D/3dmodel.model");
+            var modelMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if(model==null){risk.Add("Missing 3D/3dmodel.model");}
             else
             {
+                if (captureTrace) trace.MainModelFound = true;
+                var xmlLoadStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
                 using var st=model.Open(); var doc=XDocument.Load(st,LoadOptions.None);
+                if (captureTrace) trace.MainModelXmlLoadMilliseconds += (long)Stopwatch.GetElapsedTime(xmlLoadStarted).TotalMilliseconds;
                 modelDocument = doc;
                 var allText=new StringBuilder();
                 var semanticText=new StringBuilder();
+                var vertexBounds = new VertexBounds();
+                var buildItems = 0;
                 // Keep two evidence streams. allText is retained for print-method and
                 // special-format detection, where slicer/configuration metadata is useful.
                 // Semantic classification is deliberately narrower: filename plus explicit
@@ -217,28 +309,51 @@ public sealed class ThreeMfAnalyzer
                 semanticText.Append(name).Append(' ');
                 foreach(var e in doc.Descendants())
                 {
-                    allText.Append(' ').Append(e.Name.LocalName).Append(' ').Append(e.Value).Append(' ');
-                    foreach(var a in e.Attributes()) allText.Append(' ').Append(a.Name.LocalName).Append(' ').Append(a.Value);
-
                     var local=e.Name.LocalName;
+                    allText.Append(' ').Append(local);
+                    // XElement.Value on a container joins text from every descendant.
+                    // Appending it for every nested model element repeatedly copies mesh
+                    // coordinates and scales toward quadratic work on large 3MF archives.
+                    // Leaf text retains slicer/metadata evidence without walking child text
+                    // over and over. Vertex and triangle attributes are geometry payload,
+                    // not print-method or special-format evidence.
+                    if (!e.HasElements) allText.Append(' ').Append(e.Value);
+                    if (!local.Equals("vertex", StringComparison.OrdinalIgnoreCase) &&
+                        !local.Equals("triangle", StringComparison.OrdinalIgnoreCase))
+                        foreach(var a in e.Attributes()) allText.Append(' ').Append(a.Name.LocalName).Append(' ').Append(a.Value);
+
+                    if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) objects++;
+                    else if (local.Equals("vertex", StringComparison.OrdinalIgnoreCase)) vertexBounds.Add(e);
+                    else if (local.Equals("item", StringComparison.OrdinalIgnoreCase)) buildItems++;
+                    else if (local.Equals("base", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var materialName = e.Attribute("name")?.Value;
+                        if (!string.IsNullOrWhiteSpace(materialName)) modelMaterials.Add(materialName);
+                    }
                     if (local.Equals("object", StringComparison.OrdinalIgnoreCase) ||
                         local.Equals("metadata", StringComparison.OrdinalIgnoreCase))
                     {
                         var nameAttr=e.Attribute("name")?.Value;
-                        if(!string.IsNullOrWhiteSpace(nameAttr)) semanticText.Append(' ').Append(nameAttr);
+                        if(!string.IsNullOrWhiteSpace(nameAttr)) { semanticText.Append(' ').Append(nameAttr); RecordSemanticInput($"{local}.name", nameAttr); if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) AppendSourceEvidence(nameAttr); }
                         var partAttr=e.Attribute("partnumber")?.Value;
-                        if(!string.IsNullOrWhiteSpace(partAttr)) semanticText.Append(' ').Append(partAttr);
+                        if(!string.IsNullOrWhiteSpace(partAttr)) { semanticText.Append(' ').Append(partAttr); RecordSemanticInput($"{local}.partnumber", partAttr); if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) AppendSourceEvidence(partAttr); }
                         if(local.Equals("metadata", StringComparison.OrdinalIgnoreCase))
                         {
                             var value=e.Value?.Trim();
-                            if(!string.IsNullOrWhiteSpace(value) && value.Length<=500) semanticText.Append(' ').Append(value);
+                            if(!string.IsNullOrWhiteSpace(value) && value.Length<=500)
+                            {
+                                semanticText.Append(' ').Append(value); RecordSemanticInput($"metadata[{nameAttr ?? "unnamed"}]", value);
+                                if (nameAttr is not null && IsCuratedSemanticMetadataName(nameAttr)) AppendSourceEvidence(value);
+                            }
                         }
                     }
                 }
+                var metadataReadStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
                 foreach(var e in z.Entries.Where(e=>e.Length<2_000_000 && (e.FullName.EndsWith(".config",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".json",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".xml",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".txt",StringComparison.OrdinalIgnoreCase))))
                 {
                     try { using var es=e.Open(); using var sr=new StreamReader(es); allText.Append(' ').Append(sr.ReadToEnd()); } catch { }
                 }
+                if (captureTrace) trace.PackageMetadataReadMilliseconds += (long)Stopwatch.GetElapsedTime(metadataReadStarted).TotalMilliseconds;
                 low=allText.ToString().ToLowerInvariant();
                 var semanticLow=semanticText.ToString().ToLowerInvariant();
                 special=DetectSpecialType(low, z);
@@ -246,7 +361,19 @@ public sealed class ThreeMfAnalyzer
                 // are frequently used as spaces in model repositories.
                 var semanticScoringText = NormalizeSemanticSeparators(semanticLow);
                 var compactSemanticScoringText = CompactForTokenMatching(semanticScoringText);
+                var scoringStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
                 var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
+                if (captureTrace) trace.SemanticScoringMilliseconds += (long)Stopwatch.GetElapsedTime(scoringStarted).TotalMilliseconds;
+                if (captureTrace)
+                {
+                    trace.SemanticInputCharacters = semanticScoringText.Length;
+                    trace.SemanticInputs = semanticInputs!.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    trace.TopCandidates = scored.Take(5).Select(g => new ThreeMfSignalCandidateTrace(
+                        g.Key, g.Score, g.Hits.Select(h => $"{h.s.Phrase} (weight {h.s.Weight:0.##}, score {h.score:0.##})").ToArray())).ToArray();
+                    trace.SelectedSignals = scored.Count > 0 && scored[0].Score >= 2.5
+                        ? scored[0].Hits.Select(h => h.s.Phrase).Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToArray()
+                        : Array.Empty<string>();
+                }
                 if(special is not null)
                 {
                     category=special.Category; family=special.Family; type=special.Type; subtype=special.Subtype; specialType=special.Type;
@@ -262,13 +389,12 @@ public sealed class ThreeMfAnalyzer
                     evidence.Add($"{category}: {reason}");
                 }
                 else risk.Add("Low semantic confidence");
-                objects=doc.Descendants().Count(e=>e.Name.LocalName.Equals("object",StringComparison.OrdinalIgnoreCase));
-                var vertices=doc.Descendants().Where(e=>e.Name.LocalName.Equals("vertex",StringComparison.OrdinalIgnoreCase)).ToList();
+                if (captureTrace) { trace.ObjectCount = objects; trace.VertexCount = vertexBounds.Count; }
                 var unit=doc.Root?.Attribute("unit")?.Value?.ToLowerInvariant()??"millimeter";
-                dimensions=ComputeDimensions(vertices,unit);
+                dimensions=vertexBounds.GetDimensions(unit);
                 if(objects>0){score+=0.20;evidence.Add($"{objects} object(s)");} else risk.Add("No mesh objects detected");
-                if(vertices.Count>0){score+=0.12;} else risk.Add("No vertices detected");
-                var buildItems=doc.Descendants().Count(e=>e.Name.LocalName.Equals("item",StringComparison.OrdinalIgnoreCase));
+                if(vertexBounds.Count>0){score+=0.12;} else risk.Add("No vertices detected");
+                if (captureTrace) trace.BuildItemCount = buildItems;
                 if(buildItems>0){score+=0.08;evidence.Add($"{buildItems} build item(s)");} else risk.Add("No build items detected");
                 if(!string.IsNullOrWhiteSpace(dimensions)){score+=0.08;}
 
@@ -278,15 +404,28 @@ public sealed class ThreeMfAnalyzer
                 // resolver follows Build -> Object -> Component -> referenced Object and
                 // uses package relationships/candidate resolution without changing semantic
                 // classification.
-                if (vertices.Count == 0)
+                if (vertexBounds.Count == 0)
                 {
-                    var geometry = geometryResolver.Resolve(path);
+                    var geometryStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
+                    var geometry = geometryResolver.Resolve(path, modelDocument, stopAfterFirstReachableGeometry: !captureTrace);
+                    if (captureTrace)
+                    {
+                        trace.GeometryResolutionMilliseconds += (long)Stopwatch.GetElapsedTime(geometryStarted).TotalMilliseconds;
+                        trace.GeometryModelParts = geometry.ModelParts;
+                        trace.GeometryComponentReferences = geometry.ComponentReferences;
+                        trace.GeometryUnresolvedReferences = geometry.UnresolvedReferences;
+                        trace.GeometryCycles = geometry.Cycles;
+                        trace.GeometryReachableVertices = geometry.ReachableVertices;
+                        trace.GeometryReachableTriangles = geometry.ReachableTriangles;
+                    }
                     if (geometry.BuildItems > 0 && geometry.ReachableVertices > 0)
                     {
                         ready = true;
                         risk.RemoveAll(x => string.Equals(x, "No vertices detected", StringComparison.OrdinalIgnoreCase));
                         score += 0.12;
-                        evidence.Add($"Component-aware geometry: {geometry.ReachableVertices:N0} reachable vertices");
+                        evidence.Add(geometry.CountsExact
+                            ? $"Component-aware geometry: {geometry.ReachableVertices:N0} reachable vertices"
+                            : "Component-aware geometry: reachable mesh vertices detected");
                     }
                     else
                     {
@@ -295,7 +434,7 @@ public sealed class ThreeMfAnalyzer
                 }
                 else
                 {
-                    ready=objects>0 && vertices.Count>0 && model.Length>0;
+                    ready=objects>0 && vertexBounds.Count>0 && model.Length>0;
                 }
             }
             var entries=string.Join(" ",z.Entries.Select(e=>e.FullName));
@@ -303,10 +442,8 @@ public sealed class ThreeMfAnalyzer
             var slicerLow=(entries+" "+metadataText).ToLowerInvariant();
             foreach(var kv in SlicerNames) if(kv.Value.Any(slicerLow.Contains)){slicer=kv.Key;break;}
             if(slicer.Length>0){score+=0.08;evidence.Add(slicer);tags.Add(slicer.Replace(" ","-",StringComparison.Ordinal));}
-            var mat=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var mat=modelMaterials;
             foreach(var e in z.Entries){var n=e.FullName; if(n.Contains("filament",StringComparison.OrdinalIgnoreCase)||n.Contains("material",StringComparison.OrdinalIgnoreCase)){var stem=Path.GetFileNameWithoutExtension(e.Name); if(stem.Length>1) mat.Add(stem);}}
-            // Read common 3MF basematerials names from XML text without relying on a schema-specific namespace.
-            if(modelDocument!=null){foreach(var b in modelDocument.Descendants().Where(e=>e.Name.LocalName.Equals("base",StringComparison.OrdinalIgnoreCase))){var v=b.Attribute("name")?.Value; if(!string.IsNullOrWhiteSpace(v))mat.Add(v);}}
             materials=string.Join(", ",mat.Take(12)); if(mat.Count>0){score+=0.05;tags.Add("material-detected");}
             var pm = DetectPrintMethod(low, z, slicer, materials); printMethod=pm.Method; printMethodConfidence=pm.Confidence; printMethodEvidence=pm.Evidence; if(printMethod!="Unknown") { evidence.Add($"Print method: {printMethod} ({printMethodConfidence:P0})"); tags.Add(printMethod.ToLowerInvariant()); }
             if(ready) score+=0.12; else risk.Add("Structural review recommended");
@@ -314,14 +451,26 @@ public sealed class ThreeMfAnalyzer
                 ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(low,s.Phrase,s.Weight,compactName))*.008))
                 : 0),0,0.99);
         }
-        catch(Exception ex){risk.Add(ex.GetType().Name);ready=false;}
+        catch(Exception ex){risk.Add(ex.GetType().Name);ready=false;if(captureTrace){trace.FailureType=ex.GetType().Name;trace.FailureMessage=ex.Message.Length > 300 ? ex.Message[..300] : ex.Message;}}
         if(category!="Uncategorized") tags.Add(category.ToLowerInvariant().Replace(" ","-",StringComparison.Ordinal));
         if(!string.IsNullOrWhiteSpace(family)) tags.Add(family.ToLowerInvariant().Replace("/","-",StringComparison.Ordinal).Replace(" ","-",StringComparison.Ordinal));
         var suggested=string.Join(", ",tags.Where(x=>x.Length<=60).Take(12));
         if(risk.Count==0) evidence.Add("No structural risk flags");
         reason=string.Join(" | ",evidence.Take(4));
-        return new IntelligenceResult(category,score,reason,family,objects,dimensions,slicer,materials,ready,type,subtype,suggested,string.Join(", ",risk.Distinct(StringComparer.OrdinalIgnoreCase)),printMethod,printMethodConfidence,printMethodEvidence,specialType);
+        if (captureTrace) trace.TotalElapsedMilliseconds = (long)Stopwatch.GetElapsedTime(totalStarted).TotalMilliseconds;
+        return new IntelligenceResult(category,score,reason,family,objects,dimensions,slicer,materials,ready,type,subtype,suggested,string.Join(", ",risk.Distinct(StringComparer.OrdinalIgnoreCase)),printMethod,printMethodConfidence,printMethodEvidence,specialType)
+        {
+            SourceSemanticEvidence = sourceSemanticEvidence.ToString()
+        };
     }
+
+    private static bool IsCuratedSemanticMetadataName(string name)
+        => name.Equals("title", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("description", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("name", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("model_name", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("partnumber", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("part_number", StringComparison.OrdinalIgnoreCase);
 
     private static double TokenScore(string text,string phrase,double weight,string? compactText = null)
     {
@@ -353,11 +502,38 @@ public sealed class ThreeMfAnalyzer
     private static string NormalizeSemanticSeparators(string value)
         => Regex.Replace(value.Replace('+', ' ').Replace('_', ' '), @"[\\/|]+", " ");
 
-    private static string ComputeDimensions(List<XElement> vertices,string unit)
+    private sealed class VertexBounds
     {
-        if(vertices.Count==0)return ""; var xs=new List<double>();var ys=new List<double>();var zs=new List<double>();
-        foreach(var v in vertices){if(double.TryParse(v.Attribute("x")?.Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var x)&&double.TryParse(v.Attribute("y")?.Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var y)&&double.TryParse(v.Attribute("z")?.Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var z)){xs.Add(x);ys.Add(y);zs.Add(z);}}
-        if(xs.Count==0)return ""; var scale=unit switch{"meter"=>1000,"centimeter"=>10,"centimetre"=>10,"micron"=>.001,"inch"=>25.4,"foot"=>304.8,_=>1};
-        return $"{(xs.Max()-xs.Min())*scale:0.##} × {(ys.Max()-ys.Min())*scale:0.##} × {(zs.Max()-zs.Min())*scale:0.##} mm";
+        private bool hasCoordinates;
+        private double minX, minY, minZ, maxX, maxY, maxZ;
+        public int Count { get; private set; }
+
+        public void Add(XElement vertex)
+        {
+            Count++;
+            if (!double.TryParse(vertex.Attribute("x")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
+                !double.TryParse(vertex.Attribute("y")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
+                !double.TryParse(vertex.Attribute("z")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var z)) return;
+
+            if (!hasCoordinates)
+            {
+                minX = maxX = x;
+                minY = maxY = y;
+                minZ = maxZ = z;
+                hasCoordinates = true;
+                return;
+            }
+
+            minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
+            minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+            minZ = Math.Min(minZ, z); maxZ = Math.Max(maxZ, z);
+        }
+
+        public string GetDimensions(string unit)
+        {
+            if (!hasCoordinates) return "";
+            var scale = unit switch { "meter" => 1000, "centimeter" => 10, "centimetre" => 10, "micron" => .001, "inch" => 25.4, "foot" => 304.8, _ => 1 };
+            return $"{(maxX - minX) * scale:0.##} × {(maxY - minY) * scale:0.##} × {(maxZ - minZ) * scale:0.##} mm";
+        }
     }
 }

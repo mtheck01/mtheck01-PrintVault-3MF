@@ -13,7 +13,18 @@ public sealed record ScanProgress(
     int Processed,
     int Indexed,
     int Failed,
-    int Percent
+    int Percent,
+    string? CurrentPath = null,
+    string? CurrentStage = null,
+    long LastFileElapsedMilliseconds = 0,
+    long AnalysisElapsedMilliseconds = 0,
+    long HashElapsedMilliseconds = 0,
+    long ThumbnailElapsedMilliseconds = 0,
+    long PersistenceElapsedMilliseconds = 0,
+    long CheckpointCount = 0,
+    long LastFileAnalysisMilliseconds = 0,
+    long LastFileHashMilliseconds = 0,
+    long LastFileThumbnailMilliseconds = 0
 );
 
 public interface ILibraryEngine

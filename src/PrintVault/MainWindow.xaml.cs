@@ -369,7 +369,10 @@ public partial class MainWindow : Window
                 var matched = key switch
                 {
                     "category" => m.Category.Contains(val, StringComparison.OrdinalIgnoreCase),
-                    "tag" => SplitTags(m.Tags).Any(x => x.Contains(val, StringComparison.OrdinalIgnoreCase)),
+                    "tag" => SplitTags(m.Tags).Concat(SplitTags(m.SuggestedTags)).Any(x => x.Contains(val, StringComparison.OrdinalIgnoreCase)),
+                    "subject" => SplitTags(m.SuggestedTags).Any(x => x.StartsWith("subject:", StringComparison.OrdinalIgnoreCase) && x[8..].Contains(val, StringComparison.OrdinalIgnoreCase)),
+                    "artifact-role" or "role" => SplitTags(m.SuggestedTags).Any(x => x.StartsWith("artifact-role:", StringComparison.OrdinalIgnoreCase) && x[14..].Contains(val, StringComparison.OrdinalIgnoreCase)),
+                    "context" => SplitTags(m.SuggestedTags).Any(x => x.StartsWith("context:", StringComparison.OrdinalIgnoreCase) && x[8..].Contains(val, StringComparison.OrdinalIgnoreCase)),
                     "method" or "printmethod" => m.PrintMethod.Contains(val, StringComparison.OrdinalIgnoreCase),
                     "type" => m.SemanticType.Contains(val, StringComparison.OrdinalIgnoreCase) || m.Subtype.Contains(val, StringComparison.OrdinalIgnoreCase),
                     "special" => m.SpecialType.Contains(val, StringComparison.OrdinalIgnoreCase),
@@ -381,7 +384,7 @@ public partial class MainWindow : Window
                     _ => true
                 };
                 if (!matched) return false;
-                if (key is "category" or "tag" or "method" or "printmethod" or "type" or "special" or "material" or "materials" or "favorite" or "duplicate" or "missingthumb" or "review") continue;
+                if (key is "category" or "tag" or "subject" or "artifact-role" or "role" or "context" or "method" or "printmethod" or "type" or "special" or "material" or "materials" or "favorite" or "duplicate" or "missingthumb" or "review") continue;
             }
             term = raw;
             if (!m.Name.Contains(term, StringComparison.OrdinalIgnoreCase) &&
@@ -389,6 +392,7 @@ public partial class MainWindow : Window
                 !m.Category.Contains(term, StringComparison.OrdinalIgnoreCase) &&
                 !m.Path.Contains(term, StringComparison.OrdinalIgnoreCase) &&
                 !m.Tags.Contains(term, StringComparison.OrdinalIgnoreCase) &&
+                !m.SuggestedTags.Contains(term, StringComparison.OrdinalIgnoreCase) &&
                 !m.Family.Contains(term, StringComparison.OrdinalIgnoreCase) &&
                 !m.Slicer.Contains(term, StringComparison.OrdinalIgnoreCase) &&
                 !m.Materials.Contains(term, StringComparison.OrdinalIgnoreCase) &&

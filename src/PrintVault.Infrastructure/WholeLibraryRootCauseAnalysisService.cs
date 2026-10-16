@@ -18,6 +18,13 @@ public sealed record RootCauseOutcome(
     string SemanticType, string Subtype, string Family, int ClassificationConfidence,
     int EvidenceQuality, bool ReviewRequired, string Basis, string Evidence, string Outcome);
 
+public sealed record WholeLibraryEvidenceTrace(
+    long Id, string Name, string Path, string StoredCategory,
+    string InputTitle, string TranslatedTitle, string OriginalLanguage, int TranslationConfidence,
+    long SourceAnalyzerElapsedMilliseconds, IntelligenceResult? SourceAnalyzer,
+    ThreeMfAnalysisTrace? SourceDetails, IReadOnlyList<ModelIntelligenceStageTrace> IntelligenceStages,
+    IReadOnlyList<string> FusionDiagnostics);
+
 public sealed record WholeLibraryRootCauseResult(
     DateTime CreatedUtc, int Catalog, int Processed, int Conflicts, int AnalyzedConflicts,
     int Failed, IReadOnlyDictionary<string,int> Causes, IReadOnlyDictionary<string,int> Dispositions,
@@ -33,6 +40,9 @@ public sealed record WholeLibraryRootCauseResult(
 /// </summary>
 public sealed class WholeLibraryRootCauseAnalysisService
 {
+    private sealed record ForensicSourceTrace(
+        IReadOnlyList<string> Evidence, IntelligenceResult? Analysis, ThreeMfAnalysisTrace? Details);
+
     private readonly LibraryRepository repository;
 
     public WholeLibraryRootCauseAnalysisService(LibraryRepository repository) => this.repository = repository;
@@ -86,6 +96,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var rows = new ConcurrentBag<RootCauseRow>();
         var rootCauseRows = new ConcurrentBag<RootCauseRow>();
         var outcomes = new ConcurrentBag<RootCauseOutcome>();
+        var evidenceTraces = new ConcurrentBag<WholeLibraryEvidenceTrace>();
         var failureDetails = new ConcurrentBag<string>();
         var failed = 0;
         var conflicts = 0;
@@ -119,9 +130,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
             {
                 var sourceStarted = Stopwatch.GetTimestamp();
                 var sourceModel = AnalyzeSourceForForensics(m, worker.SourceAnalyzer, out var sourceTrace);
+                var sourceElapsedMs = (long)Stopwatch.GetElapsedTime(sourceStarted).TotalMilliseconds;
                 Interlocked.Add(ref sourceForensicsElapsedMilliseconds,
-                    (long)Stopwatch.GetElapsedTime(sourceStarted).TotalMilliseconds);
-                if (sourceTrace.Any(e => e.StartsWith("SOURCE_ANALYZER:COMPLETED", StringComparison.OrdinalIgnoreCase) ||
+                    sourceElapsedMs);
+                if (sourceTrace.Evidence.Any(e => e.StartsWith("SOURCE_ANALYZER:COMPLETED", StringComparison.OrdinalIgnoreCase) ||
                                          e.StartsWith("SOURCE_ANALYZER:FAILED:", StringComparison.OrdinalIgnoreCase)))
                     Interlocked.Increment(ref sourceAnalyzerInvocations);
                 else
@@ -130,7 +142,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var entity = stage.Entity;
                 var f = stage.Fusion;
                 var evidenceItems = (f.Evidence ?? Array.Empty<string>())
-                    .Concat(sourceTrace)
+                    .Concat(sourceTrace.Evidence)
                     .Concat(stage.StageEvidence)
                     .Where(e => !string.IsNullOrWhiteSpace(e))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -142,6 +154,14 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var conflict = !IsUnresolvedCategory(stored) &&
                                !unresolved &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
+                if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
+                {
+                    evidenceTraces.Add(new WholeLibraryEvidenceTrace(
+                        m.Id, m.Name, m.Path, stored, sourceModel.Name ?? string.Empty,
+                        sourceModel.TranslatedTitle ?? string.Empty, sourceModel.OriginalLanguage ?? string.Empty,
+                        sourceModel.TranslationConfidence, sourceElapsedMs, sourceTrace.Analysis, sourceTrace.Details,
+                        stage.StageTrace, f.Diagnostics));
+                }
                 if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
                 {
                     var cause = DetermineCause(m, sourceModel, entity, f, conflict);
@@ -197,6 +217,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         var orderedRootCauseRows = rootCauseRows.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
         var orderedRows = rows.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
         var orderedOutcomes = outcomes.OrderBy(x => x.Id).ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var orderedEvidenceTraces = evidenceTraces.OrderBy(x => x.Id).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
         var orderedFailures = failureDetails.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
 
         var causes = orderedRootCauseRows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
@@ -237,6 +258,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
             repositoryCountAfterSync,
             synchronizedFromActiveCatalog,
             catalogMismatch,
+            evidenceTraceSchemaVersion = 1,
+            evidenceTraces = orderedEvidenceTraces,
             rows = orderedRootCauseRows,
             conflictReviewRows = orderedRows,
             outcomes = orderedOutcomes
@@ -262,14 +285,17 @@ public sealed class WholeLibraryRootCauseAnalysisService
     /// Produces an isolated source-enriched copy for forensic analysis. It never persists
     /// changes to the repository and preserves manual/custom category decisions.
     /// </summary>
-    private ModelRecord AnalyzeSourceForForensics(ModelRecord source, ThreeMfAnalyzer sourceAnalyzer, out IReadOnlyList<string> trace)
+    private ModelRecord AnalyzeSourceForForensics(
+        ModelRecord source, ThreeMfAnalyzer sourceAnalyzer, out ForensicSourceTrace trace)
     {
         var model = CloneForForensics(source);
         var details = new List<string>();
+        IntelligenceResult? sourceAnalysis = null;
+        ThreeMfAnalysisTrace? sourceDetails = null;
         if (string.IsNullOrWhiteSpace(source.Path) || !File.Exists(source.Path))
         {
             details.Add("SOURCE_ANALYZER:SKIPPED_FILE_MISSING");
-            trace = details;
+            trace = new ForensicSourceTrace(details, sourceAnalysis, sourceDetails);
             return model;
         }
 
@@ -292,7 +318,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         if (!unresolvedCategory && !missingSemanticMetadata)
         {
             details.Add("SOURCE_ANALYZER:SKIPPED_EXISTING_SEMANTIC_METADATA");
-            trace = details;
+            trace = new ForensicSourceTrace(details, sourceAnalysis, sourceDetails);
             return model;
         }
 
@@ -300,7 +326,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
         Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_START id={source.Id} path={JsonSerializer.Serialize(source.Path)}");
         try
         {
-            var analysis = sourceAnalyzer.Analyze(source.Path, source.Name);
+            var analysis = sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace);
+            model.SourceSemanticEvidence = analysis.SourceSemanticEvidence;
+            sourceAnalysis = analysis;
+            sourceDetails = analysisTrace;
             var analyzerElapsedMs = (long)Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds;
             Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_DONE id={source.Id} elapsed_ms={analyzerElapsedMs} category={JsonSerializer.Serialize(analysis.Category)}");
             var currentCategory = source.Category?.Trim() ?? string.Empty;
@@ -346,7 +375,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             details.Add($"SOURCE_ANALYZER:FAILED:{ex.GetType().Name}:{ex.Message}");
         }
 
-        trace = details;
+        trace = new ForensicSourceTrace(details, sourceAnalysis, sourceDetails);
         return model;
     }
 

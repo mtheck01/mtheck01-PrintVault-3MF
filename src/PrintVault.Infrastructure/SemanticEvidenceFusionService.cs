@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using PrintVault.Core;
 
@@ -13,7 +14,13 @@ public sealed record SemanticEvidenceFusionResult(
     int EvidenceQuality,
     string Basis,
     bool ReviewRequired,
-    IReadOnlyList<string> Evidence);
+    IReadOnlyList<string> Evidence)
+{
+    public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
+    public string SubjectIdentity { get; init; } = "";
+    public string ArtifactRole { get; init; } = "";
+    public IReadOnlyList<string> ContextSignals { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// Deterministic semantic arbitration across three distinct dimensions:
@@ -83,7 +90,7 @@ public sealed class SemanticEvidenceFusionService
         (new[]{"crate","barrel","chair","table","bed","chest","lamp","lantern","sign","fence","bench","bucket","bookshelf","shelf","shadowbox"}, "Props & Accessories", "Prop", "Accessory / Prop", "Prop", 15, "prop/accessory terminology"),
         (new[]{"lithophane","sculpture","vase","ornament","statue","shadowbox"}, "Art & Decor", "Decor", "Art / Decor", "Decor", 18, "art/decor terminology"),
         (new[]{"dice","dnd","chess","puzzle","toy","game","fidget","pokeball"}, "Toys & Games", "Game/Toy", "Game / Toy", "Game", 18, "game/toy terminology"),
-        (new[]{"organizer","storage","hook","hanger","drawer","container","soap dispenser","spool"}, "Household", "Functional", "Organization / Storage", "Household", 15, "household terminology")
+        (new[]{"organizer","storage","hook","hanger","drawer","container","soap holder","soap dispenser","ice cream pint holder","spool"}, "Household", "Functional", "Organization / Storage", "Household", 18, "household terminology")
     };
 
     // Whole-library 9.0.39 analysis exposed a second large population: titles with clear
@@ -96,7 +103,7 @@ public sealed class SemanticEvidenceFusionService
         (new[]{"batman","superman","wolverine","yoda","stormtrooper","c3po","c-3po","bowser","pokemon","pikachu","espeon","gengar","charmander","applejack","bluey","mario","sonic","transformer","optimus prime","bumblebee","ahsoka","darth","jedi","sith","tf2","anime","cartoon","harry potter","ghostbusters","slimer","grogu","obi wan","obi-wan","mandalorian","jasmine","fortnite","heman","littlefoot"}, "Figures & Characters", "Figure", "Character", "Figure", 18, "character terminology"),
         (new[]{"peterbilt","semi truck","dump truck","fire truck","pickup truck","ambulance","bus","bulldozer","excavator","forklift","tractor","tank","abrams","aeroplane","airplane","aircraft","bomber","b-2","b1 lancer","c130","c-130","ac130","ah64","ah-64","v-22","f-18","f-16","f-4 phantom","f4u corsair","f-86","p-51","p51","pby","747","a380","a400m","concorde","constellation","corsair","sea fury","valkyrie","airbus","helicopter","warship","war ship","aircraft carrier","spaceshuttle","space shuttle","shuttle","starship","x-wing","y-wing","tie fighter","cr90","corvette","m18 hellcat","hellcat kit card","sr-71","blackbird","u-2","dragonlady","f-100","757","dhc-7","golf cart","golf mk4"}, "Vehicles", "Vehicle", "Vehicle", "Vehicle", 19, "vehicle terminology"),
         (new[]{"lightsaber","light saber","saber","greatsaber","darksaber","sword","anduril","andúril","ashbringer","scabbard","blaster","phaser","revolver","pistol","rifle","gun","helmet","armor","cosplay","prop","mask","fire axe","fireaxe","crossbow","crosbow","nunchucks","nunchuck","bonesaw","grenade launcher","communicator"}, "Props & Accessories", "Prop", "Cosplay / Prop", "Prop", 18, "prop/cosplay terminology"),
-        (new[]{"tray","sockettray","socket tray","card holder","business card","phone holder","phone stand","book holder","book stand","key holder","keychain holder","soap holder","soap dispenser","toolbox","tool box","tool organizer","organizer","storage box","storage","drawer","shelf","shelving","rack","hook","hanger","mount","bracket","stand","display stand","display base","phone jail","feeder","caddy","coaster","coasters","containment chamber","gridwall hooks","gridwallhook","height tilt camera","camera mount","camera holder","printer riser","light box","dispenser","bookholder","missing parts"}, "Functional", "Functional", "Organizer / Holder", "Functional", 18, "functional role terminology"),
+        (new[]{"tray","sockettray","socket tray","card holder","business card","phone holder","phone stand","book holder","book stand","key holder","keychain holder","toolbox","tool box","tool organizer","organizer","storage box","storage","drawer","shelf","shelving","rack","hook","hanger","mount","bracket","stand","display stand","display base","phone jail","feeder","caddy","coaster","coasters","containment chamber","gridwall hooks","gridwallhook","height tilt camera","camera mount","camera holder","printer riser","light box","dispenser","bookholder","missing parts"}, "Functional", "Functional", "Organizer / Holder", "Functional", 18, "functional role terminology"),
         (new[]{"flag","sign","logo","jersey","home plate","badge","medal","trophy","ornament","rose","watercolor","portrait","sculpture","art","artwork","lithophane","shadowbox","harley wall decor","harleywall decor","heart love","detroit love","great lakes","eagle of the stonepeak crest","dumpster fire","fuck cancer","funny work signs","golden spiral clock","ethereal falls"}, "Art & Decor", "Decor", "Art / Display", "Decor", 16, "art/decor terminology"),
         (new[]{"castle","house","building","lighthouse","barn","shed","cabin","church","temple","tavern","booknook","book nook","diorama","zen garden","garden","hive"}, "Buildings", "Building", "Structure / Diorama", "Building", 16, "building/diorama terminology"),
         (new[]{"terrain","dungeon","battlemap","battle map","wargame","tabletop","dnd","cave","caves of chaos","ruin"}, "Tabletop Terrain", "Terrain", "Tabletop Terrain", "Terrain", 18, "tabletop/terrain terminology"),
@@ -109,12 +116,36 @@ public sealed class SemanticEvidenceFusionService
         (new[]{"mummy","mumia","statue","stone","rock","mountain","mountains","tree","forest","flower","plant","foliage","mushroom"}, "Nature & Scenery", "Scenery", "Natural / Scenic", "Nature", 16, "scenery terminology"),
     };
 
+    // Exact, source-backed phrases uncovered while tracing the reviewed low-evidence
+    // sample. Keep these specific: several neighboring records have too little textual
+    // evidence to classify safely and should remain unresolved for human review.
+    private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] HighSpecificityCues =
+    {
+        (new[]{"hot rod"}, "Vehicles", "Vehicle", "Vehicle", "Vehicle", 20, "specific vehicle terminology"),
+        (new[]{"baseball bat","havoc staff"}, "Props & Accessories", "Prop", "Cosplay / Prop", "Prop", 20, "specific prop terminology"),
+        (new[]{"k-9","k·9","bogeyman","stitch and angel","stitch & angel","figurines"}, "Figures & Characters", "Figure", "Character", "Figure", 20, "specific character terminology"),
+        (new[]{"67 buddy","shelf sitter","ladies 0.08"}, "Figures & Characters", "Figure", "Tabletop / Articulated Figure", "Figure", 20, "human-verified figure terminology"),
+        (new[]{"koi display"}, "Art & Decor", "Decor", "Art / Display", "Decor", 20, "specific art/display terminology"),
+        (new[]{"unicorn chomper"}, "Art & Decor", "Decor", "Wearable / Earrings", "Decor", 20, "human-verified wearable terminology"),
+        (new[]{"4-post lift display","4 post lift display"}, "Terrain & Props", "Prop", "Display / Garage", "Prop", 20, "specific garage-display terminology"),
+        (new[]{"old testament 2"}, "HueForge", "HueForge", "Religious HueForge", "Art", 20, "human-verified HueForge terminology"),
+        (new[]{"s 3 viking","s-3 viking","s3 viking","s3viking"}, "Vehicles", "Vehicle", "Aircraft / Bomber", "Vehicle", 20, "human-verified aircraft terminology"),
+        (new[]{"candy ghost","ghost candy bowl","candy bowl"}, "Household", "Household", "Candy Bowl", "Household", 20, "human-verified household object terminology"),
+    };
+
     private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] ExplicitRoleCues =
     {
-        (new[]{"soap holder","soap dispenser holder","key holder","phone holder","book holder","business card holder","card holder","tool holder","socket holder","wrench holder","screwdriver holder","holder"}, "Functional", "Functional", "Holder", "Functional", 24, "explicit holder role"),
+        (new[]{"soap holder","foam soap holder","soap dispenser holder","ice cream pint holder","bbw holder"}, "Household", "Household", "Soap / Container Holder", "Household", 30, "explicit household holder role"),
+        (new[]{"key holder","phone holder","book holder","business card holder","card holder","tool holder","socket holder","wrench holder","screwdriver holder","holder"}, "Functional", "Functional", "Holder", "Functional", 24, "explicit holder role"),
         (new[]{"display stand","phone stand","book stand","lightsaber stand","saber stand","sword stand","display base","support stand","stand rack","stand"}, "Functional", "Functional", "Stand / Display", "Functional", 22, "explicit stand role"),
         (new[]{"tool organizer","socket organizer","wrench organizer","screwdriver organizer","tool tray","socket tray","organizer","storage box","rack","shelf","hook","hanger","mount","bracket"}, "Functional", "Functional", "Organizer / Mount", "Functional", 20, "explicit functional role"),
     };
+
+    // The cue corpus is immutable. Flatten it once instead of allocating a new array for
+    // every record in a whole-library scan.
+    private static readonly (string[] Terms, string Category, string Type, string Subtype, string Family, int Weight, string Label)[] AllCues =
+        Cues.Concat(ExpandedCues).Concat(HighSpecificityCues).ToArray();
+    private static readonly ConcurrentDictionary<string, Regex> PhraseRegexCache = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] ContextTerms = { "hueforge", "hue forge", "200x200", "200x200mm", "front", "back", "x1c", "p1s", "p1p", "kobra", "ams", "bambu" };
 
@@ -213,6 +244,9 @@ public sealed class SemanticEvidenceFusionService
             // phrases that are effectively just the role word repeated by punctuation.
             var subjectTokens = subject.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (subjectTokens.Length == 0 || subjectTokens.Length > 6) continue;
+            // A suffix at the end of a sentence is not necessarily the artifact's role:
+            // descriptions such as "small drops of glue required to mount" are actions.
+            if (subjectTokens[^1].ToLowerInvariant() is "to" or "for" or "on" or "with" or "from" or "need" or "needs" or "required" or "recuired") continue;
             if (ContextualArtifactRoleSuffixes.Contains(role, StringComparer.OrdinalIgnoreCase) &&
                 !HasContextualArtifactRole(subject, role)) continue;
 
@@ -229,14 +263,16 @@ public sealed class SemanticEvidenceFusionService
         return false;
     }
 
-    public SemanticEvidenceFusionResult Fuse(ModelRecord model, MultilingualEntityMatch? entity = null)
+    public SemanticEvidenceFusionResult Fuse(ModelRecord model, MultilingualEntityMatch? entity = null, bool captureDiagnostics = false)
     {
         entity ??= new MultilingualEntityService().Recognize(model);
         // Only physical/source-derived identity text may drive lexical inference. Tags,
         // suggested tags, and IntelligenceReason are derived outputs of the classifier and
         // must never be fed back as evidence; doing so creates circular classification.
-        var text = Normalize(string.Join(" ", model.Name ?? "", model.TranslatedTitle ?? ""));
+        var text = Normalize(string.Join(" ", model.Name ?? "", model.TranslatedTitle ?? "", model.SourceSemanticEvidence ?? ""));
         var evidence = new List<string>();
+        var diagnostics = captureDiagnostics ? new List<string>() : null;
+        diagnostics?.Add($"FUSION_INPUT: name_chars={(model.Name ?? "").Length}; translated_title_chars={(model.TranslatedTitle ?? "").Length}; source_semantic_chars={(model.SourceSemanticEvidence ?? "").Length}; normalized_chars={text.Length}; translation_confidence={model.TranslationConfidence}; language={model.OriginalLanguage}");
         var organizerRoleHits = OrganizerRoleTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var referencedToolHits = ReferencedToolTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var isToolOrganizer = organizerRoleHits.Length > 0;
@@ -251,20 +287,57 @@ public sealed class SemanticEvidenceFusionService
         if (!string.IsNullOrWhiteSpace(model.SemanticType) || !string.IsNullOrWhiteSpace(model.Subtype))
             evidence.Add($"Stored classification: {model.Category} / {model.SemanticType} / {model.Subtype}");
 
-        var allCues = Cues.Concat(ExpandedCues).ToArray();
-        var cueHits = allCues
+        var sourceText = Normalize(model.SourceSemanticEvidence ?? string.Empty);
+        var sourceCueHits = sourceText.Length == 0
+            ? Array.Empty<(string Category, string Label, string[] Hits)>()
+            : AllCues
+                .Select(c => (c.Category, c.Label, Hits: c.Terms.Where(t => ContainsPhrase(sourceText, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+                .Where(x => x.Hits.Length > 0)
+                .OrderByDescending(x => x.Hits.Length)
+                .Take(12)
+                .ToArray();
+        if (sourceCueHits.Length > 0)
+            evidence.Add("Embedded 3MF title/description/object-name evidence: " + string.Join("; ", sourceCueHits.Select(x => $"{x.Category} [{x.Label}] {string.Join(",", x.Hits.Take(3))}")));
+        diagnostics?.Add($"SOURCE_SEMANTIC_EVIDENCE: bounded_chars={sourceText.Length}; matched_rules={sourceCueHits.Length}; matches=" +
+            (sourceCueHits.Length == 0 ? "none" : string.Join("; ", sourceCueHits.Select(x => $"{x.Category} [{x.Label}] hits={string.Join(",", x.Hits.Take(3))}"))));
+        var cueHits = AllCues
             .Select(c => (Cue: c, Hits: c.Terms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
             .Where(x => x.Hits.Length > 0)
             .OrderByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
             .ToList();
+        diagnostics?.Add($"LEXICAL_CUES: rules={AllCues.Length}; matched_rules={cueHits.Count}; matches=" +
+            (cueHits.Count == 0 ? "none" : string.Join("; ", cueHits.Take(12).Select(x =>
+                $"{x.Cue.Category} [{x.Cue.Label}] hits={string.Join(",", x.Hits.Take(4))} weight={x.Cue.Weight}"))));
         var roleHits = ExplicitRoleCues
             .Select(c => (Cue: c, Hits: c.Terms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
             .Where(x => x.Hits.Length > 0)
-            .OrderByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
+            // Prefer a specific multiword role ("soap holder") over a generic token
+            // ("holder") that may occur in unrelated descriptive metadata.
+            .OrderByDescending(x => x.Hits.Max(RoleSpecificity))
+            .ThenByDescending(x => x.Cue.Weight * Math.Min(2, x.Hits.Length))
             .ToList();
         var explicitRole = roleHits.FirstOrDefault();
+        var explicitRoleIsGeneric = explicitRole.Hits is { Length: > 0 } && explicitRole.Hits.All(IsGenericRoleTerm);
+        var competingSubjectCue = cueHits.Any(x =>
+            !string.Equals(x.Cue.Category, "Functional", StringComparison.OrdinalIgnoreCase) &&
+            x.Hits.Any(hit => !IsGenericRoleTerm(hit)));
+        var useExplicitRole = explicitRole.Hits is { Length: > 0 } && !(explicitRoleIsGeneric && competingSubjectCue);
+        diagnostics?.Add($"ARTIFACT_ROLES: explicit_rules={ExplicitRoleCues.Length}; matched_rules={roleHits.Count}; matches=" +
+            (roleHits.Count == 0 ? "none" : string.Join("; ", roleHits.Take(8).Select(x =>
+                $"{x.Cue.Category} [{x.Cue.Label}] hits={string.Join(",", x.Hits.Take(4))}"))));
+        diagnostics?.Add($"ARTIFACT_ROLE_ARBITRATION: selected={(explicitRole.Hits is { Length: > 0 } ? explicitRole.Cue.Label : "none")}; generic={explicitRoleIsGeneric}; competing_subject_cue={competingSubjectCue}; applied={useExplicitRole}");
+        diagnostics?.Add($"GENERALIZED_ROLE: matched={hasGeneralizedArtifactRole}; role={(hasGeneralizedArtifactRole ? generalizedArtifactRole : "none")}");
 
         var best = cueHits.FirstOrDefault();
+        if (best.Hits is { Length: > 0 } &&
+            string.Equals(best.Cue.Category, "Functional", StringComparison.OrdinalIgnoreCase) &&
+            best.Hits.All(IsGenericRoleTerm))
+        {
+            var subjectCue = cueHits.FirstOrDefault(x =>
+                !string.Equals(x.Cue.Category, "Functional", StringComparison.OrdinalIgnoreCase) &&
+                x.Hits.Any(hit => !IsGenericRoleTerm(hit)));
+            if (subjectCue.Hits is { Length: > 0 }) best = subjectCue;
+        }
         var aviationIdentityHits = AviationIdentityTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDomainHits = AviationDomainTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var aviationDescriptorHits = aviationIdentityHits.Length > 0
@@ -282,6 +355,8 @@ public sealed class SemanticEvidenceFusionService
                                           !string.IsNullOrWhiteSpace(model.SemanticType) &&
                                           !string.IsNullOrWhiteSpace(model.Subtype) &&
                                           !string.Equals(analyzerCategory, "Uncategorized", StringComparison.OrdinalIgnoreCase);
+        var analyzerReason = model.IntelligenceReason ?? string.Empty;
+        diagnostics?.Add($"SOURCE_ANALYZER_CHANNEL: accepted={hasSourceDerivedAnalyzer}; strong={strongSourceDerivedAnalyzer}; category={(hasSourceDerivedAnalyzer ? analyzerCategory : "none")}; score={model.IntelligenceScore:0.000}; semantic_type={model.SemanticType}; subtype={model.Subtype}; reason={(analyzerReason.Length > 300 ? analyzerReason[..300] : analyzerReason)}");
         if (hasSourceDerivedAnalyzer)
             evidence.Add($"Source-derived analyzer semantics: {analyzerCategory} / {model.SemanticType} / {model.Subtype} ({model.IntelligenceScore:P0})");
         if (strongSourceDerivedAnalyzer)
@@ -291,6 +366,8 @@ public sealed class SemanticEvidenceFusionService
         string type = model.SemanticType ?? "";
         string subtype = model.Subtype ?? "";
         string family = model.Family ?? "";
+        var subjectIdentity = entity?.EntityName ?? "";
+        var artifactRole = "";
         // ThreeMfAnalyzer stores IntelligenceScore on a 0..1 scale. The fusion result
         // is a 0..100 public confidence scale. The previous build passed the raw decimal
         // through Clamp(), turning 0.99 into confidence 1 and materially understating
@@ -311,13 +388,14 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, 88);
             classification = Math.Max(classification, 94);
             basis = "Object role + referenced tool evidence";
+            artifactRole = "Tool Organizer";
             evidence.Add($"Organizer role: {string.Join(", ", organizerRoleHits)}");
             if (referencedToolHits.Length > 0)
                 evidence.Add($"Referenced tool: {string.Join(", ", referencedToolHits)}");
             if (entity is not null)
                 evidence.Add($"Referenced entity: {entity.EntityName} ({entity.Domain}) at {entity.Confidence}%");
         }
-        else if ((explicitRole.Hits?.Length ?? 0) > 0)
+        else if (useExplicitRole)
         {
             var role = explicitRole.Cue;
             category = role.Category; type = role.Type; subtype = role.Subtype; family = role.Family;
@@ -325,6 +403,7 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, Math.Min(90, roleConfidence - 5));
             classification = Math.Max(classification, roleConfidence);
             basis = $"Object role evidence: {role.Label}";
+            artifactRole = role.Label;
             evidence.Add($"Explicit object role: {string.Join(", ", explicitRole.Hits ?? Array.Empty<string>())}");
         }
         else if (hasGeneralizedArtifactRole)
@@ -340,6 +419,7 @@ public sealed class SemanticEvidenceFusionService
             identity = Math.Max(identity, 78);
             classification = Math.Max(classification, 94);
             basis = "Generalized artifact role evidence";
+            artifactRole = generalizedArtifactRole;
             evidence.Add($"Role-aware artifact arbitration: {generalizedArtifactRole}");
         }
         else if (strongSourceDerivedAnalyzer)
@@ -352,6 +432,7 @@ public sealed class SemanticEvidenceFusionService
             type = model.SemanticType ?? string.Empty;
             subtype = model.Subtype ?? string.Empty;
             family = string.IsNullOrWhiteSpace(model.Family) ? InferFamily(analyzerCategory) : model.Family;
+            artifactRole = string.Join(" / ", new[] { type, subtype }.Where(value => !string.IsNullOrWhiteSpace(value)));
             var analyzerConfidence = Math.Clamp(82 + (int)Math.Round(model.IntelligenceScore * 13), 82, 95);
             classification = Math.Max(classification, analyzerConfidence);
             identity = Math.Max(identity, Math.Clamp(analyzerConfidence - 4, 78, 91));
@@ -436,6 +517,9 @@ public sealed class SemanticEvidenceFusionService
         {
             var cue = best.Cue;
             category = cue.Category; type = cue.Type; subtype = cue.Subtype; family = cue.Family;
+            artifactRole = string.Join(" / ", new[] { type, subtype }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            if (string.Equals(cue.Category, "Figures & Characters", StringComparison.OrdinalIgnoreCase))
+                subjectIdentity = string.Join(", ", best.Hits);
             var cueConfidence = Math.Min(92, 50 + cue.Weight + Math.Min(10, (best.Hits.Length - 1) * 5));
             classification = Math.Max(classification, cueConfidence);
             identity = Math.Max(identity, Math.Min(82, cueConfidence - 8));
@@ -510,6 +594,17 @@ public sealed class SemanticEvidenceFusionService
         }
 
         var quality = Math.Clamp(25 + convergence, 0, 100);
+        var specificRoleEvidence = isToolOrganizer ||
+                                   (useExplicitRole && explicitRole.Hits!.Any(hit => !IsGenericRoleTerm(hit))) ||
+                                   hasGeneralizedArtifactRole;
+        if (specificRoleEvidence)
+        {
+            // Specific artifact roles are an independent semantic evidence family. They
+            // must clear the arbitration evidence gate on their own; otherwise a strong
+            // role result can have high classification confidence but remain uncategorized
+            // forever at the current quality floor of 25.
+            quality = Math.Max(quality, 80);
+        }
         if (hasSourceDerivedAnalyzer)
         {
             // The analyzer's semantic threshold is a category-bearing source signal. Do not
@@ -548,9 +643,12 @@ public sealed class SemanticEvidenceFusionService
         if (convergenceLabels.Count >= 2)
             evidence.Add($"Evidence convergence: {string.Join(" + ", convergenceLabels)}");
 
-        var context = ContextTerms.Count(t => ContainsPhrase(text, t));
-        if (context > 0)
-            evidence.Add($"Context-only signals: {context} (not identity evidence)");
+        var contextSignals = ContextTerms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (entity is not null && !string.IsNullOrWhiteSpace(entity.Domain))
+            contextSignals.Add(entity.Domain);
+        contextSignals = contextSignals.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (contextSignals.Count > 0)
+            evidence.Add($"Context-only signals: {contextSignals.Count} (not identity evidence)");
 
         // Separate actionable contradiction from absence of evidence.
         //
@@ -618,9 +716,16 @@ public sealed class SemanticEvidenceFusionService
             evidence.Add("Classification established without a stored-category conflict");
         }
 
+        diagnostics?.Add($"FUSION_RESULT: category={category}; type={type}; subtype={subtype}; family={family}; basis={basis}; identity={Math.Clamp(identity, 0, 100)}; classification={Math.Clamp(classification, 0, 100)}; evidence_quality={quality}; review={review}");
         return new SemanticEvidenceFusionResult(category, type, subtype, family,
             Math.Clamp(identity, 0, 100), Math.Clamp(classification, 0, 100), quality, basis, review,
-            evidence.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+            evidence.Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
+        {
+            Diagnostics = diagnostics is null ? Array.Empty<string>() : diagnostics,
+            SubjectIdentity = subjectIdentity,
+            ArtifactRole = artifactRole,
+            ContextSignals = contextSignals
+        };
     }
 
     private static bool IsContextualEntityWithArtifactCue(
@@ -670,6 +775,14 @@ public sealed class SemanticEvidenceFusionService
             _ => ""
         };
 
+    private static bool IsGenericRoleTerm(string term)
+        => term.Trim().ToLowerInvariant() is "holder" or "stand" or "organizer" or "storage" or
+            "drawer" or "shelf" or "shelving" or "rack" or "hook" or "hanger" or "mount" or
+            "bracket" or "tray" or "dispenser";
+
+    private static int RoleSpecificity(string term)
+        => IsGenericRoleTerm(term) ? 0 : term.Count(char.IsWhiteSpace) + 1;
+
     private static bool ContainsPhrase(string text, string phrase)
     {
         // CJK text commonly has no whitespace between semantic words. Use exact
@@ -680,8 +793,14 @@ public sealed class SemanticEvidenceFusionService
 
         if (phrase.Any(char.IsLetterOrDigit) && phrase.All(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || c is '-' or '_'))
         {
-            var pattern = $"(?<![\\p{{L}}\\p{{N}}]){Regex.Escape(phrase.Replace('_', ' '))}(?![\\p{{L}}\\p{{N}}])";
-            return Regex.IsMatch(text.Replace('_', ' '), pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            var matcher = PhraseRegexCache.GetOrAdd(phrase, static value =>
+            {
+                var pattern = $"(?<![\\p{{L}}\\p{{N}}]){Regex.Escape(value.Replace('_', ' '))}(?![\\p{{L}}\\p{{N}}])";
+                return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+            });
+            // All call sites pass text through Normalize(), which has already converted
+            // underscores to spaces. Avoid copying the full title/metadata string for each cue.
+            return matcher.IsMatch(text);
         }
         return text.Contains(phrase, StringComparison.OrdinalIgnoreCase);
     }

@@ -35,6 +35,9 @@ public sealed class ModelRecord
     public string TranslatedTitle { get; set; } = "";
     public int TranslationConfidence { get; set; }
     public string TranslationEvidence { get; set; } = "";
+    // Transient, bounded text extracted from curated 3MF title/description/object-name
+    // fields. It is intentionally not persisted: a source scan refreshes it from the file.
+    public string SourceSemanticEvidence { get; set; } = "";
     public string SizeText => Size < 1024 ? $"{Size:N0} B" : Size < 1024 * 1024 ? $"{Size / 1024d:0.0} KB" : $"{Size / 1024d / 1024d:0.0} MB";
     public string ModifiedText => ModifiedUtc.ToLocalTime().ToString("g");
     public bool HasThumbnail => !string.IsNullOrWhiteSpace(ThumbnailPath) && File.Exists(ThumbnailPath);
@@ -52,5 +55,8 @@ public static class BuiltInCategories
 public sealed record DuplicateGroup(string Hash, IReadOnlyList<ModelRecord> Models);
 public sealed record LibraryStats(int Models, int Favorites, int Duplicates, int NeedsReview, long Bytes, int MissingThumbnails);
 public sealed record LibraryRebuildResult(int Models, int Reclassified, int PreservedCustomCategories, int Failed, int Discovered);
-public sealed record IntelligenceResult(string Category, double Confidence, string Reason, string Family, int ObjectCount, string Dimensions, string Slicer, string Materials, bool PrintReady, string SemanticType, string Subtype, string SuggestedTags, string RiskFlags, string PrintMethod, double PrintMethodConfidence, string PrintMethodEvidence, string SpecialType);
+public sealed record IntelligenceResult(string Category, double Confidence, string Reason, string Family, int ObjectCount, string Dimensions, string Slicer, string Materials, bool PrintReady, string SemanticType, string Subtype, string SuggestedTags, string RiskFlags, string PrintMethod, double PrintMethodConfidence, string PrintMethodEvidence, string SpecialType)
+{
+    public string SourceSemanticEvidence { get; init; } = "";
+}
 public sealed record MoveResult(string OldPath, string NewPath, ModelRecord Model, string PreviousCategory, string PreviousTags);

@@ -136,7 +136,7 @@ public sealed class LanguageIntelligenceService
 
     public ModelRecord Apply(ModelRecord model)
     {
-        var source = string.Join(" ", model.Name ?? string.Empty, Path.GetFileNameWithoutExtension(model.Path ?? string.Empty));
+        var source = string.Join(" ", model.Name ?? string.Empty, Path.GetFileNameWithoutExtension(model.Path ?? string.Empty), model.SourceSemanticEvidence ?? string.Empty);
         var result = Analyze(source);
 
         model.OriginalLanguage = result.Language;

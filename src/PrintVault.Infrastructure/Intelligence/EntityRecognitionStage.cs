@@ -22,6 +22,10 @@ internal sealed class EntityRecognitionStage : IModelIntelligenceStage
         context.StageEvidence.Add(context.Entity is null
             ? "ENTITY:NONE"
             : $"ENTITY:{context.Entity.EntityName}:{context.Entity.Confidence}");
+        if (context.CaptureDiagnostics)
+            context.StageDiagnostics.Add(context.Entity is null
+                ? "match=none; input_sources=filename_and_translated_title"
+                : $"match={context.Entity.EntityName}; domain={context.Entity.Domain}; category={context.Entity.Category}; confidence={context.Entity.Confidence}; evidence={context.Entity.Evidence}");
     }
 
     private static string AddTag(string existing, string tag)

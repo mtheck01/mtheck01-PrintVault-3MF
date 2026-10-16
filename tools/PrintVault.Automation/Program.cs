@@ -7,7 +7,8 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     !string.Equals(args[0], "scan", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "cleanup", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "selftest-category-registry", StringComparison.OrdinalIgnoreCase)))
+    !string.Equals(args[0], "selftest-category-registry", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "selftest-semantic-cues", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
@@ -16,6 +17,7 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     Console.Error.WriteLine("   or: PrintVault.Automation organize [libraryRoot]");
     Console.Error.WriteLine("   or: PrintVault.Automation cleanup [libraryRoot]");
     Console.Error.WriteLine("   or: PrintVault.Automation selftest-category-registry");
+    Console.Error.WriteLine("   or: PrintVault.Automation selftest-semantic-cues");
     return 2;
 }
 
@@ -23,6 +25,8 @@ var command = args[0];
 
 if (string.Equals(command, "selftest-category-registry", StringComparison.OrdinalIgnoreCase))
     return CategoryRegistrySelfTest.Run();
+if (string.Equals(command, "selftest-semantic-cues", StringComparison.OrdinalIgnoreCase))
+    return SemanticCueSelfTest.Run();
 
 var configuredTestRoot = Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT");
 var scanRoot = string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase)
@@ -81,7 +85,10 @@ bool IsBuiltInOrUnresolved(string? category) =>
 
 try
 {
-    var repository = new LibraryRepository();
+    var configuredDatabasePath = Environment.GetEnvironmentVariable("PRINTVAULT_DATABASE_PATH");
+    var repository = string.IsNullOrWhiteSpace(configuredDatabasePath)
+        ? new LibraryRepository()
+        : new LibraryRepository(configuredDatabasePath);
     Console.WriteLine($"DATABASE={repository.DatabasePath}");
 
     if (string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase))
@@ -95,13 +102,26 @@ try
         }
         Console.WriteLine($"SCAN_ROOT={scanRoot}");
         Console.WriteLine($"SCAN_MODE={scanMode}");
-        var scanEngine = new LibraryEngine();
+        var scanEngine = new LibraryEngine(repository);
         var lastFailed = 0;
-        var scanProgress = new Progress<ScanProgress>(p =>
+        long lastStageLogTicks = DateTime.UtcNow.Ticks;
+        var scanProgress = new InlineProgress<ScanProgress>(p =>
         {
             lastFailed = p.Failed;
+            if (p.CurrentStage is "Analysis" or "Hash" or "Thumbnail")
+            {
+                var now = DateTime.UtcNow.Ticks;
+                var previous = Interlocked.Read(ref lastStageLogTicks);
+                if (now - previous >= TimeSpan.FromSeconds(15).Ticks &&
+                    Interlocked.CompareExchange(ref lastStageLogTicks, now, previous) == previous)
+                    Console.WriteLine($"SCAN_ACTIVE_STAGE={p.CurrentStage} PATH={JsonSerializer.Serialize(p.CurrentPath)}");
+            }
+            if (p.CurrentStage == "Completed" && p.LastFileElapsedMilliseconds >= 5000)
+                Console.WriteLine($"SCAN_SLOW_FILE PATH={JsonSerializer.Serialize(p.CurrentPath)} TOTAL_MS={p.LastFileElapsedMilliseconds} ANALYSIS_MS={p.LastFileAnalysisMilliseconds} HASH_MS={p.LastFileHashMilliseconds} THUMBNAIL_MS={p.LastFileThumbnailMilliseconds}");
             if (p.Processed == p.Discovered || p.Processed % 100 == 0)
-                Console.WriteLine($"SCAN_PROGRESS={p.Processed}/{p.Discovered} INDEXED={p.Indexed} FAILED={p.Failed}");
+                Console.WriteLine($"SCAN_PROGRESS={p.Processed}/{p.Discovered} INDEXED={p.Indexed} FAILED={p.Failed} CHECKPOINTS={p.CheckpointCount} ANALYSIS_MS={p.AnalysisElapsedMilliseconds} HASH_MS={p.HashElapsedMilliseconds} THUMBNAIL_MS={p.ThumbnailElapsedMilliseconds} PERSISTENCE_MS={p.PersistenceElapsedMilliseconds} LAST_FILE_MS={p.LastFileElapsedMilliseconds} LAST_FILE_ANALYSIS_MS={p.LastFileAnalysisMilliseconds} LAST_FILE_HASH_MS={p.LastFileHashMilliseconds} LAST_FILE_THUMBNAIL_MS={p.LastFileThumbnailMilliseconds}");
+            if (p.Phase == "Completed")
+                Console.WriteLine($"SCAN_STAGE_TOTALS ANALYSIS_MS={p.AnalysisElapsedMilliseconds} HASH_MS={p.HashElapsedMilliseconds} THUMBNAIL_MS={p.ThumbnailElapsedMilliseconds} PERSISTENCE_MS={p.PersistenceElapsedMilliseconds} CHECKPOINTS={p.CheckpointCount}");
         });
         var scanned = await scanEngine.ScanAsync(new[] { scanRoot }, scanMode, default, scanProgress);
         var persisted = scanEngine.Repository.GetAll().Count;
@@ -355,6 +375,7 @@ try
     Console.WriteLine("DIAGNOSTIC_ACCOUNTING=PASS");
     return 0;
 }
+
 catch (Exception ex)
 {
     Console.Error.WriteLine($"{command.ToUpperInvariant()}_EXCEPTION");
@@ -402,4 +423,13 @@ static bool IsSameOrBelow(string path, string root)
     return string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
            normalizedPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
            normalizedPath.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+}
+
+sealed class InlineProgress<T> : IProgress<T>
+{
+    private readonly Action<T> report;
+
+    public InlineProgress(Action<T> report) => this.report = report;
+
+    public void Report(T value) => report(value);
 }

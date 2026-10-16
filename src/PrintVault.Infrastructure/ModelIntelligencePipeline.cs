@@ -1,4 +1,5 @@
 using PrintVault.Core;
+using System.Diagnostics;
 
 namespace PrintVault.Infrastructure;
 
@@ -11,7 +12,12 @@ public sealed record ModelIntelligenceStageResult(
     ModelRecord Model,
     MultilingualEntityMatch? Entity,
     SemanticEvidenceFusionResult Fusion,
-    IReadOnlyList<string> StageEvidence);
+    IReadOnlyList<string> StageEvidence,
+    IReadOnlyList<ModelIntelligenceStageTrace> StageTrace);
+
+public sealed record ModelIntelligenceStageTrace(
+    string Stage, long ElapsedMilliseconds, string CategoryBefore, string CategoryAfter,
+    IReadOnlyList<string> Evidence, IReadOnlyList<string> Diagnostics);
 
 public sealed class ModelIntelligencePipeline
 {
@@ -44,9 +50,24 @@ public sealed class ModelIntelligencePipeline
 
         var model = Clone(source);
         var context = new ModelIntelligenceContext(model);
+        context.CaptureDiagnostics = true;
 
+        var stageTrace = new List<ModelIntelligenceStageTrace>(stages.Length);
         foreach (var stage in stages)
+        {
+            var evidenceStart = context.StageEvidence.Count;
+            var diagnosticsStart = context.StageDiagnostics.Count;
+            var categoryBefore = context.Model.Category ?? string.Empty;
+            var started = Stopwatch.GetTimestamp();
             stage.Execute(context);
+            stageTrace.Add(new ModelIntelligenceStageTrace(
+                stage.Name,
+                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                categoryBefore,
+                context.Model.Category ?? string.Empty,
+                context.StageEvidence.Skip(evidenceStart).ToArray(),
+                context.StageDiagnostics.Skip(diagnosticsStart).ToArray()));
+        }
 
         context.StageEvidence.Add(context.Fusion is null
             ? "EVIDENCE:NONE"
@@ -55,7 +76,8 @@ public sealed class ModelIntelligencePipeline
         return new ModelIntelligenceStageResult(
             model, context.Entity,
             context.Fusion ?? throw new InvalidOperationException("Semantic fusion stage did not produce a result."),
-            context.StageEvidence);
+            context.StageEvidence,
+            stageTrace);
     }
 
     private static ModelRecord Clone(ModelRecord source) => new()
@@ -71,6 +93,7 @@ public sealed class ModelIntelligencePipeline
         PrintMethodEvidence = source.PrintMethodEvidence, SpecialType = source.SpecialType,
         CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
         OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
-        TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence
+        TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence,
+        SourceSemanticEvidence = source.SourceSemanticEvidence
     };
 }
