@@ -37,7 +37,7 @@ assert 'service.Apply(context.Model);' in language
 assert 'AddTag(context.Model.SuggestedTags' in entity_recognition
 assert 'AddTag(context.Model.Tags' in entity_recognition
 assert 'service.Recognize(context.Model);' in entity_recognition
-assert 'service.Fuse(context.Model, context.Entity);' in semantic_fusion
+assert 'service.Fuse(context.Model, context.Entity, context.CaptureDiagnostics);' in semantic_fusion
 assert 'var actionable =' in arbitration
 assert 'model.Category = result.Category;' in arbitration
 

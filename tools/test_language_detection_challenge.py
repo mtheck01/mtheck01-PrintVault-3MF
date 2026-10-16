@@ -134,7 +134,7 @@ with tempfile.TemporaryDirectory(prefix="printvault-language-challenge-") as td:
             shutil.rmtree(output, ignore_errors=True)
 
     build = subprocess.run(
-        ["dotnet", "build", str(project), "--nologo", "-t:Rebuild", "-p:BuildProjectReferences=true", "-p:UseSharedCompilation=false", "-v:minimal"],
+        ["dotnet", "build", str(project), "--nologo", "-t:Rebuild", "-m:1", "-p:BuildProjectReferences=true", "-p:UseSharedCompilation=false", "-v:minimal"],
         cwd=ROOT,
         text=True,
         encoding="utf-8",

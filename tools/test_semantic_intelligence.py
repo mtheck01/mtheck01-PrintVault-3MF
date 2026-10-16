@@ -6,7 +6,7 @@ repo=(ROOT/"src/PrintVault.Infrastructure/LibraryRepository.cs").read_text(encod
 engine=(ROOT/"src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
 checks=[
  ("weighted semantic signals", "Signal[]" in an and "TokenScore" in an),
- ("geometry dimensions", "ComputeDimensions" in an and "vertex" in an),
+ ("geometry dimensions use one-pass vertex bounds", "class VertexBounds" in an and "vertexBounds.Add(e)" in an and "vertexBounds.GetDimensions(unit)" in an),
  ("slicer detection", "SlicerNames" in an),
  ("material evidence", "base" in an and "material" in an.lower()),
  ("semantic persistence", "SemanticType" in model and "SuggestedTags" in model and "RiskFlags" in model),

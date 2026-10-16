@@ -21,7 +21,7 @@ Acceptance criteria:
 - Run the same inventory on a known code SHA and runner; record elapsed time and per-stage/per-file timing.
 - Preserve all source 3MF files during validation and verify catalog/file consistency.
 
-Status: **Not established.** See evidence log. Current timeout cause is confirmed as the immediate run failure; the underlying performance cause is not confirmed.
+Status: **Partially implemented, full-library acceptance not established.** Scan checkpoints preserve completed records every 50 files and stage timing is emitted. Two candidate Deep scans each completed 1,789/1,789 paths with zero failures and reconciled inventory fingerprint `F6AB7CE6BADCB0CEFE53955D7917090422B1ADF3AE2683C2C4952CE5FFFAA33D`. The later performance repair preserved category, semantic type, subtype, unresolved count, and risk-flag counts across the complete candidate; 46 confidence values decreased after duplicated geometry text was removed from a non-semantic scoring input. Historic reconciliation with the 1,758-record checked-in baseline and reproducible clean source SHA remain outstanding. The latest 75-row review is a selected diagnostic sample, not library-wide ground truth; 17 Deep-vs-human mismatches still need focused diagnosis. See `ENGINEERING_EVIDENCE.md` and `outputs/deep-scan-summary.md`.
 
 ## Priority 1 — Modularize without changing classification semantics
 
@@ -34,7 +34,7 @@ Acceptance criteria:
 - Move library lifecycle/orchestration and view state out of `MainWindow` in small slices, preserving the existing authoritative intelligence pipeline.
 - Every extraction has a passing regression test and existing build/architecture checks.
 
-Status: **Partially implemented, not verified at the app level.** A local category-registry extraction and runtime self-test exist on `refactor/category-registry-store`. The static contract passes and Infrastructure builds; the runtime self-test and WPF app build could not complete locally. CI evidence is pending.
+Status: **Partially verified.** The category-registry extraction and runtime self-test pass locally; the full WPF solution builds. Interactive UI behavior, installer validation, and CI evidence remain outstanding.
 
 ## Priority 2 — Diagnose and repair whole-library performance
 
@@ -47,7 +47,7 @@ Acceptance criteria:
 - Compare the candidate's complete outcome fingerprint and per-record results with the baseline; explain every changed outcome.
 - Complete the full library within a justified operating budget, with resumable/preserved results after interruption.
 
-Status: **Root cause unconfirmed.** Regex-heavy semantic matching is a hypothesis that needs a controlled profile/A-B measurement.
+Status: **Partially verified; performance repair measured on the isolated 1,789-file library.** A full Deep scan completed with 0 failures and reconciled all paths. Removing repeated ancestor `XElement.Value` aggregation reduced summed analyzer worker time from 6,556,522 ms to 1,599,177 ms (75.6%) across two local runs; known outlier analysis times fell by roughly 87–94%. Category, semantic type, subtype, unresolved count, and risk flags matched the pre-repair candidate; 46 confidence values decreased by an average of 3.36 percentage points after duplicate geometry text stopped contributing. These are local summed worker times, not a controlled wall-clock benchmark. A matched baseline SHA/runner comparison and full accuracy review against human labels remain outstanding. See `ENGINEERING_EVIDENCE.md`.
 
 ## Priority 3 — Verify install, UI readiness and release path
 

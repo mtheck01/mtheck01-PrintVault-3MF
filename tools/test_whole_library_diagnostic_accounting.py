@@ -11,10 +11,18 @@ checks = {
     "records analyzed is distinct from conflict review rows": "RECORDS_ANALYZED=" in program and "CONFLICT_REVIEW_ROWS=" in program,
     "all successful analyses emit a per-record outcome": "outcomes.Add(new RootCauseOutcome(" in service,
     "forensic analysis re-runs source-derived 3MF analysis": (
-        "sourceAnalyzer.Analyze(source.Path, source.Name)" in service
+        "sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace)" in service
         and re.search(r"AnalyzeSourceForForensics\(m,\s*(?:worker\.SourceAnalyzer,\s*)?out var sourceTrace\)", service) is not None
     ),
-    "forensic evidence includes per-stage trace": "Concat(stage.StageEvidence)" in service and "SOURCE_ANALYZER:COMPLETED" in service,
+    "forensic evidence includes bounded source, fusion, arbitration, and timing trace": (
+        "evidenceTraceSchemaVersion = 1" in service
+        and "evidenceTraces = orderedEvidenceTraces" in service
+        and "stage.StageTrace" in service
+        and "f.Diagnostics" in service
+        and "SemanticInputsTruncated" in analyzer
+        and "sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace)" in service
+        and "Concat(stage.StageEvidence)" in service
+    ),
     "source-analysis errors are explicit instead of silent": "SOURCE_ANALYZER:FAILED:" in service,
     "forensic source enrichment uses an isolated record copy": "CloneForForensics(source)" in service and "private static ModelRecord CloneForForensics" in service,
     "expensive source parsing is gated by unresolved or incomplete semantic metadata": (
@@ -67,7 +75,8 @@ checks = {
     "outcome CSV is uploaded as a diagnostic artifact": 'Filter "whole-library-outcomes.*.csv"' in workflow,
     "repeated semantic phrase scoring reuses compiled regex matchers": "TokenRegexCache.GetOrAdd" in analyzer and "RegexOptions.Compiled | RegexOptions.CultureInvariant" in analyzer,
     "compact semantic text is normalized once per model": "compactSemanticScoringText = CompactForTokenMatching(semanticScoringText)" in analyzer,
-    "basematerial extraction reuses parsed model XML": "XDocument? modelDocument = null" in analyzer and "if(modelDocument!=null){foreach(var b in modelDocument.Descendants()" in analyzer,
+    "basematerial extraction reuses the parsed model traversal": "XDocument? modelDocument = null" in analyzer and "modelMaterials.Add(materialName)" in analyzer and "foreach(var b in modelDocument.Descendants()" not in analyzer,
+    "large geometry is not repeatedly copied into diagnostics text": "if (!e.HasElements) allText.Append(' ').Append(e.Value);" in analyzer and "!local.Equals(\"vertex\", StringComparison.OrdinalIgnoreCase)" in analyzer and "!local.Equals(\"triangle\", StringComparison.OrdinalIgnoreCase)" in analyzer,
 }
 failed = [name for name, passed in checks.items() if not passed]
 for name, passed in checks.items():

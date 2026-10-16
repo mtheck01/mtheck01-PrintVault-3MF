@@ -1,15 +1,23 @@
 using System.Security.Cryptography;
 using PrintVault.Core;
+using System.Diagnostics;
 
 namespace PrintVault.Infrastructure;
 
 public sealed class LibraryEngine : ILibraryEngine
 {
-    private readonly LibraryRepository repo = new();
+    private const int ScanCheckpointInterval = 50;
+    private readonly LibraryRepository repo;
     private readonly ThreeMfAnalyzer analyzer = new();
     private readonly ModelIntelligencePipeline intelligencePipeline = new();
     private readonly LibraryFileDiscovery fileDiscovery = new();
     private readonly DuplicateGroupBuilder duplicateGroups = new();
+
+    public LibraryEngine() : this(new LibraryRepository()) { }
+
+    public LibraryEngine(LibraryRepository repository)
+        => repo = repository ?? throw new ArgumentNullException(nameof(repository));
+
     public LibraryRepository Repository => repo;
 
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
@@ -29,16 +37,64 @@ public sealed class LibraryEngine : ILibraryEngine
         var n = 0;
         var indexed = 0;
         var failed = 0;
+        long analysisElapsedMilliseconds = 0;
+        long hashElapsedMilliseconds = 0;
+        long thumbnailElapsedMilliseconds = 0;
+        long persistenceElapsedMilliseconds = 0;
+        long checkpointCount = 0;
+        var checkpointGate = new object();
+        var checkpointBatch = new List<ModelRecord>(ScanCheckpointInterval);
 
-        await Parallel.ForEachAsync(Enumerable.Range(0, files.Count), new ParallelOptions
+        void FlushCheckpointBatch()
         {
-            MaxDegreeOfParallelism = autonomousClassificationOnly ? Math.Clamp(Environment.ProcessorCount, 2, 6) : Math.Clamp(Environment.ProcessorCount, 4, 12),
-            CancellationToken = token
-        }, async (i, ct) =>
-        {
-            var path = files[i];
-            try
+            lock (checkpointGate)
             {
+                if (checkpointBatch.Count == 0) return;
+                var timer = Stopwatch.StartNew();
+                try
+                {
+                    // Checkpoints only upsert completed records. Stale rows are removed
+                    // only by the final SaveAll after a complete scan.
+                    repo.SaveAll(checkpointBatch);
+                    checkpointBatch.Clear();
+                    Interlocked.Increment(ref checkpointCount);
+                }
+                finally
+                {
+                    Interlocked.Add(ref persistenceElapsedMilliseconds, (long)timer.Elapsed.TotalMilliseconds);
+                }
+            }
+        }
+
+        void ReportStage(string path, string stage)
+        {
+            var processed = Volatile.Read(ref n);
+            progress?.Report(new ScanProgress(
+                "Indexing", files.Count, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed),
+                processed * 100 / Math.Max(1, files.Count), path, stage,
+                AnalysisElapsedMilliseconds: Interlocked.Read(ref analysisElapsedMilliseconds),
+                HashElapsedMilliseconds: Interlocked.Read(ref hashElapsedMilliseconds),
+                ThumbnailElapsedMilliseconds: Interlocked.Read(ref thumbnailElapsedMilliseconds),
+                PersistenceElapsedMilliseconds: Interlocked.Read(ref persistenceElapsedMilliseconds),
+                CheckpointCount: Interlocked.Read(ref checkpointCount)));
+        }
+
+        try
+        {
+            await Parallel.ForEachAsync(Enumerable.Range(0, files.Count), new ParallelOptions
+            {
+                MaxDegreeOfParallelism = autonomousClassificationOnly ? Math.Clamp(Environment.ProcessorCount, 2, 6) : Math.Clamp(Environment.ProcessorCount, 4, 12),
+                CancellationToken = token
+            }, async (i, ct) =>
+            {
+                var path = files[i];
+                var fileTimer = Stopwatch.StartNew();
+                var fileAnalysisMilliseconds = 0L;
+                var fileHashMilliseconds = 0L;
+                var fileThumbnailMilliseconds = 0L;
+                var completedProcessing = false;
+                try
+                {
                 var fi = new FileInfo(path);
                 if (!fi.Exists)
                     throw new FileNotFoundException($"Library file disappeared during scan: {path}", path);
@@ -67,6 +123,8 @@ public sealed class LibraryEngine : ILibraryEngine
 
                 if (doIntelligence)
                 {
+                    ReportStage(path, "Analysis");
+                    var analysisTimer = Stopwatch.StartNew();
                     var a = autonomousClassificationOnly ? analyzer.AnalyzeFilenameOnly(path, fi.Name) : analyzer.Analyze(path, fi.Name);
                     // Deep analysis must never destroy a user-defined category.
                     // Automatic classification is only allowed to choose a built-in category
@@ -84,14 +142,20 @@ public sealed class LibraryEngine : ILibraryEngine
                     m.Slicer = a.Slicer;
                     m.Materials = a.Materials;
                     m.PrintReady = a.PrintReady;
+                    m.SourceSemanticEvidence = a.SourceSemanticEvidence;
                     m.SemanticType = a.SemanticType; m.Subtype = a.Subtype; m.SuggestedTags = a.SuggestedTags; m.IntelligenceReason = a.Reason; m.RiskFlags = a.RiskFlags;
                     // Named-entity intelligence outranks generic analyzer metadata, while
                     // manual/custom categories remain protected. Raw analyzer evidence is
                     // retained in IntelligenceReason by EntityClassificationService.
                     intelligencePipeline.Apply(m);
+                    analysisTimer.Stop();
+                    fileAnalysisMilliseconds = (long)analysisTimer.Elapsed.TotalMilliseconds;
+                    Interlocked.Add(ref analysisElapsedMilliseconds, fileAnalysisMilliseconds);
                     // Preserve user tags; the intelligence layer stores its own suggested tags separately.
                     if (doHash)
                     {
+                        ReportStage(path, "Hash");
+                        var hashTimer = Stopwatch.StartNew();
                         try
                         {
                             m.Hash = await HashAsync(path, ct);
@@ -104,6 +168,12 @@ public sealed class LibraryEngine : ILibraryEngine
                             m.Hash = "";
                             m.RiskFlags = AppendRiskFlag(m.RiskFlags, "Hash enrichment failed");
                         }
+                        finally
+                        {
+                            hashTimer.Stop();
+                            fileHashMilliseconds = (long)hashTimer.Elapsed.TotalMilliseconds;
+                            Interlocked.Add(ref hashElapsedMilliseconds, fileHashMilliseconds);
+                        }
                     }
                     if (changed)
                     {
@@ -115,6 +185,8 @@ public sealed class LibraryEngine : ILibraryEngine
 
                 if (doThumbnail && !m.HasThumbnail)
                 {
+                    ReportStage(path, "Thumbnail");
+                    var thumbnailTimer = Stopwatch.StartNew();
                     try
                     {
                         m.ThumbnailPath = await ThumbnailService.ExtractAsync(path, ct);
@@ -127,14 +199,44 @@ public sealed class LibraryEngine : ILibraryEngine
                         m.ThumbnailPath = null;
                         m.RiskFlags = AppendRiskFlag(m.RiskFlags, "Thumbnail enrichment failed");
                     }
+                    finally
+                    {
+                        thumbnailTimer.Stop();
+                        fileThumbnailMilliseconds = (long)thumbnailTimer.Elapsed.TotalMilliseconds;
+                        Interlocked.Add(ref thumbnailElapsedMilliseconds, fileThumbnailMilliseconds);
+                    }
                 }
 
                 result[i] = m;
                 Interlocked.Increment(ref indexed);
+                completedProcessing = true;
+                lock (checkpointGate)
+                {
+                    checkpointBatch.Add(m);
+                    if (checkpointBatch.Count >= ScanCheckpointInterval)
+                    {
+                        var checkpointTimer = Stopwatch.StartNew();
+                        try
+                        {
+                            repo.SaveAll(checkpointBatch);
+                            checkpointBatch.Clear();
+                            Interlocked.Increment(ref checkpointCount);
+                        }
+                        finally
+                        {
+                            Interlocked.Add(ref persistenceElapsedMilliseconds, (long)checkpointTimer.Elapsed.TotalMilliseconds);
+                        }
+                    }
+                }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
+                if (completedProcessing)
+                {
+                    Console.Error.WriteLine($"SCAN_CHECKPOINT_FAILURE path=\"{path}\" exception={ex.GetType().FullName}: {ex.Message}");
+                    throw;
+                }
                 // Preserve the catalog, but emit exact failure evidence to the scan log.
                 Console.Error.WriteLine("SCAN_FILE_FAILURE path=\"" + path + "\" exception=" + ex.GetType().FullName + ": " + ex.Message);
                 Console.Error.WriteLine(ex.StackTrace);
@@ -148,11 +250,25 @@ public sealed class LibraryEngine : ILibraryEngine
             }
             finally
             {
+                fileTimer.Stop();
                 var processed = Interlocked.Increment(ref n);
                 var pct = processed * 100 / Math.Max(1, files.Count);
-                progress?.Report(new ScanProgress("Indexing", files.Count, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct));
+                progress?.Report(new ScanProgress(
+                    "Indexing", files.Count, processed, Volatile.Read(ref indexed), Volatile.Read(ref failed), pct,
+                    path, "Completed", (long)fileTimer.Elapsed.TotalMilliseconds,
+                    Interlocked.Read(ref analysisElapsedMilliseconds), Interlocked.Read(ref hashElapsedMilliseconds),
+                    Interlocked.Read(ref thumbnailElapsedMilliseconds), Interlocked.Read(ref persistenceElapsedMilliseconds),
+                    Interlocked.Read(ref checkpointCount), fileAnalysisMilliseconds, fileHashMilliseconds,
+                    fileThumbnailMilliseconds));
             }
-        });
+            });
+        }
+        finally
+        {
+            // Cancellation or a processing exception must not discard the records
+            // that completed since the previous batch checkpoint.
+            FlushCheckpointBatch();
+        }
 
         token.ThrowIfCancellationRequested();
         stale.ExceptWith(result.Where(x => x is not null).Select(x => x!.Path));
@@ -161,7 +277,18 @@ public sealed class LibraryEngine : ILibraryEngine
         // Rebuild duplicate groups from scratch so resolved duplicates do not retain stale group IDs.
         duplicateGroups.Rebuild(models);
 
+        var finalPersistenceTimer = Stopwatch.StartNew();
         repo.SaveAll(models, stale);
+        finalPersistenceTimer.Stop();
+        Interlocked.Add(ref persistenceElapsedMilliseconds, (long)finalPersistenceTimer.Elapsed.TotalMilliseconds);
+        progress?.Report(new ScanProgress(
+            "Completed", files.Count, files.Count, Volatile.Read(ref indexed), Volatile.Read(ref failed), 100,
+            CurrentStage: "FinalPersistence",
+            AnalysisElapsedMilliseconds: Interlocked.Read(ref analysisElapsedMilliseconds),
+            HashElapsedMilliseconds: Interlocked.Read(ref hashElapsedMilliseconds),
+            ThumbnailElapsedMilliseconds: Interlocked.Read(ref thumbnailElapsedMilliseconds),
+            PersistenceElapsedMilliseconds: Interlocked.Read(ref persistenceElapsedMilliseconds),
+            CheckpointCount: Interlocked.Read(ref checkpointCount)));
         return models.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 

@@ -201,7 +201,7 @@ public sealed class MultilingualEntityService
     };
 
     public MultilingualEntityMatch? Recognize(ModelRecord model)
-        => Recognize(string.Join(" ", model.Name ?? "", Path.GetFileNameWithoutExtension(model.Path ?? ""), model.TranslatedTitle ?? ""));
+        => Recognize(string.Join(" ", model.Name ?? "", Path.GetFileNameWithoutExtension(model.Path ?? ""), model.TranslatedTitle ?? "", model.SourceSemanticEvidence ?? ""));
 
     public MultilingualEntityMatch? Recognize(string text)
     {

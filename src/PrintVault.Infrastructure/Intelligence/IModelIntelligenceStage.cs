@@ -15,5 +15,7 @@ internal sealed class ModelIntelligenceContext
     public MultilingualEntityMatch? Entity { get; set; }
     public SemanticEvidenceFusionResult? Fusion { get; set; }
     public List<string> StageEvidence { get; } = new();
+    public List<string> StageDiagnostics { get; } = new();
+    public bool CaptureDiagnostics { get; set; }
     public bool ClassificationApplied { get; set; }
 }

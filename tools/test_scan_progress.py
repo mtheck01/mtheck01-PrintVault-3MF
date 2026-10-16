@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 ROOT = Path(__file__).resolve().parents[1]
 core=(ROOT/"src/PrintVault.Core/LibraryEngine.cs").read_text(encoding="utf-8")
 infra=(ROOT/"src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
@@ -10,7 +11,7 @@ checks={
 "indexed field":"int Indexed" in core,
 "failed field":"int Failed" in core,
 "stable discovery denominator":'new ScanProgress("Indexing", files.Count, 0' in infra,
-"indexed progress reports":'new ScanProgress("Indexing", files.Count, processed' in infra,
+"indexed progress reports":re.search(r'new ScanProgress\(\s*"Indexing",\s*files\.Count,\s*processed', infra) is not None,
 "UI telemetry":'Found {p.Discovered:N0} • Indexed {p.Indexed:N0} • Failed {p.Failed:N0}' in ui,
 "progress control":'x:Name="ScanProgressText"' in xaml,
 "clear reset":'ScanProgressText.Text = "Ready"' in ui,
