@@ -23,8 +23,8 @@ public sealed class LibraryEngine : ILibraryEngine
     public async Task<IReadOnlyList<ModelRecord>> ScanAsync(IEnumerable<string> roots, ScanMode mode = ScanMode.Turbo, CancellationToken token = default, IProgress<ScanProgress>? progress = null)
     {
         var rootList = NormalizeRoots(roots);
-        var autonomousClassificationOnly = string.Equals(
-            Environment.GetEnvironmentVariable("PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"),
+        var skipAutonomousEnrichment = string.Equals(
+            Environment.GetEnvironmentVariable("PRINTVAULT_AUTONOMOUS_SKIP_ENRICHMENT"),
             "1",
             StringComparison.OrdinalIgnoreCase);
         var files = fileDiscovery.Discover3MfFiles(rootList);
@@ -83,7 +83,9 @@ public sealed class LibraryEngine : ILibraryEngine
         {
             await Parallel.ForEachAsync(Enumerable.Range(0, files.Count), new ParallelOptions
             {
-                MaxDegreeOfParallelism = autonomousClassificationOnly ? Math.Clamp(Environment.ProcessorCount, 2, 6) : Math.Clamp(Environment.ProcessorCount, 4, 12),
+                MaxDegreeOfParallelism = skipAutonomousEnrichment
+                    ? Math.Clamp(Environment.ProcessorCount, 2, 6)
+                    : Math.Clamp(Environment.ProcessorCount, 4, 12),
                 CancellationToken = token
             }, async (i, ct) =>
             {
@@ -111,10 +113,10 @@ public sealed class LibraryEngine : ILibraryEngine
                 // extraction are useful UI enrichment, but they are not prerequisites for
                 // classification, organization, or taxonomy cleanup. They are deliberately
                 // deferred during the bounded autonomous pass.
-                var doHash = !autonomousClassificationOnly &&
+                var doHash = !skipAutonomousEnrichment &&
                              mode != ScanMode.Quick &&
                              (mode == ScanMode.Deep || changed || string.IsNullOrWhiteSpace(m?.Hash));
-                var doThumbnail = !autonomousClassificationOnly && mode != ScanMode.Quick;
+                var doThumbnail = !skipAutonomousEnrichment && mode != ScanMode.Quick;
                 m ??= new ModelRecord { Path = path, Name = fi.Name, Category = "Uncategorized" };
                 m.Path = path;
                 m.Name = fi.Name;
@@ -125,7 +127,11 @@ public sealed class LibraryEngine : ILibraryEngine
                 {
                     ReportStage(path, "Analysis");
                     var analysisTimer = Stopwatch.StartNew();
-                    var a = autonomousClassificationOnly ? analyzer.AnalyzeFilenameOnly(path, fi.Name) : analyzer.Analyze(path, fi.Name);
+                    // Autonomous runs may omit optional hash/thumbnail work, but category
+                    // decisions must still use the embedded 3MF title/description and other
+                    // source evidence. Filename-only analysis overwrote stronger existing
+                    // classifications during the fast CI pass.
+                    var a = analyzer.Analyze(path, fi.Name);
                     // Deep analysis must never destroy a user-defined category.
                     // Automatic classification is only allowed to choose a built-in category
                     // when the item is currently Uncategorized or already using a built-in one.

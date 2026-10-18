@@ -98,10 +98,16 @@ assert '!IsLegacyCategory(x)' in (ROOT / "src" / "PrintVault" / "MainWindow.xaml
 
 assert 'INITIAL_VERSION_BUMP=PASS' in workflow
 assert workflow.index('INITIAL_VERSION_BUMP=PASS') < workflow.index('$candidate = Invoke-CandidateBuild')
-assert 'PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY = "1"' in workflow
-assert 'autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
-assert 'doHash = !autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
-assert 'doThumbnail = !autonomousClassificationOnly' in (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
+assert 'PRINTVAULT_AUTONOMOUS_SKIP_ENRICHMENT = "1"' in workflow
+engine = (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryEngine.cs").read_text(encoding="utf-8")
+assert 'skipAutonomousEnrichment' in engine
+assert 'doHash = !skipAutonomousEnrichment' in engine
+assert 'doThumbnail = !skipAutonomousEnrichment' in engine
+assert 'MaxDegreeOfParallelism = skipAutonomousEnrichment' in engine
+assert '? Math.Clamp(Environment.ProcessorCount, 2, 6)' in engine
+assert ': Math.Clamp(Environment.ProcessorCount, 4, 12)' in engine
+assert 'var a = analyzer.Analyze(path, fi.Name);' in engine
+assert 'analyzer.AnalyzeFilenameOnly(path, fi.Name)' not in engine
 print("PASS: autonomous cycle contract and promotion safety gate")
 
 # The validation runner must use only the isolated test library and must never

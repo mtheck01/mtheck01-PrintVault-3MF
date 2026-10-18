@@ -634,8 +634,8 @@ jobs:
             # Autonomous CI must explicitly select its non-interactive path.
             $env:PRINTVAULT_CI = "1"
             Write-Host "PRINTVAULT_CI=$env:PRINTVAULT_CI"
-            $env:PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY = "1"
-            Write-Host "PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY=$env:PRINTVAULT_AUTONOMOUS_CLASSIFICATION_ONLY"
+            $env:PRINTVAULT_AUTONOMOUS_SKIP_ENRICHMENT = "1"
+            Write-Host "PRINTVAULT_AUTONOMOUS_SKIP_ENRICHMENT=$env:PRINTVAULT_AUTONOMOUS_SKIP_ENRICHMENT"
             cmd /c "build_windows.bat" > $candidateBuildLog 2>&1
             $buildExit = $LASTEXITCODE
             if (Test-Path $candidateBuildLog) {
