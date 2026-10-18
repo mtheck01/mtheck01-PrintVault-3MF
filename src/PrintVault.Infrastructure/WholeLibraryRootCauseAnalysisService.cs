@@ -258,7 +258,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             repositoryCountAfterSync,
             synchronizedFromActiveCatalog,
             catalogMismatch,
-            evidenceTraceSchemaVersion = 1,
+            evidenceTraceSchemaVersion = 2,
             evidenceTraces = orderedEvidenceTraces,
             rows = orderedRootCauseRows,
             conflictReviewRows = orderedRows,
@@ -326,7 +326,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
         Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_START id={source.Id} path={JsonSerializer.Serialize(source.Path)}");
         try
         {
-            var analysis = sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace);
+            // Preserve semantic/provenance tracing without enumerating every reachable
+            // vertex and triangle. Exact component counts are unrelated to category
+            // inference and made this pass repeatedly parse large geometry payloads.
+            var analysis = sourceAnalyzer.AnalyzeForensicFastGeometry(source.Path, source.Name, out var analysisTrace);
             model.SourceSemanticEvidence = analysis.SourceSemanticEvidence;
             sourceAnalysis = analysis;
             sourceDetails = analysisTrace;
