@@ -334,7 +334,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             sourceAnalysis = analysis;
             sourceDetails = analysisTrace;
             var analyzerElapsedMs = (long)Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds;
-            Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_DONE id={source.Id} elapsed_ms={analyzerElapsedMs} category={JsonSerializer.Serialize(analysis.Category)}");
+            Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_DONE id={source.Id} elapsed_ms={analyzerElapsedMs} xml_ms={analysisTrace.MainModelXmlLoadMilliseconds} xml_uncompressed_bytes={analysisTrace.MainModelXmlUncompressedBytes} streamed_xml={analysisTrace.StreamedMainModelXml} metadata_ms={analysisTrace.PackageMetadataReadMilliseconds} semantic_score_ms={analysisTrace.SemanticScoringMilliseconds} geometry_ms={analysisTrace.GeometryResolutionMilliseconds} vertices={analysisTrace.VertexCount} category={JsonSerializer.Serialize(analysis.Category)}");
             var currentCategory = source.Category?.Trim() ?? string.Empty;
             var currentIsUnresolved = IsUnresolvedCategory(currentCategory);
             // Forensic enrichment must not silently rewrite an existing classification.

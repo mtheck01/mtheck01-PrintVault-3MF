@@ -6,6 +6,7 @@ service = (ROOT / "src/PrintVault.Infrastructure/WholeLibraryRootCauseAnalysisSe
 program = (ROOT / "tools/PrintVault.Automation/Program.cs").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/autonomous-cycle.yml").read_text(encoding="utf-8")
 analyzer = (ROOT / "src/PrintVault.Infrastructure/ThreeMfAnalyzer.cs").read_text(encoding="utf-8")
+rootcause = service
 
 checks = {
     "records analyzed is distinct from conflict review rows": "RECORDS_ANALYZED=" in program and "CONFLICT_REVIEW_ROWS=" in program,
@@ -83,8 +84,11 @@ checks = {
     "outcome CSV is uploaded as a diagnostic artifact": 'Filter "whole-library-outcomes.*.csv"' in workflow,
     "repeated semantic phrase scoring reuses compiled regex matchers": "TokenRegexCache.GetOrAdd" in analyzer and "RegexOptions.Compiled | RegexOptions.CultureInvariant" in analyzer,
     "compact semantic text is normalized once per model": "compactSemanticScoringText = CompactForTokenMatching(semanticScoringText)" in analyzer,
-    "basematerial extraction reuses the parsed model traversal": "XDocument? modelDocument = null" in analyzer and "modelMaterials.Add(materialName)" in analyzer and "foreach(var b in modelDocument.Descendants()" not in analyzer,
-    "large geometry is not repeatedly copied into diagnostics text": "if (!e.HasElements) allText.Append(' ').Append(e.Value);" in analyzer and "!local.Equals(\"vertex\", StringComparison.OrdinalIgnoreCase)" in analyzer and "!local.Equals(\"triangle\", StringComparison.OrdinalIgnoreCase)" in analyzer,
+    "model materials are collected during the same XML traversal": "materials.Add(nameAttribute)" in analyzer and "var parsedModel = ReadModelXml" in analyzer and "foreach(var b in modelDocument.Descendants()" not in analyzer,
+    "large geometry avoids repeated container-value expansion": "if (!element.HasElements) allText.Append(' ').Append(element.Value);" in analyzer and "!localName.Equals(\"vertex\", StringComparison.OrdinalIgnoreCase)" in analyzer and "!localName.Equals(\"triangle\", StringComparison.OrdinalIgnoreCase)" in analyzer,
+    "large model XML uses the streaming reader above a bounded threshold": "StreamingModelXmlThresholdBytes = 32L * 1024 * 1024" in analyzer and "XmlReader.Create(stream, new XmlReaderSettings" in analyzer and "model.Length >= StreamingModelXmlThresholdBytes" in analyzer,
+    "streaming parser preserves traceable XML size and parser choice": "MainModelXmlUncompressedBytes" in analyzer and "StreamedMainModelXml" in analyzer,
+    "root-cause logs expose per-file parser phase timings": "xml_ms={analysisTrace.MainModelXmlLoadMilliseconds}" in rootcause and "geometry_ms={analysisTrace.GeometryResolutionMilliseconds}" in rootcause and "xml_uncompressed_bytes={analysisTrace.MainModelXmlUncompressedBytes}" in rootcause,
 }
 failed = [name for name, passed in checks.items() if not passed]
 for name, passed in checks.items():
