@@ -38,6 +38,7 @@ public sealed class ThreeMfAnalysisTrace
     public int GeometryCycles { get; set; }
     public long GeometryReachableVertices { get; set; }
     public long GeometryReachableTriangles { get; set; }
+    public bool? ComponentGeometryCountsExact { get; set; }
     public string? FailureType { get; set; }
     public string? FailureMessage { get; set; }
 }
@@ -219,12 +220,21 @@ public sealed class ThreeMfAnalyzer
             "Unknown", 0, "Autonomous classification-only pass", "");
     }
 
-    public IntelligenceResult Analyze(string path, string name) => AnalyzeCore(path, name, false, out _);
+    public IntelligenceResult Analyze(string path, string name) => AnalyzeCore(path, name, false, false, out _);
 
     public IntelligenceResult Analyze(string path, string name, out ThreeMfAnalysisTrace trace)
-        => AnalyzeCore(path, name, true, out trace);
+        => AnalyzeCore(path, name, true, true, out trace);
 
-    private IntelligenceResult AnalyzeCore(string path, string name, bool captureTrace, out ThreeMfAnalysisTrace trace)
+    /// <summary>
+    /// Produces the full semantic evidence trace while using the bounded component-geometry
+    /// reachability probe. Whole-library diagnostics need semantic provenance, not exact
+    /// vertex/triangle totals; exact geometry remains available through the trace overload.
+    /// </summary>
+    public IntelligenceResult AnalyzeForensicFastGeometry(string path, string name, out ThreeMfAnalysisTrace trace)
+        => AnalyzeCore(path, name, true, false, out trace);
+
+    private IntelligenceResult AnalyzeCore(
+        string path, string name, bool captureTrace, bool exactComponentGeometry, out ThreeMfAnalysisTrace trace)
     {
         trace = captureTrace ? new ThreeMfAnalysisTrace() : null!;
         var capturedTrace = trace;
@@ -407,10 +417,12 @@ public sealed class ThreeMfAnalyzer
                 if (vertexBounds.Count == 0)
                 {
                     var geometryStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
-                    var geometry = geometryResolver.Resolve(path, modelDocument, stopAfterFirstReachableGeometry: !captureTrace);
+                    var geometry = geometryResolver.Resolve(path, modelDocument,
+                        stopAfterFirstReachableGeometry: !exactComponentGeometry);
                     if (captureTrace)
                     {
                         trace.GeometryResolutionMilliseconds += (long)Stopwatch.GetElapsedTime(geometryStarted).TotalMilliseconds;
+                        trace.ComponentGeometryCountsExact = geometry.CountsExact;
                         trace.GeometryModelParts = geometry.ModelParts;
                         trace.GeometryComponentReferences = geometry.ComponentReferences;
                         trace.GeometryUnresolvedReferences = geometry.UnresolvedReferences;

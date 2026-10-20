@@ -11,17 +11,25 @@ checks = {
     "records analyzed is distinct from conflict review rows": "RECORDS_ANALYZED=" in program and "CONFLICT_REVIEW_ROWS=" in program,
     "all successful analyses emit a per-record outcome": "outcomes.Add(new RootCauseOutcome(" in service,
     "forensic analysis re-runs source-derived 3MF analysis": (
-        "sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace)" in service
+        "sourceAnalyzer.AnalyzeForensicFastGeometry(source.Path, source.Name, out var analysisTrace)" in service
         and re.search(r"AnalyzeSourceForForensics\(m,\s*(?:worker\.SourceAnalyzer,\s*)?out var sourceTrace\)", service) is not None
     ),
     "forensic evidence includes bounded source, fusion, arbitration, and timing trace": (
-        "evidenceTraceSchemaVersion = 1" in service
+        "evidenceTraceSchemaVersion = 2" in service
         and "evidenceTraces = orderedEvidenceTraces" in service
         and "stage.StageTrace" in service
         and "f.Diagnostics" in service
         and "SemanticInputsTruncated" in analyzer
-        and "sourceAnalyzer.Analyze(source.Path, source.Name, out var analysisTrace)" in service
+        and "sourceAnalyzer.AnalyzeForensicFastGeometry(source.Path, source.Name, out var analysisTrace)" in service
         and "Concat(stage.StageEvidence)" in service
+    ),
+    "forensic source analysis retains semantic traces and uses bounded geometry probing": (
+        "AnalyzeForensicFastGeometry(string path, string name, out ThreeMfAnalysisTrace trace)" in analyzer
+        and "AnalyzeCore(path, name, true, false, out trace)" in analyzer
+        and "AnalyzeCore(path, name, true, true, out trace)" in analyzer
+        and "stopAfterFirstReachableGeometry: !exactComponentGeometry" in analyzer
+        and "trace.ComponentGeometryCountsExact = geometry.CountsExact" in analyzer
+        and "sourceAnalyzer.AnalyzeForensicFastGeometry(source.Path, source.Name, out var analysisTrace)" in service
     ),
     "source-analysis errors are explicit instead of silent": "SOURCE_ANALYZER:FAILED:" in service,
     "forensic source enrichment uses an isolated record copy": "CloneForForensics(source)" in service and "private static ModelRecord CloneForForensics" in service,
