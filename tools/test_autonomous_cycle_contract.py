@@ -68,6 +68,24 @@ assert "Whole-library reproducibility gate failed" in workflow
 assert "WHOLE_LIBRARY_TWO_PASS=PASS" in workflow
 assert "EXTERNAL_TIMEOUT_LOG_SAVED=" in workflow, "Timeouts must preserve redirected child stdout/stderr before throwing"
 assert "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN" in workflow, "Timeout logs must expose final progress/error lines"
+runner_start = workflow.index("function Invoke-ExternalWithHeartbeat")
+runner_end = workflow.index('Write-CycleStatus "FORENSIC_AUDIT"', runner_start)
+process_runner = workflow[runner_start:runner_end]
+assert "$pollIntervalMilliseconds = 500" in process_runner, "External process completion must be polled promptly"
+assert "$heartbeatIntervalMilliseconds = 15000" in process_runner, "Long-running processes must retain 15-second heartbeats"
+assert "while (-not $proc.WaitForExit($pollIntervalMilliseconds))" in process_runner, \
+    "The process runner must wait interruptibly for exit rather than sleep for a full heartbeat interval"
+heartbeat_gate_start = process_runner.index("if ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds)")
+heartbeat_gate_end = process_runner.index("if ($processTimer.Elapsed.TotalSeconds -ge $timeoutSeconds)", heartbeat_gate_start)
+heartbeat_block = process_runner[heartbeat_gate_start:heartbeat_gate_end]
+assert 'Write-CycleStatus "EXTERNAL_RUNNING"' in heartbeat_block, "Long-running processes must publish live stage status"
+assert "$lastHeartbeat = $processTimer.Elapsed" in heartbeat_block, "Heartbeat cadence must be measured between status updates"
+assert "-or" in heartbeat_block and "$elapsed.TotalSeconds -ge $timeoutSeconds" in heartbeat_block, \
+    "A process reaching its timeout must publish a final heartbeat before termination"
+assert "$proc.WaitForExit(0)" in process_runner, "Timeout handling must recheck exit after heartbeat/status work"
+assert "Start-Sleep -Seconds 15" not in process_runner, "A fixed heartbeat sleep must not delay completed child processes"
+assert 'EXTERNAL_EXIT=$exitCode FILE=$filePath ELAPSED_MS=$elapsedMilliseconds' in process_runner, \
+    "Each completed external process must report its elapsed time"
 assert 'WHOLE_LIBRARY_ROOTCAUSE_TIMEOUT_SECONDS=2400' in workflow, "Root-cause analysis must meet the existing 40-minute budget"
 assert '$runLog 2400' in workflow, "Root-cause timeout must match the existing diagnostic budget"
 assert "timeout-minutes: 120" in workflow, "Keep the existing bounded job budget while validating the optimization"
