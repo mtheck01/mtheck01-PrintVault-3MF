@@ -320,18 +320,30 @@ jobs:
 
             $proc = New-Object System.Diagnostics.Process
             $proc.StartInfo = $psi
+            $processTimer = [System.Diagnostics.Stopwatch]::StartNew()
             if (-not $proc.Start()) { throw "Unable to start external process: $filePath" }
 
             $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
             $stderrTask = $proc.StandardError.ReadToEndAsync()
-            $started = Get-Date
-            while (-not $proc.HasExited) {
-              Start-Sleep -Seconds 15
-              $elapsed = [int]((Get-Date) - $started).TotalSeconds
-              Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsed PID=$($proc.Id)"
-              Write-CycleStatus "EXTERNAL_RUNNING" "$filePath elapsed=$elapsed"
-              if ($elapsed -ge $timeoutSeconds) {
-                Write-Warning "EXTERNAL_TIMEOUT=$filePath PID=$($proc.Id) elapsed=$elapsed; terminating process tree."
+            $lastHeartbeat = [TimeSpan]::Zero
+            $pollIntervalMilliseconds = 500
+            $heartbeatIntervalMilliseconds = 15000
+            while (-not $proc.WaitForExit($pollIntervalMilliseconds)) {
+              $elapsed = $processTimer.Elapsed
+              if ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds) -or
+                  ($elapsed.TotalSeconds -ge $timeoutSeconds)) {
+                $elapsedSeconds = [int]$elapsed.TotalSeconds
+                $elapsedMilliseconds = [long]$elapsed.TotalMilliseconds
+                Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsedSeconds ELAPSED_MS=$elapsedMilliseconds PID=$($proc.Id)"
+                Write-CycleStatus "EXTERNAL_RUNNING" "$filePath elapsed=$elapsedSeconds"
+                $lastHeartbeat = $processTimer.Elapsed
+              }
+              if ($processTimer.Elapsed.TotalSeconds -ge $timeoutSeconds) {
+                # The process may have exited while the heartbeat was being published.
+                # Recheck before terminating so status latency cannot turn a pass into a timeout.
+                if ($proc.WaitForExit(0)) { break }
+                $elapsedMilliseconds = [long]$processTimer.Elapsed.TotalMilliseconds
+                Write-Warning "EXTERNAL_TIMEOUT=$filePath PID=$($proc.Id) elapsed_ms=$elapsedMilliseconds; terminating process tree."
                 try { $proc.Kill() } catch {}
                 try { $proc.WaitForExit(10000) | Out-Null } catch {}
                 try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | ForEach-Object { Write-Host "EXTERNAL_KILL=$_"} } catch { Write-Warning "Process-tree termination failed: $($_.Exception.Message)" }
@@ -368,9 +380,10 @@ jobs:
             Set-Content -Path $errPath -Value $stderr -NoNewline -Encoding UTF8
 
             $exitCode = [int]$proc.ExitCode
+            $elapsedMilliseconds = [long]$processTimer.Elapsed.TotalMilliseconds
             if (Test-Path $logPath) { Get-Content $logPath | ForEach-Object { Write-Host $_ } }
             if (Test-Path $errPath) { Get-Content $errPath | ForEach-Object { Write-Host $_ } }
-            Write-Host "EXTERNAL_EXIT=$exitCode FILE=$filePath"
+            Write-Host "EXTERNAL_EXIT=$exitCode FILE=$filePath ELAPSED_MS=$elapsedMilliseconds"
             $proc.Dispose()
             return $exitCode
           }
