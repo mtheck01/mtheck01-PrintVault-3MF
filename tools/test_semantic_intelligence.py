@@ -6,7 +6,7 @@ repo=(ROOT/"src/PrintVault.Infrastructure/LibraryRepository.cs").read_text(encod
 engine=(ROOT/"src/PrintVault.Infrastructure/LibraryEngine.cs").read_text(encoding="utf-8")
 checks=[
  ("weighted semantic signals", "Signal[]" in an and "TokenScore" in an),
- ("geometry dimensions use one-pass vertex bounds", "class VertexBounds" in an and "vertexBounds.Add(e)" in an and "vertexBounds.GetDimensions(unit)" in an),
+ ("geometry dimensions use one-pass vertex bounds in both XML readers", "class VertexBounds" in an and "bounds.Add(vertexX, vertexY, vertexZ)" in an and "element.Attribute(\"x\")?.Value" in an and "vertexBounds.GetDimensions(modelUnit)" in an),
  ("slicer detection", "SlicerNames" in an),
  ("material evidence", "base" in an and "material" in an.lower()),
  ("semantic persistence", "SemanticType" in model and "SuggestedTags" in model and "RiskFlags" in model),
@@ -15,7 +15,7 @@ checks=[
  ("user tag preservation", "Preserve user tags" in engine),
  ("custom category preservation", "IsCustomCategory(existingCategory)" in engine and "preserveCustomCategory" in engine),
  ("custom folder recovery", "GetTopLevelCustomCategory" in engine and "Path.GetRelativePath" in engine),
- ("filesystem path excluded from semantic scoring", "allText.Append(name)" in an and "Append(path)" not in an),
+ ("filesystem path excluded from semantic scoring", "new StringBuilder().Append(name)" in an and "Append(path)" not in an),
  ("signal weights applied", ("TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText)" in an or "TokenScore(semantic, s.Phrase, s.Weight" in an)),
  ("HueForge first-class detection", "DetectSpecialType" in an and "HueForge" in an and "custom_gcode_per_layer" in an),
  ("Keychain first-class detection", "KeychainTerms" in an and "Keychains" in an and "keychain" in an.lower()),

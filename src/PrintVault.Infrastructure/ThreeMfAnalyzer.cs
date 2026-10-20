@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.Net;
+using System.Xml;
 using System.Xml.Linq;
 using PrintVault.Core;
 
@@ -29,6 +30,8 @@ public sealed class ThreeMfAnalysisTrace
     public int BuildItemCount { get; set; }
     public long TotalElapsedMilliseconds { get; set; }
     public long MainModelXmlLoadMilliseconds { get; set; }
+    public long MainModelXmlUncompressedBytes { get; set; }
+    public bool StreamedMainModelXml { get; set; }
     public long PackageMetadataReadMilliseconds { get; set; }
     public long SemanticScoringMilliseconds { get; set; }
     public long GeometryResolutionMilliseconds { get; set; }
@@ -49,6 +52,7 @@ public sealed class ThreeMfAnalysisTrace
 /// semantic classification so library category folders cannot contaminate the result. It is deterministic and requires no cloud service or API key.</summary>
 public sealed class ThreeMfAnalyzer
 {
+    private const long StreamingModelXmlThresholdBytes = 32L * 1024 * 1024;
     private readonly ComponentAwareGeometryResolver geometryResolver = new();
     // Signals are evaluated for every catalog record. Recompiling each phrase regex on
     // every call evicts patterns from .NET's small regex cache and causes repeated parsing
@@ -56,6 +60,18 @@ public sealed class ThreeMfAnalyzer
     private static readonly ConcurrentDictionary<string, Regex> TokenRegexCache = new(StringComparer.OrdinalIgnoreCase);
     private sealed record Signal(string Category, string Phrase, double Weight, string Tag, string Family, string Type, string Subtype);
     private sealed record SpecialDetection(string Category, double Score, string Family, string Type, string Subtype, string Tag, string Reason);
+    private sealed record ModelXmlReadResult(
+        XDocument? Document, StringBuilder AllText, StringBuilder SemanticText,
+        HashSet<string> Materials, VertexBounds VertexBounds, int ObjectCount,
+        int BuildItemCount, string Unit);
+    private struct StreamingElementFrame
+    {
+        public string? MetadataName;
+        public int Depth;
+        public bool IsMetadata;
+        public bool HasElements;
+        public StringBuilder? Text;
+    }
 
     private static readonly string[] KeychainTerms =
     {
@@ -244,6 +260,13 @@ public sealed class ThreeMfAnalyzer
         var evidence=new List<string>();
         var semanticInputs = captureTrace ? new List<string>() : null;
         var sourceSemanticEvidence = new StringBuilder();
+        XDocument? modelDocument = null;
+        var modelMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var allText = new StringBuilder();
+        var semanticText = new StringBuilder();
+        var vertexBounds = new VertexBounds();
+        var buildItems = 0;
+        var modelUnit = "millimeter";
         var totalStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
         void AppendSourceEvidence(string? value)
         {
@@ -279,7 +302,6 @@ public sealed class ThreeMfAnalyzer
             trace.SemanticInputs = semanticInputs!;
             trace.SemanticInputCharacters = (name ?? string.Empty).Length;
         }
-        XDocument? modelDocument = null;
         var low=(name ?? string.Empty).ToLowerInvariant();
         var compactName = CompactForTokenMatching(low);
         SpecialDetection? special=null;
@@ -295,19 +317,29 @@ public sealed class ThreeMfAnalyzer
                     .Select(e => e.FullName).Take(20).ToArray();
             }
             var model=z.GetEntry("3D/3dmodel.model");
-            var modelMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if(model==null){risk.Add("Missing 3D/3dmodel.model");}
             else
             {
                 if (captureTrace) trace.MainModelFound = true;
                 var xmlLoadStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
-                using var st=model.Open(); var doc=XDocument.Load(st,LoadOptions.None);
-                if (captureTrace) trace.MainModelXmlLoadMilliseconds += (long)Stopwatch.GetElapsedTime(xmlLoadStarted).TotalMilliseconds;
+                var streamModelXml = !exactComponentGeometry && model.Length >= StreamingModelXmlThresholdBytes;
+                using var st=model.Open();
+                var parsedModel = ReadModelXml(st, name ?? string.Empty, streamModelXml, RecordSemanticInput, AppendSourceEvidence);
+                var doc = parsedModel.Document;
                 modelDocument = doc;
-                var allText=new StringBuilder();
-                var semanticText=new StringBuilder();
-                var vertexBounds = new VertexBounds();
-                var buildItems = 0;
+                allText = parsedModel.AllText;
+                semanticText = parsedModel.SemanticText;
+                modelMaterials = parsedModel.Materials;
+                vertexBounds = parsedModel.VertexBounds;
+                objects = parsedModel.ObjectCount;
+                buildItems = parsedModel.BuildItemCount;
+                modelUnit = parsedModel.Unit;
+                if (captureTrace) trace.MainModelXmlLoadMilliseconds += (long)Stopwatch.GetElapsedTime(xmlLoadStarted).TotalMilliseconds;
+                if (captureTrace)
+                {
+                    trace.MainModelXmlUncompressedBytes = model.Length;
+                    trace.StreamedMainModelXml = streamModelXml;
+                }
                 // Keep two evidence streams. allText is retained for print-method and
                 // special-format detection, where slicer/configuration metadata is useful.
                 // Semantic classification is deliberately narrower: filename plus explicit
@@ -315,49 +347,6 @@ public sealed class ThreeMfAnalyzer
                 // values, and embedded slicer/config text are NOT semantic identity evidence.
                 // Those fields routinely contain words such as "tree" or "terrain" that
                 // describe the software/schema rather than the printed model.
-                allText.Append(name).Append(' ');
-                semanticText.Append(name).Append(' ');
-                foreach(var e in doc.Descendants())
-                {
-                    var local=e.Name.LocalName;
-                    allText.Append(' ').Append(local);
-                    // XElement.Value on a container joins text from every descendant.
-                    // Appending it for every nested model element repeatedly copies mesh
-                    // coordinates and scales toward quadratic work on large 3MF archives.
-                    // Leaf text retains slicer/metadata evidence without walking child text
-                    // over and over. Vertex and triangle attributes are geometry payload,
-                    // not print-method or special-format evidence.
-                    if (!e.HasElements) allText.Append(' ').Append(e.Value);
-                    if (!local.Equals("vertex", StringComparison.OrdinalIgnoreCase) &&
-                        !local.Equals("triangle", StringComparison.OrdinalIgnoreCase))
-                        foreach(var a in e.Attributes()) allText.Append(' ').Append(a.Name.LocalName).Append(' ').Append(a.Value);
-
-                    if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) objects++;
-                    else if (local.Equals("vertex", StringComparison.OrdinalIgnoreCase)) vertexBounds.Add(e);
-                    else if (local.Equals("item", StringComparison.OrdinalIgnoreCase)) buildItems++;
-                    else if (local.Equals("base", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var materialName = e.Attribute("name")?.Value;
-                        if (!string.IsNullOrWhiteSpace(materialName)) modelMaterials.Add(materialName);
-                    }
-                    if (local.Equals("object", StringComparison.OrdinalIgnoreCase) ||
-                        local.Equals("metadata", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var nameAttr=e.Attribute("name")?.Value;
-                        if(!string.IsNullOrWhiteSpace(nameAttr)) { semanticText.Append(' ').Append(nameAttr); RecordSemanticInput($"{local}.name", nameAttr); if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) AppendSourceEvidence(nameAttr); }
-                        var partAttr=e.Attribute("partnumber")?.Value;
-                        if(!string.IsNullOrWhiteSpace(partAttr)) { semanticText.Append(' ').Append(partAttr); RecordSemanticInput($"{local}.partnumber", partAttr); if (local.Equals("object", StringComparison.OrdinalIgnoreCase)) AppendSourceEvidence(partAttr); }
-                        if(local.Equals("metadata", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var value=e.Value?.Trim();
-                            if(!string.IsNullOrWhiteSpace(value) && value.Length<=500)
-                            {
-                                semanticText.Append(' ').Append(value); RecordSemanticInput($"metadata[{nameAttr ?? "unnamed"}]", value);
-                                if (nameAttr is not null && IsCuratedSemanticMetadataName(nameAttr)) AppendSourceEvidence(value);
-                            }
-                        }
-                    }
-                }
                 var metadataReadStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
                 foreach(var e in z.Entries.Where(e=>e.Length<2_000_000 && (e.FullName.EndsWith(".config",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".json",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".xml",StringComparison.OrdinalIgnoreCase)||e.FullName.EndsWith(".txt",StringComparison.OrdinalIgnoreCase))))
                 {
@@ -400,8 +389,7 @@ public sealed class ThreeMfAnalyzer
                 }
                 else risk.Add("Low semantic confidence");
                 if (captureTrace) { trace.ObjectCount = objects; trace.VertexCount = vertexBounds.Count; }
-                var unit=doc.Root?.Attribute("unit")?.Value?.ToLowerInvariant()??"millimeter";
-                dimensions=vertexBounds.GetDimensions(unit);
+                dimensions=vertexBounds.GetDimensions(modelUnit);
                 if(objects>0){score+=0.20;evidence.Add($"{objects} object(s)");} else risk.Add("No mesh objects detected");
                 if(vertexBounds.Count>0){score+=0.12;} else risk.Add("No vertices detected");
                 if (captureTrace) trace.BuildItemCount = buildItems;
@@ -476,6 +464,176 @@ public sealed class ThreeMfAnalyzer
         };
     }
 
+    private static ModelXmlReadResult ReadModelXml(
+        Stream stream,
+        string name,
+        bool useStreamingReader,
+        Action<string, string?> recordSemanticInput,
+        Action<string?> appendSourceEvidence)
+    {
+        var allText = new StringBuilder().Append(name).Append(' ');
+        var semanticText = new StringBuilder().Append(name).Append(' ');
+        var materials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var bounds = new VertexBounds();
+        var objectCount = 0;
+        var buildItemCount = 0;
+        var unit = "millimeter";
+
+        void ProcessStart(string localName, int depth, string? nameAttribute, string? partNumber,
+            string? vertexX, string? vertexY, string? vertexZ)
+        {
+            if (depth > 0) allText.Append(' ').Append(localName);
+
+            if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) objectCount++;
+            else if (localName.Equals("vertex", StringComparison.OrdinalIgnoreCase)) bounds.Add(vertexX, vertexY, vertexZ);
+            else if (localName.Equals("item", StringComparison.OrdinalIgnoreCase)) buildItemCount++;
+            else if (localName.Equals("base", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(nameAttribute))
+                materials.Add(nameAttribute);
+
+            if (localName.Equals("object", StringComparison.OrdinalIgnoreCase) ||
+                localName.Equals("metadata", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(nameAttribute))
+                {
+                    semanticText.Append(' ').Append(nameAttribute);
+                    recordSemanticInput($"{localName}.name", nameAttribute);
+                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence(nameAttribute);
+                }
+                if (!string.IsNullOrWhiteSpace(partNumber))
+                {
+                    semanticText.Append(' ').Append(partNumber);
+                    recordSemanticInput($"{localName}.partnumber", partNumber);
+                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence(partNumber);
+                }
+            }
+        }
+
+        if (!useStreamingReader)
+        {
+            var document = XDocument.Load(stream, LoadOptions.None);
+            unit = document.Root?.Attribute("unit")?.Value?.ToLowerInvariant() ?? "millimeter";
+            foreach (var element in document.Descendants())
+            {
+                var localName = element.Name.LocalName;
+                if (!element.HasElements) allText.Append(' ').Append(element.Value);
+                if (!localName.Equals("vertex", StringComparison.OrdinalIgnoreCase) &&
+                    !localName.Equals("triangle", StringComparison.OrdinalIgnoreCase))
+                    foreach (var attribute in element.Attributes())
+                        allText.Append(' ').Append(attribute.Name.LocalName).Append(' ').Append(attribute.Value);
+
+                var nameAttribute = element.Attribute("name")?.Value;
+                var partNumber = element.Attribute("partnumber")?.Value;
+                ProcessStart(localName, 1, nameAttribute, partNumber,
+                    element.Attribute("x")?.Value, element.Attribute("y")?.Value, element.Attribute("z")?.Value);
+
+                if (localName.Equals("metadata", StringComparison.OrdinalIgnoreCase))
+                {
+                    var value = element.Value?.Trim();
+                    if (!string.IsNullOrWhiteSpace(value) && value.Length <= 500)
+                    {
+                        semanticText.Append(' ').Append(value);
+                        recordSemanticInput($"metadata[{nameAttribute ?? "unnamed"}]", value);
+                        if (nameAttribute is not null && IsCuratedSemanticMetadataName(nameAttribute)) appendSourceEvidence(value);
+                    }
+                }
+            }
+            return new ModelXmlReadResult(document, allText, semanticText, materials, bounds, objectCount, buildItemCount, unit);
+        }
+
+        using (var reader = XmlReader.Create(stream, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            IgnoreComments = true,
+            IgnoreWhitespace = true
+        }))
+        {
+            var frames = new List<StreamingElementFrame>(64);
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element)
+                {
+                    if (frames.Count > 0)
+                    {
+                        var parent = frames[^1];
+                        parent.HasElements = true;
+                        if (!parent.IsMetadata) parent.Text = null;
+                        frames[^1] = parent;
+                    }
+
+                    var localName = reader.LocalName;
+                    var depth = reader.Depth;
+                    var nameAttribute = reader.GetAttribute("name");
+                    var partNumber = reader.GetAttribute("partnumber");
+                    if (depth == 0) unit = reader.GetAttribute("unit")?.ToLowerInvariant() ?? "millimeter";
+                    ProcessStart(localName, depth, nameAttribute, partNumber,
+                        reader.GetAttribute("x"), reader.GetAttribute("y"), reader.GetAttribute("z"));
+
+                    if (depth > 0 && !localName.Equals("vertex", StringComparison.OrdinalIgnoreCase) &&
+                        !localName.Equals("triangle", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (reader.MoveToFirstAttribute())
+                        {
+                            do { allText.Append(' ').Append(reader.LocalName).Append(' ').Append(reader.Value); }
+                            while (reader.MoveToNextAttribute());
+                            reader.MoveToElement();
+                        }
+                    }
+
+                    if (!reader.IsEmptyElement)
+                    {
+                        frames.Add(new StreamingElementFrame
+                        {
+                            MetadataName = localName.Equals("metadata", StringComparison.OrdinalIgnoreCase) ? nameAttribute : null,
+                            Depth = depth,
+                            IsMetadata = localName.Equals("metadata", StringComparison.OrdinalIgnoreCase)
+                        });
+                    }
+                }
+                else if (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace)
+                {
+                    if (frames.Count == 0) continue;
+                    var text = reader.Value;
+                    var current = frames[^1];
+                    if (!current.HasElements && !current.IsMetadata)
+                    {
+                        current.Text ??= new StringBuilder();
+                        current.Text.Append(text);
+                        frames[^1] = current;
+                    }
+                    for (var i = frames.Count - 1; i >= 0; i--)
+                    {
+                        if (!frames[i].IsMetadata) continue;
+                        var metadata = frames[i];
+                        metadata.Text ??= new StringBuilder();
+                        metadata.Text.Append(text);
+                        frames[i] = metadata;
+                    }
+                }
+                else if (reader.NodeType == XmlNodeType.EndElement && frames.Count > 0)
+                {
+                    var frame = frames[^1];
+                    frames.RemoveAt(frames.Count - 1);
+                    if (frame.Depth > 0 && !frame.HasElements && frame.Text is not null)
+                        allText.Append(' ').Append(frame.Text);
+                    if (frame.IsMetadata)
+                    {
+                        var value = frame.Text?.ToString().Trim();
+                        var metadataName = frame.MetadataName;
+                        if (!string.IsNullOrWhiteSpace(value) && value.Length <= 500)
+                        {
+                            semanticText.Append(' ').Append(value);
+                            recordSemanticInput($"metadata[{metadataName ?? "unnamed"}]", value);
+                            if (metadataName is not null && IsCuratedSemanticMetadataName(metadataName)) appendSourceEvidence(value);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ModelXmlReadResult(null, allText, semanticText, materials, bounds, objectCount, buildItemCount, unit);
+    }
+
     private static bool IsCuratedSemanticMetadataName(string name)
         => name.Equals("title", StringComparison.OrdinalIgnoreCase) ||
            name.Equals("description", StringComparison.OrdinalIgnoreCase) ||
@@ -522,10 +680,15 @@ public sealed class ThreeMfAnalyzer
 
         public void Add(XElement vertex)
         {
+            Add(vertex.Attribute("x")?.Value, vertex.Attribute("y")?.Value, vertex.Attribute("z")?.Value);
+        }
+
+        public void Add(string? xValue, string? yValue, string? zValue)
+        {
             Count++;
-            if (!double.TryParse(vertex.Attribute("x")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
-                !double.TryParse(vertex.Attribute("y")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
-                !double.TryParse(vertex.Attribute("z")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var z)) return;
+            if (!double.TryParse(xValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
+                !double.TryParse(yValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
+                !double.TryParse(zValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var z)) return;
 
             if (!hasCoordinates)
             {
