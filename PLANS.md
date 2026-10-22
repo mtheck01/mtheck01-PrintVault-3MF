@@ -59,7 +59,7 @@ Acceptance criteria:
 - Require a ready main window and meaningful UI smoke flow, not merely a process that remains alive.
 - Publish only after the defined quality, coverage, data-integrity and release checks pass; verify the published artifact afterward.
 
-Status: **Partially verified.** Run #985 built the app and passed full-library validation, but installer execution was skipped because the self-hosted runner is a non-admin service. Its smoke log reported `MAIN_WINDOW=0` and then `OPEN_READY=PASS`; the unconditional success line made that readiness result invalid. A candidate workflow repair now refreshes process state and requires a nonzero, responsive main-window handle before reporting readiness; headless results are explicitly marked not verified. Admin-capable installation, interactive UI operation, and a meaningful UI flow remain outstanding.
+Status: **Partially verified.** Run #985's unconditional UI readiness result was invalid (`MAIN_WINDOW=0` followed by `OPEN_READY=PASS`); PR #50 fixes that reporting defect and adds a regression contract. On PR head `20b4288`, Windows Build run [#661](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/39702495140) verified an Administrator token, installed version 9.0.78, and opened a responsive main window using the empty `RUNNER_TEMP\PrintVault-Isolated-Test-Library`; cleanup passed. Architecture Gate run [#486](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/39702495137) also passed. This verifies fresh installation and launch on an ephemeral hosted runner. Upgrade behavior, meaningful control interaction, and behavior on the user's machine remain outstanding.
 
 ## Sequencing and change control
 
@@ -67,6 +67,6 @@ Status: **Partially verified.** Run #985 built the app and passed full-library v
 2. Establish test infrastructure and exact inventory/outcome evidence.
 3. Profile the actual timeout path; repair the measured root cause.
 4. Continue modularization in small, tested boundaries.
-5. Complete admin-capable installation/UI validation and release gates.
+5. Extend the verified fresh-install/window check with upgrade and meaningful UI-flow validation, then complete release gates.
 
 Do not widen timeouts, weaken gates, merge or publish solely to make a run green.
