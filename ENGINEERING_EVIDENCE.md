@@ -2,6 +2,13 @@
 
 This log distinguishes observed facts from hypotheses. Update it when a check actually completes; do not infer results from a workflow starting or code existing.
 
+## 2026-10-22 — Printed-stock inventory MVP
+
+- Added a **Printed Stock** screen under Organize with model search, active/archive filtering, totals for active items/units/low-stock items, and actions to add stock, edit item details, adjust quantity, inspect history, and archive.
+- Physical stock is stored in separate `PrintedStockItems` and `PrintedStockMovements` tables in the existing application SQLite database. Entries can link to a catalog model or use a manual name; model links use `ON DELETE SET NULL`, preserving the named physical stock when a model record is cleared. All catalog connections now enable SQLite foreign-key enforcement.
+- Quantity changes are transactional and recorded with signed delta, resulting on-hand quantity, reason and UTC time. Negative counts and zero adjustments are rejected; edit-details cannot bypass the movement ledger; archive retains item and movement data. Initial nonzero counts are recorded as an “Initial count” movement.
+- `dotnet build PrintVault.sln -c Release` succeeded locally with 0 warnings and 0 errors. `git diff --check` succeeded. No regression tests or interactive UI checks have been run. Persistence/restart, catalog-reset FK behavior, and UI behavior remain **Not tested**; filament inventory is not part of this slice. The user's production library was not opened or modified.
+
 ## 2026-10-21 — Beta-readiness smoke-check audit
 
 - Autonomous run [#985](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/39519460168) ran merged SHA `8b7fcd41587fef6d8dd8b64c1b858ddcaf89bc2e` on the self-hosted `PrintVault-Validation` runner. It completed in 5m52s and processed all 1,789 records in `D:\3d print files test`: 1,789 analyzed, 1,434 resolved, 355 unresolved, 4 review-required, 0 missing inference, 0 failures, 0 conflicts. Both forensic passes matched fingerprint `11D228363DAE8D30DAAAA3525D8552A6A9A9D2C0040081CE0DE18027935F0532`, same as #983. The preceding #984 run on SHA `39c754878ba38aef3779cc0b66dd6123a74d1de8` took 7m10s; this one-run comparison is observational and does not isolate the streaming parser's causal runtime effect.
