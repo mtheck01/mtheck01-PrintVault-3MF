@@ -61,6 +61,19 @@ Acceptance criteria:
 
 Status: **Partially verified.** Run #985's unconditional UI readiness result was invalid (`MAIN_WINDOW=0` followed by `OPEN_READY=PASS`); PR #50 fixes that reporting defect and adds a regression contract. On PR head `20b4288`, Windows Build run [#661](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/39702495140) verified an Administrator token, installed version 9.0.78, and opened a responsive main window using the empty `RUNNER_TEMP\PrintVault-Isolated-Test-Library`; cleanup passed. Architecture Gate run [#486](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/39702495137) also passed. This verifies fresh installation and launch on an ephemeral hosted runner. Upgrade behavior, meaningful control interaction, and behavior on the user's machine remain outstanding.
 
+## Priority 4 — Track physical printed inventory
+
+**Goal:** Give the operator an at-a-glance count of finished prints on hand, with variants, storage locations, low-stock thresholds and a traceable adjustment history, without coupling physical stock to file scans or classification.
+
+Acceptance criteria:
+
+- Keep physical stock in independent tables in the existing SQLite database; deleting/rebuilding the digital model catalog must preserve quantities and movement history.
+- Support linked or manually named models, multiple variant/location entries, nonnegative counts, reasoned quantity adjustments, low-stock summary, and archive/history views.
+- Provide a focused UI that can be exercised against a disposable database; then add verified storage and UI regression coverage.
+- Treat filament inventory as a separate follow-on slice with its own units, spool weights and usage semantics.
+
+Status: **Implemented, not verified.** The first printed-stock UI and SQLite persistence slice is wired into navigation and the Release solution build succeeds. UI interaction, FK behavior during a catalog reset, persistence through restart, and regression coverage remain outstanding. Filament tracking is not implemented. See `ENGINEERING_EVIDENCE.md`.
+
 ## Sequencing and change control
 
 1. Finish and regression-test the category persistence extraction.

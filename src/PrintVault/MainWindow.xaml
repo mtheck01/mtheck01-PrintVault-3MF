@@ -43,6 +43,7 @@
                 <Button Content="Library Health" Click="LibraryHealth_Click" ToolTip="Library health, duplicates, missing thumbnails, review items, learned rules and operation history."/>
                 <Button Content="Tag Manager" Click="TagManager_Click"/>
                 <Button Content="Collections" Click="Collections_Click"/>
+                <Button Content="Printed Stock" Click="PrintedStock_Click" ToolTip="Track printed models on hand, locations, low-stock alerts, and quantity history."/>
               </StackPanel>
             </Expander>
 

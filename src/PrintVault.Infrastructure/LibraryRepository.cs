@@ -42,7 +42,7 @@ public sealed class LibraryRepository
         var c = new SqliteConnection($"Data Source={db};Cache=Shared;Mode=ReadWriteCreate");
         c.Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
+        cmd.CommandText = "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
         cmd.ExecuteNonQuery();
         return c;
     }

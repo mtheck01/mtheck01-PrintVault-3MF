@@ -1381,6 +1381,9 @@ public partial class MainWindow : Window
     private void Collections_Click(object sender, RoutedEventArgs e)
         => new CollectionsWindow(stateStore, ModelsSource.ToList(), SelectedModels(active), RefreshFromTools) { Owner = this }.ShowDialog();
 
+    private void PrintedStock_Click(object sender, RoutedEventArgs e)
+        => new PrintedInventoryWindow(new PrintedStockService(new InventoryRepository(engine.Repository.DatabasePath)), ModelsSource.ToList()) { Owner = this }.ShowDialog();
+
     private void RefreshFromTools()
     {
         ModelsSource.ReplaceAll(engine.Repository.GetAll());
