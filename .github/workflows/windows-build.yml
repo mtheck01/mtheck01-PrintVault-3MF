@@ -178,6 +178,72 @@ jobs:
           Write-Host "INSTALLER=$installer"
           Write-Host "SHA256=$hash"
 
+      - name: Install and launch on isolated admin runner
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw "Installer smoke requires an administrator token; runner identity is $($identity.Name)."
+          }
+          Write-Host "INSTALL_SMOKE_ADMIN=PASS IDENTITY=$($identity.Name)"
+
+          $version = (Get-Content ".\VERSION" -Raw).Trim()
+          $installer = (Resolve-Path ".\dist\installer\PrintVault_3MF_v$($version)_Setup.exe").Path
+          $installerLog = Join-Path $env:RUNNER_TEMP "PrintVault-installer-smoke.log"
+          $install = Start-Process -FilePath $installer -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=$installerLog"
+          ) -PassThru -Wait
+          if ($install.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $installerLog) { Get-Content -LiteralPath $installerLog }
+            throw "Installer exited with code $($install.ExitCode). Log: $installerLog"
+          }
+
+          $installedExe = Join-Path $env:ProgramFiles "PrintVault 3MF\PrintVault.exe"
+          if (-not (Test-Path -LiteralPath $installedExe)) {
+            throw "Installer reported success but installed executable is missing: $installedExe"
+          }
+          $installedVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedExe).FileVersion
+          if ($installedVersion -ne $version) {
+            throw "Installed executable version mismatch. Expected $version, found $installedVersion."
+          }
+          Write-Host "INSTALL_SMOKE_INSTALL=PASS VERSION=$installedVersion"
+
+          # The runner VM is disposable. Point the app at an empty folder under
+          # RUNNER_TEMP so startup cannot scan the user's actual print library.
+          $testLibrary = Join-Path $env:RUNNER_TEMP "PrintVault-Isolated-Test-Library"
+          New-Item -ItemType Directory -Force -Path $testLibrary | Out-Null
+          $rootFile = Join-Path $env:APPDATA "PrintVault\root.txt"
+          New-Item -ItemType Directory -Force -Path (Split-Path $rootFile) | Out-Null
+          Set-Content -LiteralPath $rootFile -Value $testLibrary -NoNewline
+          Write-Host "INSTALL_SMOKE_LIBRARY_ROOT=$testLibrary"
+
+          $app = $null
+          try {
+            $app = Start-Process -FilePath $installedExe -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            $ready = $false
+            do {
+              $app.Refresh()
+              if ($app.HasExited) { throw "Installed app exited during startup with code $($app.ExitCode)." }
+              if ($app.MainWindowHandle -ne [IntPtr]::Zero) {
+                try { $ready = $app.Responding } catch { $ready = $false }
+                if ($ready) { break }
+              }
+              Start-Sleep -Milliseconds 500
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if (-not $ready) {
+              throw "Installed app did not expose a responsive main window within 30 seconds. PID=$($app.Id)"
+            }
+            Write-Host "INSTALL_SMOKE_WINDOW=PASS PID=$($app.Id) HANDLE=$($app.MainWindowHandle.ToInt64())"
+          }
+          finally {
+            if ($null -ne $app -and -not $app.HasExited) {
+              Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "INSTALL_SMOKE_APP_CLEANUP=COMPLETE"
+          }
 
 
 
