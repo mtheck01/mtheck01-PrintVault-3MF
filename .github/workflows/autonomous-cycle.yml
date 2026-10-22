@@ -721,10 +721,39 @@ jobs:
             Set-Content -Path $rootFile -Value $libraryRoot -NoNewline
 
             $proc = Start-Process -FilePath $candidate.Path -PassThru
-            Start-Sleep -Seconds 30
-            if ($proc.HasExited) { throw "Final PrintVault smoke launch exited with code $($proc.ExitCode)." }
-            Write-Host "APPLICATION=OPEN VERSION=$($candidate.Version) PID=$($proc.Id) MAIN_WINDOW=$($proc.MainWindowHandle)"
-            Write-Host "APPLICATION=OPEN_READY=PASS"
+            $windowDeadline = [DateTime]::UtcNow.AddSeconds(30)
+            $mainWindowHandle = [IntPtr]::Zero
+            $responding = $false
+            do {
+              $proc.Refresh()
+              if ($proc.HasExited) { throw "Final PrintVault smoke launch exited with code $($proc.ExitCode)." }
+              $mainWindowHandle = $proc.MainWindowHandle
+              if ($mainWindowHandle -ne [IntPtr]::Zero) {
+                try { $responding = $proc.Responding } catch { $responding = $false }
+                if ($responding) { break }
+              }
+              Start-Sleep -Milliseconds 500
+            } while ([DateTime]::UtcNow -lt $windowDeadline)
+
+            $windowValue = $mainWindowHandle.ToInt64()
+            Write-Host "APPLICATION=OPEN VERSION=$($candidate.Version) PID=$($proc.Id) MAIN_WINDOW=$windowValue RESPONDING=$responding"
+            if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding) {
+              Write-Host "APPLICATION=OPEN_READY=PASS"
+            }
+            else {
+              $smokeLog = Join-Path $PWD "build_logs\ui-smoke-not-verified.txt"
+              New-Item -ItemType Directory -Force -Path (Split-Path $smokeLog) | Out-Null
+              @(
+                "APPLICATION=OPEN_READY=NOT_VERIFIED"
+                "REASON=NO_RESPONSIVE_MAIN_WINDOW"
+                "PID=$($proc.Id)"
+                "SESSION_ID=$($proc.SessionId)"
+                "MAIN_WINDOW=$windowValue"
+                "RESPONDING=$responding"
+                "RUNNER_IDENTITY=$([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+              ) | Set-Content -Path $smokeLog
+              Get-Content $smokeLog | ForEach-Object { Write-Host $_ }
+            }
             return $proc
           }
 

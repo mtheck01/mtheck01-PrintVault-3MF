@@ -108,6 +108,19 @@ assert 'Cleanup PrintVault process' in workflow
 assert 'PRINTVAULT_PROCESS_CLEANUP=PASS' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
 assert workflow.index('LEGACY_TAXONOMY_CLEANUP') < workflow.index('FINAL_APP_SMOKE')
+final_app_start = workflow.index('function Start-FinalApp')
+final_app_end = workflow.index('function Close-PrintVault', final_app_start)
+final_app = workflow[final_app_start:final_app_end]
+assert '$proc.Refresh()' in final_app, 'The smoke check must refresh process state before reading its window handle'
+assert '$proc.MainWindowHandle' in final_app and '$proc.Responding' in final_app, \
+    'UI readiness requires a visible main window and a responsive app process'
+assert 'if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding)' in final_app, \
+    'OPEN_READY=PASS must be conditional on a responsive main window'
+assert 'APPLICATION=OPEN_READY=NOT_VERIFIED' in final_app and 'ui-smoke-not-verified.txt' in final_app, \
+    'Headless service sessions must retain an explicit not-verified UI result'
+assert final_app.index('if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding)') < final_app.index('APPLICATION=OPEN_READY=PASS')
+assert 'Write-Host "APPLICATION=OPEN_READY=PASS"' not in workflow.replace(final_app, ''), \
+    'No unconditional UI readiness success may appear outside the guarded smoke path'
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=0' in workflow
 assert 'LEGACY_REGISTRY_ENTRIES_REMAINING=' in (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
 assert 'CleanupLegacyTaxonomy' in (ROOT / "src" / "PrintVault.Infrastructure" / "OrganizationService.cs").read_text(encoding="utf-8")
