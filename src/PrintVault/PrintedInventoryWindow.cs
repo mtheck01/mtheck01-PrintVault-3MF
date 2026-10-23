@@ -73,7 +73,6 @@ public sealed class PrintedInventoryWindow : Window
         grid.SelectionUnit = DataGridSelectionUnit.FullRow; grid.CanUserAddRows = false; grid.HeadersVisibility = DataGridHeadersVisibility.Column;
         grid.GridLinesVisibility = DataGridGridLinesVisibility.Horizontal; grid.Background = Brush("#101B2D"); grid.Foreground = Brushes.White;
         grid.RowBackground = Brush("#101B2D"); grid.AlternatingRowBackground = Brush("#142239");
-        ApplyDarkGridStyles(grid);
         grid.Columns.Add(Column("Model", nameof(PrintedStockItem.ModelName), 2));
         grid.Columns.Add(Column("Variant", nameof(PrintedStockItem.Variant), 1));
         grid.Columns.Add(Column("Location", nameof(PrintedStockItem.Location), 1));
@@ -82,6 +81,7 @@ public sealed class PrintedInventoryWindow : Window
         grid.Columns.Add(Column("Low at", nameof(PrintedStockItem.LowStockThreshold), .65));
         grid.Columns.Add(Column("Stock status", nameof(PrintedStockItem.StockStatus), .85));
         grid.Columns.Add(Column("Notes", nameof(PrintedStockItem.Notes), 1.5));
+        ApplyDarkGridStyles(grid);
         root.Children.Add(grid);
         return root;
     }
@@ -168,10 +168,7 @@ public sealed class PrintedInventoryWindow : Window
         {
             Setters =
             {
-                new Setter(Control.BackgroundProperty, new Binding(nameof(Control.Background))
-                {
-                    RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(DataGridRow), 1)
-                }),
+                new Setter(Control.BackgroundProperty, Brush("#101B2D")),
                 new Setter(Control.ForegroundProperty, Brush("#F2F6FC")),
                 new Setter(Control.PaddingProperty, new Thickness(7, 4, 7, 4)),
                 new Setter(Control.BorderBrushProperty, Brush("#263B55")),
@@ -319,11 +316,11 @@ internal sealed class StockHistoryWindow : Window
         var close = new Button { Content = "Close", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 12, 0, 0) };
         close.Click += (_, _) => Close(); DockPanel.SetDock(close, Dock.Bottom); root.Children.Add(close);
         var grid = new DataGrid { ItemsSource = movements, AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, Background = new SolidColorBrush(Color.FromRgb(16, 27, 45)), Foreground = Brushes.White };
-        PrintedInventoryWindow.ApplyDarkGridStyles(grid);
         grid.Columns.Add(new DataGridTextColumn { Header = "When (UTC)", Binding = new Binding(nameof(StockMovement.OccurredUtc)) { StringFormat = "yyyy-MM-dd HH:mm:ss" }, Width = new DataGridLength(1.5, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "Change", Binding = new Binding(nameof(StockMovement.QuantityDelta)) { StringFormat = "+#;-#;0" }, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "On hand after", Binding = new Binding(nameof(StockMovement.QuantityAfter)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "Reason", Binding = new Binding(nameof(StockMovement.Reason)), Width = new DataGridLength(2, DataGridLengthUnitType.Star) });
+        PrintedInventoryWindow.ApplyDarkGridStyles(grid);
         root.Children.Add(grid); Content = root;
     }
 }
