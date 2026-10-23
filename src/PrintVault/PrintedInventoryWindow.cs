@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using PrintVault.Core;
@@ -55,17 +56,24 @@ public sealed class PrintedInventoryWindow : Window
         controls.Children.Add(left);
         search.Width = 270; search.Height = 34; search.Margin = new Thickness(0, 0, 12, 0);
         search.Padding = new Thickness(8, 5, 8, 5); search.ToolTip = "Search model, variant, location and notes";
+        search.Background = Brush("#101B2D"); search.Foreground = Brush("#F2F6FC"); search.BorderBrush = Brush("#405875"); search.CaretBrush = Brushes.White;
+        search.SelectionBrush = Brush("#316A9E"); search.VerticalContentAlignment = VerticalAlignment.Center;
+        showArchived.Foreground = Brush("#E5EDF7"); showArchived.FontSize = 13; showArchived.Margin = new Thickness(0, 0, 4, 0);
         left.Children.Add(search); left.Children.Add(showArchived);
 
-        var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
+        var footer = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         summary.Margin = new Thickness(2, 0, 0, 0); footer.Children.Add(summary);
-        var close = Button("Close", (_, _) => Close()); DockPanel.SetDock(close, Dock.Right); footer.Children.Add(close);
+        var close = Button("Close", (_, _) => Close()); close.Margin = new Thickness(12, 0, 0, 0);
+        Grid.SetColumn(close, 1); footer.Children.Add(close);
 
         grid.AutoGenerateColumns = false; grid.IsReadOnly = true; grid.SelectionMode = DataGridSelectionMode.Single;
         grid.SelectionUnit = DataGridSelectionUnit.FullRow; grid.CanUserAddRows = false; grid.HeadersVisibility = DataGridHeadersVisibility.Column;
         grid.GridLinesVisibility = DataGridGridLinesVisibility.Horizontal; grid.Background = Brush("#101B2D"); grid.Foreground = Brushes.White;
         grid.RowBackground = Brush("#101B2D"); grid.AlternatingRowBackground = Brush("#142239");
+        ApplyDarkGridStyles(grid);
         grid.Columns.Add(Column("Model", nameof(PrintedStockItem.ModelName), 2));
         grid.Columns.Add(Column("Variant", nameof(PrintedStockItem.Variant), 1));
         grid.Columns.Add(Column("Location", nameof(PrintedStockItem.Location), 1));
@@ -142,6 +150,35 @@ public sealed class PrintedInventoryWindow : Window
 
     private void Error(string title, Exception ex) => MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));
+    internal static void ApplyDarkGridStyles(DataGrid target)
+    {
+        target.ColumnHeaderStyle = new Style(typeof(DataGridColumnHeader))
+        {
+            Setters =
+            {
+                new Setter(Control.BackgroundProperty, Brush("#1A2C44")),
+                new Setter(Control.ForegroundProperty, Brush("#F2F6FC")),
+                new Setter(Control.BorderBrushProperty, Brush("#405875")),
+                new Setter(Control.BorderThicknessProperty, new Thickness(0, 0, 1, 1)),
+                new Setter(Control.PaddingProperty, new Thickness(8, 6, 8, 6)),
+                new Setter(Control.FontWeightProperty, FontWeights.SemiBold)
+            }
+        };
+        target.CellStyle = new Style(typeof(DataGridCell))
+        {
+            Setters =
+            {
+                new Setter(Control.ForegroundProperty, Brush("#F2F6FC")),
+                new Setter(Control.PaddingProperty, new Thickness(7, 4, 7, 4)),
+                new Setter(Control.BorderBrushProperty, Brush("#263B55")),
+                new Setter(Control.BorderThicknessProperty, new Thickness(0, 0, 0, 1))
+            },
+            Triggers =
+            {
+                new Trigger { Property = DataGridCell.IsSelectedProperty, Value = true, Setters = { new Setter(Control.BackgroundProperty, Brush("#285783")), new Setter(Control.ForegroundProperty, Brushes.White) } }
+            }
+        };
+    }
     private static DataGridTextColumn Column(string header, string property, double weight)
         => new() { Header = header, Binding = new Binding(property), Width = new DataGridLength(weight, DataGridLengthUnitType.Star) };
     private static Button Button(string title, RoutedEventHandler click)
@@ -278,6 +315,7 @@ internal sealed class StockHistoryWindow : Window
         var close = new Button { Content = "Close", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 12, 0, 0) };
         close.Click += (_, _) => Close(); DockPanel.SetDock(close, Dock.Bottom); root.Children.Add(close);
         var grid = new DataGrid { ItemsSource = movements, AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, Background = new SolidColorBrush(Color.FromRgb(16, 27, 45)), Foreground = Brushes.White };
+        PrintedInventoryWindow.ApplyDarkGridStyles(grid);
         grid.Columns.Add(new DataGridTextColumn { Header = "When (UTC)", Binding = new Binding(nameof(StockMovement.OccurredUtc)) { StringFormat = "yyyy-MM-dd HH:mm:ss" }, Width = new DataGridLength(1.5, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "Change", Binding = new Binding(nameof(StockMovement.QuantityDelta)) { StringFormat = "+#;-#;0" }, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "On hand after", Binding = new Binding(nameof(StockMovement.QuantityAfter)), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
