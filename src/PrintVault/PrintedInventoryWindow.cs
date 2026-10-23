@@ -168,6 +168,10 @@ public sealed class PrintedInventoryWindow : Window
         {
             Setters =
             {
+                new Setter(Control.BackgroundProperty, new Binding(nameof(Control.Background))
+                {
+                    RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(DataGridRow), 1)
+                }),
                 new Setter(Control.ForegroundProperty, Brush("#F2F6FC")),
                 new Setter(Control.PaddingProperty, new Thickness(7, 4, 7, 4)),
                 new Setter(Control.BorderBrushProperty, Brush("#263B55")),
