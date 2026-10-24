@@ -2,6 +2,14 @@
 
 This log distinguishes observed facts from hypotheses. Update it when a check actually completes; do not infer results from a workflow starting or code existing.
 
+## 2026-10-24 — Autonomous category-accounting gate mismatch
+
+- Merged forensic repair #56 passed both post-merge CI workflows (Windows Build #676 and Architecture Gate #501) on `1feb413979d1280bdff1dc04bea8a51e54bb1908`. The Windows workflow built the installer and passed its isolated install/launch check.
+- Autonomous run [#990](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/40077219448) then ran against the isolated `D:\3d print files test` library on that merge SHA. It completed two deterministic forensic passes over 1,789/1,789 records with 0 processing failures and no missing inferences. Both passes matched fingerprint `778A6A3AAA945FCA94AFF2287F518445651E37DCC546741CA6E4E539D305BCD0`. Reported 1,363 applied categories as resolved, 426 unresolved, 111 category conflicts, and 119 conflict/review rows.
+- The cycle failed its release regression gate with `CATEGORY_DISTRIBUTION_ACCOUNTING`, then stopped with `REMAINING_CONFLICTS=111`; no release was published. Job log inspection confirmed the validator summed `$r.InferredCategories`, a JSON property removed by the merged report-schema repair. The report now exports separate `CandidateCategories` and `AppliedCategories`. Therefore the cycle's category-accounting gate result is invalid/stale, while the 111 conflict count and 426 unresolved outcomes are still real results requiring follow-up. Do not compare #990's applied-category totals directly with #989's old candidate-based resolved count.
+- Diagnostics artifact: [printvault-autonomous-diagnostics-990](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/40077219448/artifacts/12553841640). The test library and production library were not modified by the read-only forensic pass.
+- **Implemented, not verified:** updated the autonomous gate to require and independently total both candidate and applied distributions, with explicit missing-field failures, and extended the existing accounting contract test. CI and a fresh isolated cycle on the updated workflow are still required. The remaining 111 conflicts must be analyzed from the retained outcome/trace artifacts rather than cleared by relaxing the gate.
+
 ## 2026-10-23 — Forensic semantic evidence and outcome-accounting repair
 
 - Reviewed the actual completed autonomous run [#989](https://github.com/mtheck01/mtheck01-PrintVault-3MF/actions/runs/40050906544), on merge SHA `1cffd9c` (PR #55). Its read-only pass processed all 1,789 records with 0 failures, 0 missing inferences, 4 fusion-level review flags, and reported 1,468 resolved / 321 unresolved. Its outcome fingerprint was `1114844B69F4B42FDC07BE3B5E50D0A653CCFBD5BCD11241DA07FF1A834854D8`. The report artifacts were inspected from `%TEMP%\printvault-run-989-diagnostics`.

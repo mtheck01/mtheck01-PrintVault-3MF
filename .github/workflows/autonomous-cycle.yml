@@ -843,9 +843,15 @@ jobs:
             if (($r.ResolvedInferences + $r.UnresolvedInferences) -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=INFERENCE_ACCOUNTING"; return "FAIL" }
             if ($r.MissingInferenceResults -ne 0) { Write-Host "REGRESSION_GATE=FAIL_REASON=MISSING_INFERENCE"; return "FAIL" }
             if ([string]::IsNullOrWhiteSpace([string]$r.OutcomeFingerprint)) { Write-Host "REGRESSION_GATE=FAIL_REASON=OUTCOME_FINGERPRINT_MISSING"; return "FAIL" }
-            $inferredTotal = 0
-            foreach ($property in $r.InferredCategories.PSObject.Properties) { $inferredTotal += [int]$property.Value }
-            if ($inferredTotal -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=CATEGORY_DISTRIBUTION_ACCOUNTING"; return "FAIL" }
+            if ($null -eq $r.CandidateCategories) { Write-Host "REGRESSION_GATE=FAIL_REASON=CANDIDATE_CATEGORY_DISTRIBUTION_MISSING"; return "FAIL" }
+            if ($null -eq $r.AppliedCategories) { Write-Host "REGRESSION_GATE=FAIL_REASON=APPLIED_CATEGORY_DISTRIBUTION_MISSING"; return "FAIL" }
+            $candidateTotal = 0
+            foreach ($property in $r.CandidateCategories.PSObject.Properties) { $candidateTotal += [int]$property.Value }
+            if ($candidateTotal -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=CANDIDATE_CATEGORY_DISTRIBUTION_ACCOUNTING"; return "FAIL" }
+            $appliedTotal = 0
+            foreach ($property in $r.AppliedCategories.PSObject.Properties) { $appliedTotal += [int]$property.Value }
+            if ($appliedTotal -ne $r.RecordsAnalyzed) { Write-Host "REGRESSION_GATE=FAIL_REASON=APPLIED_CATEGORY_DISTRIBUTION_ACCOUNTING"; return "FAIL" }
+            Write-Host "CATEGORY_DISTRIBUTION_ACCOUNTING=PASS CANDIDATE=$candidateTotal APPLIED=$appliedTotal RECORDS=$($r.RecordsAnalyzed)"
             if ($expectedCatalog -gt 0 -and ($r.ResolvedInferences -le 0 -or $r.EvidenceBearingResults -le 0)) {
               Write-Host "REGRESSION_GATE=FAIL_REASON=NON_INFORMATIVE_ANALYSIS"
               return "FAIL"
