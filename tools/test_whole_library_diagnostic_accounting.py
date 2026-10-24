@@ -76,6 +76,18 @@ checks = {
     "automation rejects empty evidence coverage": "DIAGNOSTIC_EVIDENCE_COVERAGE=FAIL" in program,
     "two-pass gate compares per-record fingerprint": "$reportData.OutcomeFingerprint -ne $reportData2.OutcomeFingerprint" in workflow,
     "regression gate validates record accounting": "REGRESSION_GATE=FAIL_REASON=INFERENCE_ACCOUNTING" in workflow,
+    "regression gate validates candidate category totals": (
+        "$r.CandidateCategories.PSObject.Properties" in workflow
+        and "REGRESSION_GATE=FAIL_REASON=CANDIDATE_CATEGORY_DISTRIBUTION_ACCOUNTING" in workflow
+    ),
+    "regression gate validates applied category totals": (
+        "$r.AppliedCategories.PSObject.Properties" in workflow
+        and "REGRESSION_GATE=FAIL_REASON=APPLIED_CATEGORY_DISTRIBUTION_ACCOUNTING" in workflow
+    ),
+    "regression gate rejects missing category distributions explicitly": (
+        "REGRESSION_GATE=FAIL_REASON=CANDIDATE_CATEGORY_DISTRIBUTION_MISSING" in workflow
+        and "REGRESSION_GATE=FAIL_REASON=APPLIED_CATEGORY_DISTRIBUTION_MISSING" in workflow
+    ),
     "regression gate prioritizes a clean baseline-or-better result over improvement labeling": (
         workflow.find("if ($r.Conflicts -le $baseline.conflicts)") >= 0
         and workflow.find("if ($r.Conflicts -le $baseline.conflicts)") < workflow.find("return \"IMPROVEMENT\"")
