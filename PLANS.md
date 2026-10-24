@@ -23,6 +23,8 @@ Acceptance criteria:
 
 Status: **Partially implemented, full-library acceptance not established.** Scan checkpoints preserve completed records every 50 files and stage timing is emitted. Two candidate Deep scans each completed 1,789/1,789 paths with zero failures and reconciled inventory fingerprint `F6AB7CE6BADCB0CEFE53955D7917090422B1ADF3AE2683C2C4952CE5FFFAA33D`. The later performance repair preserved category, semantic type, subtype, unresolved count, and risk-flag counts across the complete candidate; 46 confidence values decreased after duplicated geometry text was removed from a non-semantic scoring input. Historic reconciliation with the 1,758-record checked-in baseline and reproducible clean source SHA remain outstanding. The latest 75-row review is a selected diagnostic sample, not library-wide ground truth; 17 Deep-vs-human mismatches still need focused diagnosis. See `ENGINEERING_EVIDENCE.md` and `outputs/deep-scan-summary.md`.
 
+Current classification follow-up: a bounded source-backed semantic vocabulary repair has been **implemented, not verified** against the unresolved records. The Infrastructure Release build passes; a semantic replay and full-library outcome comparison remain required before treating it as an accuracy improvement. See `ENGINEERING_EVIDENCE.md`.
+
 ## Priority 1 — Modularize without changing classification semantics
 
 **Goal:** Move cohesive responsibilities out of WPF event handlers and make behavior independently testable.
@@ -72,7 +74,7 @@ Acceptance criteria:
 - Provide a focused UI that can be exercised against a disposable database; then add verified storage and UI regression coverage.
 - Treat filament inventory as a separate follow-on slice with its own units, spool weights and usage semantics.
 
-Status: **Implemented, not verified.** The first printed-stock UI and SQLite persistence slice is wired into navigation and the Release solution build succeeds. UI interaction, FK behavior during a catalog reset, persistence through restart, and regression coverage remain outstanding. Filament tracking is not implemented. See `ENGINEERING_EVIDENCE.md`.
+Status: **Partially verified.** The printed-stock UI and SQLite persistence slice is wired into navigation and the Release solution build succeeds. A disposable four-process lifecycle check verified quantity/history persistence across restart, digital catalog clear and repopulation, model unlinking without accidental relink, and clean SQLite integrity/foreign-key checks. Interactive UI behavior and packaged-installer behavior remain outstanding; filament tracking is not implemented. See `ENGINEERING_EVIDENCE.md`.
 
 ## Sequencing and change control
 
