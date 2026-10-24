@@ -94,6 +94,7 @@ public sealed class ModelIntelligencePipeline
         CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
         OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
         TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence,
-        SourceSemanticEvidence = source.SourceSemanticEvidence
+        SourceSemanticEvidence = source.SourceSemanticEvidence,
+        SourceSemanticEvidenceItems = source.SourceSemanticEvidenceItems
     };
 }

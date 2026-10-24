@@ -38,6 +38,10 @@ public sealed class ModelRecord
     // Transient, bounded text extracted from curated 3MF title/description/object-name
     // fields. It is intentionally not persisted: a source scan refreshes it from the file.
     public string SourceSemanticEvidence { get; set; } = "";
+    // Field-level source evidence preserves provenance so descriptions and identifiers
+    // cannot silently carry the same classification weight as titles or object names.
+    public IReadOnlyList<SourceSemanticEvidenceItem> SourceSemanticEvidenceItems { get; set; }
+        = Array.Empty<SourceSemanticEvidenceItem>();
     public string SizeText => Size < 1024 ? $"{Size:N0} B" : Size < 1024 * 1024 ? $"{Size / 1024d:0.0} KB" : $"{Size / 1024d / 1024d:0.0} MB";
     public string ModifiedText => ModifiedUtc.ToLocalTime().ToString("g");
     public bool HasThumbnail => !string.IsNullOrWhiteSpace(ThumbnailPath) && File.Exists(ThumbnailPath);
@@ -58,5 +62,8 @@ public sealed record LibraryRebuildResult(int Models, int Reclassified, int Pres
 public sealed record IntelligenceResult(string Category, double Confidence, string Reason, string Family, int ObjectCount, string Dimensions, string Slicer, string Materials, bool PrintReady, string SemanticType, string Subtype, string SuggestedTags, string RiskFlags, string PrintMethod, double PrintMethodConfidence, string PrintMethodEvidence, string SpecialType)
 {
     public string SourceSemanticEvidence { get; init; } = "";
+    public IReadOnlyList<SourceSemanticEvidenceItem> SourceSemanticEvidenceItems { get; init; }
+        = Array.Empty<SourceSemanticEvidenceItem>();
 }
+public sealed record SourceSemanticEvidenceItem(string Field, string Text);
 public sealed record MoveResult(string OldPath, string NewPath, ModelRecord Model, string PreviousCategory, string PreviousTags);

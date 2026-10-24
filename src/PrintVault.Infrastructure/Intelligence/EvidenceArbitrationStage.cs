@@ -51,12 +51,10 @@ internal sealed class EvidenceArbitrationStage : IModelIntelligenceStage
             return;
         }
 
-        var structuralBasis = result.Basis.Contains("Named entity", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Object role", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("artifact role evidence", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Organizer", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Source-derived analyzer", StringComparison.OrdinalIgnoreCase) ||
-                              result.Basis.Contains("Lexical identity + domain convergence", StringComparison.OrdinalIgnoreCase);
+        // Arbitration consumes a typed evidence property. Display labels are for humans;
+        // coupling acceptance gates to their wording caused valid source-derived artifact
+        // evidence to be rejected when the basis label changed during fusion.
+        var structuralBasis = result.HasStructuralEvidence;
         var lexicalBasis = result.Basis.Contains("Lexical evidence", StringComparison.OrdinalIgnoreCase);
         var lexicalHits = result.Evidence.Count(e => e.StartsWith("Lexical cue:", StringComparison.OrdinalIgnoreCase));
         var actionable = (structuralBasis && result.ClassificationConfidence >= 85 && result.EvidenceQuality >= 75) ||

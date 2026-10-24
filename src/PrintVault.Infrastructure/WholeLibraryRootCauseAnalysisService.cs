@@ -9,14 +9,15 @@ using PrintVault.Core;
 namespace PrintVault.Infrastructure;
 
 public sealed record RootCauseRow(
-    long Id, string Name, string Path, string StoredCategory, string InferredCategory,
+    long Id, string Name, string Path, string StoredCategory, string CandidateCategory,
     string Cause, string Disposition, int EvidenceQuality, int ClassificationConfidence,
-    bool ReviewRequired, string Basis, string Evidence);
+    bool ReviewRequired, string Basis, string Evidence, string AppliedCategory, string ArbitrationDecision);
 
 public sealed record RootCauseOutcome(
-    long Id, string Name, string Path, string StoredCategory, string InferredCategory,
+    long Id, string Name, string Path, string StoredCategory, string CandidateCategory,
     string SemanticType, string Subtype, string Family, int ClassificationConfidence,
-    int EvidenceQuality, bool ReviewRequired, string Basis, string Evidence, string Outcome);
+    int EvidenceQuality, bool ReviewRequired, string Basis, string Evidence, string Outcome,
+    string AppliedCategory, string ArbitrationDecision);
 
 public sealed record WholeLibraryEvidenceTrace(
     long Id, string Name, string Path, string StoredCategory,
@@ -31,8 +32,8 @@ public sealed record WholeLibraryRootCauseResult(
     string ReportPath, string CsvPath, string JsonPath,
     int RecordsAnalyzed, int ResolvedInferences, int UnresolvedInferences,
     int EvidenceBearingResults, int ReviewRequiredResults, int MissingInferenceResults,
-    IReadOnlyDictionary<string,int> InferredCategories, string OutcomeFingerprint,
-    string OutcomesCsvPath);
+    IReadOnlyDictionary<string,int> AppliedCategories, string OutcomeFingerprint,
+    string OutcomesCsvPath, IReadOnlyDictionary<string,int> CandidateCategories);
 
 /// <summary>
 /// Whole-library forensic pass. Read-only: it never changes classifications or files.
@@ -150,11 +151,18 @@ public sealed class WholeLibraryRootCauseAnalysisService
                 var stored = m.Category?.Trim() ?? "";
                 var inferred = f.Category?.Trim() ?? "";
                 var inferenceMissing = string.IsNullOrWhiteSpace(inferred);
-                var unresolved = IsUnresolvedCategory(inferred);
-                var conflict = !IsUnresolvedCategory(stored) &&
-                               !unresolved &&
+                var candidateUnresolved = IsUnresolvedCategory(inferred);
+                var arbitrationDecision = GetArbitrationDecision(stage);
+                // stage.Model.Category is the final effective value after the shared
+                // arbitration stage, including protected and rejected decisions.
+                var applied = stage.Model.Category?.Trim() ?? stored;
+                var appliedUnresolved = IsUnresolvedCategory(applied);
+                var conflict = !IsUnresolvedCategory(stored) && !candidateUnresolved &&
                                !string.Equals(stored, inferred, StringComparison.OrdinalIgnoreCase);
-                if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
+                var rejectedActionableCandidate = string.Equals(arbitrationDecision, "REVIEW", StringComparison.OrdinalIgnoreCase) &&
+                    !candidateUnresolved && !string.Equals(applied, inferred, StringComparison.OrdinalIgnoreCase);
+                var needsReview = f.ReviewRequired || rejectedActionableCandidate;
+                if (conflict || needsReview || inferenceMissing || candidateUnresolved || appliedUnresolved)
                 {
                     evidenceTraces.Add(new WholeLibraryEvidenceTrace(
                         m.Id, m.Name, m.Path, stored, sourceModel.Name ?? string.Empty,
@@ -162,34 +170,34 @@ public sealed class WholeLibraryRootCauseAnalysisService
                         sourceModel.TranslationConfidence, sourceElapsedMs, sourceTrace.Analysis, sourceTrace.Details,
                         stage.StageTrace, f.Diagnostics));
                 }
-                if (conflict || f.ReviewRequired || inferenceMissing || unresolved)
+                if (conflict || needsReview || inferenceMissing || candidateUnresolved || appliedUnresolved)
                 {
                     var cause = DetermineCause(m, sourceModel, entity, f, conflict);
-                    var disposition = DetermineDisposition(m, f, cause, conflict);
+                    var disposition = DetermineDisposition(m, f, cause, conflict, arbitrationDecision);
                     var row = new RootCauseRow(m.Id, m.Name, m.Path, stored, inferred, cause, disposition,
                         f.EvidenceQuality, f.ClassificationConfidence, f.ReviewRequired, f.Basis,
-                        string.Join(" | ", evidenceItems));
+                        string.Join(" | ", evidenceItems), applied, arbitrationDecision);
                     rootCauseRows.Add(row);
-                    if (conflict || f.ReviewRequired) rows.Add(row);
+                    if (conflict || needsReview) rows.Add(row);
                 }
 
                 var outcome = inferenceMissing ? "MISSING_INFERENCE"
-                    : unresolved ? "UNRESOLVED"
-                    : f.ReviewRequired ? "REVIEW_REQUIRED"
+                    : needsReview ? "REVIEW_REQUIRED"
+                    : appliedUnresolved ? "UNRESOLVED"
                     : conflict ? "CATEGORY_CONFLICT"
                     : "RESOLVED_NO_CONFLICT";
                 outcomes.Add(new RootCauseOutcome(
                     m.Id, m.Name, m.Path, stored, inferred, f.SemanticType, f.Subtype, f.Family,
-                    f.ClassificationConfidence, f.EvidenceQuality, f.ReviewRequired, f.Basis,
-                    string.Join(" | ", evidenceItems), outcome));
+                    f.ClassificationConfidence, f.EvidenceQuality, needsReview, f.Basis,
+                    string.Join(" | ", evidenceItems), outcome, applied, arbitrationDecision));
                 if (conflict) Interlocked.Increment(ref conflicts);
                 Interlocked.Increment(ref recordsAnalyzed);
                 if (inferenceMissing) Interlocked.Increment(ref missingInferenceResults);
-                if (unresolved) Interlocked.Increment(ref unresolvedInferences);
+                if (appliedUnresolved) Interlocked.Increment(ref unresolvedInferences);
                 else Interlocked.Increment(ref resolvedInferences);
                 if (f.EvidenceQuality > 0 && evidenceItems.Length > 0)
                     Interlocked.Increment(ref evidenceBearingResults);
-                if (f.ReviewRequired) Interlocked.Increment(ref reviewRequiredResults);
+                if (needsReview) Interlocked.Increment(ref reviewRequiredResults);
             }
             catch (Exception ex)
             {
@@ -222,8 +230,12 @@ public sealed class WholeLibraryRootCauseAnalysisService
 
         var causes = orderedRootCauseRows.GroupBy(x => x.Cause).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var dispositions = orderedRootCauseRows.GroupBy(x => x.Disposition).OrderByDescending(g => g.Count()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-        var inferredCategories = orderedOutcomes
-            .GroupBy(x => string.IsNullOrWhiteSpace(x.InferredCategory) ? "<MISSING>" : x.InferredCategory, StringComparer.OrdinalIgnoreCase)
+        var appliedCategories = orderedOutcomes
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.AppliedCategory) ? "<MISSING>" : x.AppliedCategory, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var candidateCategories = orderedOutcomes
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.CandidateCategory) ? "<MISSING>" : x.CandidateCategory, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count())
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         var outcomeFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
@@ -247,7 +259,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
             sourceAnalyzerInvocations,
             sourceAnalyzerSkipped,
             sourceForensicsElapsedMilliseconds,
-            inferredCategories,
+            appliedCategories,
+            candidateCategories,
             outcomeFingerprint,
             failureDetails = orderedFailures,
             causes,
@@ -258,7 +271,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             repositoryCountAfterSync,
             synchronizedFromActiveCatalog,
             catalogMismatch,
-            evidenceTraceSchemaVersion = 2,
+            evidenceTraceSchemaVersion = 3,
             evidenceTraces = orderedEvidenceTraces,
             rows = orderedRootCauseRows,
             conflictReviewRows = orderedRows,
@@ -272,13 +285,13 @@ public sealed class WholeLibraryRootCauseAnalysisService
             source, repositoryCountBeforeSync, activeSnapshotCount, repositoryCountAfterSync,
             synchronizedFromActiveCatalog, catalogMismatch, recordsAnalyzed, resolvedInferences,
             unresolvedInferences, evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
-            inferredCategories, outcomeFingerprint, sourceAnalyzerInvocations, sourceAnalyzerSkipped,
-            sourceForensicsElapsedMilliseconds), Encoding.UTF8);
+            appliedCategories, outcomeFingerprint, sourceAnalyzerInvocations, sourceAnalyzerSkipped,
+            sourceForensicsElapsedMilliseconds, candidateCategories), Encoding.UTF8);
         return new WholeLibraryRootCauseResult(
             created, models.Count, recordsAnalyzed, conflicts, orderedRows.Count, failed, causes, dispositions,
             report, csv, json, recordsAnalyzed, resolvedInferences, unresolvedInferences,
             evidenceBearingResults, reviewRequiredResults, missingInferenceResults,
-            inferredCategories, outcomeFingerprint, outcomesCsv);
+            appliedCategories, outcomeFingerprint, outcomesCsv, candidateCategories);
     }
 
     /// <summary>
@@ -331,23 +344,14 @@ public sealed class WholeLibraryRootCauseAnalysisService
             // inference and made this pass repeatedly parse large geometry payloads.
             var analysis = sourceAnalyzer.AnalyzeForensicFastGeometry(source.Path, source.Name, out var analysisTrace);
             model.SourceSemanticEvidence = analysis.SourceSemanticEvidence;
+            model.SourceSemanticEvidenceItems = analysis.SourceSemanticEvidenceItems;
             sourceAnalysis = analysis;
             sourceDetails = analysisTrace;
             var analyzerElapsedMs = (long)Stopwatch.GetElapsedTime(analyzerStarted).TotalMilliseconds;
             Console.WriteLine($"ROOT_CAUSE_SOURCE_ANALYZER_DONE id={source.Id} elapsed_ms={analyzerElapsedMs} xml_ms={analysisTrace.MainModelXmlLoadMilliseconds} xml_uncompressed_bytes={analysisTrace.MainModelXmlUncompressedBytes} streamed_xml={analysisTrace.StreamedMainModelXml} metadata_ms={analysisTrace.PackageMetadataReadMilliseconds} semantic_score_ms={analysisTrace.SemanticScoringMilliseconds} geometry_ms={analysisTrace.GeometryResolutionMilliseconds} vertices={analysisTrace.VertexCount} category={JsonSerializer.Serialize(analysis.Category)}");
-            var currentCategory = source.Category?.Trim() ?? string.Empty;
-            var currentIsUnresolved = IsUnresolvedCategory(currentCategory);
-            // Forensic enrichment must not silently rewrite an existing classification.
-            // Only unresolved records may receive a source-derived category; resolved
-            // built-in categories are compared by fusion and emitted as evidence instead.
-            var mayReplaceCategory = !source.CategoryOverride && currentIsUnresolved;
-
-            if (mayReplaceCategory &&
-                !string.IsNullOrWhiteSpace(analysis.Category) &&
-                analysis.Confidence >= 0.70 &&
-                !IsUnresolvedCategory(analysis.Category))
-                model.Category = analysis.Category;
-
+            // Keep the repository's category intact. Source analysis is a candidate channel;
+            // the same arbitration stage used by production decides whether it is accepted.
+            // This avoids a forensic-only confidence shortcut that could bypass the gates.
             model.IntelligenceScore = analysis.Confidence;
             model.IntelligenceReason = analysis.Reason ?? string.Empty;
             model.SemanticType = analysis.SemanticType ?? string.Empty;
@@ -366,7 +370,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
             model.PrintReady = analysis.PrintReady;
 
             details.Add($"SOURCE_ANALYZER:COMPLETED:{analysis.Category}:{analysis.Confidence:0.00}");
-            details.Add($"SOURCE_ANALYZER_CATEGORY_PROMOTION:{(mayReplaceCategory ? "ELIGIBLE" : "PROTECTED_CUSTOM_OR_OVERRIDE")}");
+            details.Add($"SOURCE_ANALYZER_CATEGORY_CANDIDATE:{(IsUnresolvedCategory(analysis.Category) ? "NONE" : "FORWARDED_TO_ARBITRATION")}");
             if (string.Equals(analysis.Category, "Uncategorized", StringComparison.OrdinalIgnoreCase))
                 details.Add("SOURCE_ANALYZER:UNRESOLVED_LOW_OR_MISSING_SEMANTIC_SIGNAL");
         }
@@ -395,13 +399,26 @@ public sealed class WholeLibraryRootCauseAnalysisService
         PrintMethodEvidence = source.PrintMethodEvidence, SpecialType = source.SpecialType,
         CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
         OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
-        TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence
+        TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence,
+        SourceSemanticEvidence = source.SourceSemanticEvidence,
+        SourceSemanticEvidenceItems = source.SourceSemanticEvidenceItems
     };
 
     private static bool IsUnresolvedCategory(string? category)
         => string.IsNullOrWhiteSpace(category) ||
            string.Equals(category, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(category, "Unknown", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetArbitrationDecision(ModelIntelligenceStageResult stage)
+    {
+        var arbitration = stage.StageTrace.FirstOrDefault(x =>
+            string.Equals(x.Stage, "EVIDENCE_ARBITRATION", StringComparison.OrdinalIgnoreCase));
+        var diagnostic = arbitration?.Diagnostics.FirstOrDefault(x =>
+            x.StartsWith("decision=", StringComparison.OrdinalIgnoreCase));
+        if (diagnostic is null) return "NO_DIAGNOSTIC";
+        var value = diagnostic["decision=".Length..].Split(';', 2)[0].Trim();
+        return value.Length == 0 ? "NO_DIAGNOSTIC" : value.ToUpperInvariant();
+    }
 
     private static string DetermineCause(ModelRecord original, ModelRecord analyzed, MultilingualEntityMatch? entity, SemanticEvidenceFusionResult f, bool conflict)
     {
@@ -438,8 +455,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
         return "OTHER_REVIEW";
     }
 
-    private static string DetermineDisposition(ModelRecord m, SemanticEvidenceFusionResult f, string cause, bool conflict)
+    private static string DetermineDisposition(ModelRecord m, SemanticEvidenceFusionResult f, string cause, bool conflict, string arbitrationDecision)
     {
+        if (string.Equals(arbitrationDecision, "REVIEW", StringComparison.OrdinalIgnoreCase)) return "ARBITRATION_REJECTED_CANDIDATE_REVIEW";
         if (IsUnresolvedCategory(f.Category)) return "UNRESOLVED_ENGINE_GAP";
         if (!conflict && !f.ReviewRequired) return "NO_CONFLICT";
         if (cause == "MANUAL_CATEGORY_OVERRIDE_CONFLICT") return "PROTECTED_REVIEW";
@@ -478,18 +496,18 @@ public sealed class WholeLibraryRootCauseAnalysisService
 
     private static string BuildCsv(IEnumerable<RootCauseRow> rows)
     {
-        var sb = new StringBuilder("Id,Name,Path,StoredCategory,InferredCategory,Cause,Disposition,EvidenceQuality,ClassificationConfidence,ReviewRequired,Basis,Evidence\n");
+        var sb = new StringBuilder("Id,Name,Path,StoredCategory,CandidateCategory,AppliedCategory,ArbitrationDecision,Cause,Disposition,EvidenceQuality,ClassificationConfidence,ReviewRequired,Basis,Evidence\n");
         foreach (var r in rows)
-            sb.AppendLine(string.Join(",", new[]{r.Id.ToString(),r.Name,r.Path,r.StoredCategory,r.InferredCategory,r.Cause,r.Disposition,r.EvidenceQuality.ToString(),r.ClassificationConfidence.ToString(),r.ReviewRequired.ToString(),r.Basis,r.Evidence}.Select(Csv)));
+            sb.AppendLine(string.Join(",", new[]{r.Id.ToString(),r.Name,r.Path,r.StoredCategory,r.CandidateCategory,r.AppliedCategory,r.ArbitrationDecision,r.Cause,r.Disposition,r.EvidenceQuality.ToString(),r.ClassificationConfidence.ToString(),r.ReviewRequired.ToString(),r.Basis,r.Evidence}.Select(Csv)));
         return sb.ToString();
     }
 
     private static string BuildOutcomesCsv(IEnumerable<RootCauseOutcome> outcomes)
     {
-        var sb = new StringBuilder("Id,Name,Path,StoredCategory,InferredCategory,SemanticType,Subtype,Family,ClassificationConfidence,EvidenceQuality,ReviewRequired,Basis,Evidence,Outcome\n");
+        var sb = new StringBuilder("Id,Name,Path,StoredCategory,CandidateCategory,AppliedCategory,ArbitrationDecision,SemanticType,Subtype,Family,ClassificationConfidence,EvidenceQuality,ReviewRequired,Basis,Evidence,Outcome\n");
         foreach (var r in outcomes)
             sb.AppendLine(string.Join(",", new[]{
-                r.Id.ToString(), r.Name, r.Path, r.StoredCategory, r.InferredCategory, r.SemanticType,
+                r.Id.ToString(), r.Name, r.Path, r.StoredCategory, r.CandidateCategory, r.AppliedCategory, r.ArbitrationDecision, r.SemanticType,
                 r.Subtype, r.Family, r.ClassificationConfidence.ToString(), r.EvidenceQuality.ToString(),
                 r.ReviewRequired.ToString(), r.Basis, r.Evidence, r.Outcome
             }.Select(Csv)));
@@ -504,9 +522,9 @@ public sealed class WholeLibraryRootCauseAnalysisService
         string source, int repositoryCountBeforeSync, int activeSnapshotCount, int repositoryCountAfterSync,
         bool synchronizedFromActiveCatalog, bool catalogMismatch,
         int recordsAnalyzed, int resolvedInferences, int unresolvedInferences, int evidenceBearingResults,
-        int reviewRequiredResults, int missingInferenceResults, IReadOnlyDictionary<string,int> inferredCategories,
+        int reviewRequiredResults, int missingInferenceResults, IReadOnlyDictionary<string,int> appliedCategories,
         string outcomeFingerprint, int sourceAnalyzerInvocations, int sourceAnalyzerSkipped,
-        long sourceForensicsElapsedMilliseconds)
+        long sourceForensicsElapsedMilliseconds, IReadOnlyDictionary<string,int> candidateCategories)
     {
         var sb = new StringBuilder();
         sb.AppendLine("PrintVault 3MF — WHOLE-LIBRARY ROOT-CAUSE ANALYSIS");
@@ -524,8 +542,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"Records analyzed: {recordsAnalyzed:N0}");
         sb.AppendLine($"Root-cause records: {rootCauseRows.Count:N0}");
         sb.AppendLine($"Conflict/review rows: {conflictReviewRowCount:N0}");
-        sb.AppendLine($"Resolved inferences: {resolvedInferences:N0}");
-        sb.AppendLine($"Unresolved inferences: {unresolvedInferences:N0}");
+        sb.AppendLine($"Resolved applied categories: {resolvedInferences:N0}");
+        sb.AppendLine($"Unresolved after arbitration: {unresolvedInferences:N0}");
         sb.AppendLine($"Evidence-bearing results: {evidenceBearingResults:N0}");
         sb.AppendLine($"Review-required results: {reviewRequiredResults:N0}");
         sb.AppendLine($"Missing inference results: {missingInferenceResults:N0}");
@@ -536,8 +554,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine($"SOURCE_ANALYZER_INVOCATIONS={sourceAnalyzerInvocations}");
         sb.AppendLine($"SOURCE_ANALYZER_SKIPPED={sourceAnalyzerSkipped}");
         sb.AppendLine($"SOURCE_FORENSICS_ELAPSED_MS={sourceForensicsElapsedMilliseconds}");
-        sb.AppendLine("INFERRED CATEGORY DISTRIBUTION");
-        foreach (var x in inferredCategories) sb.AppendLine($"{x.Key}: {x.Value:N0}");
+        sb.AppendLine("APPLIED CATEGORY DISTRIBUTION (post-arbitration; protected stored categories remain applied)");
+        foreach (var x in appliedCategories) sb.AppendLine($"{x.Key}: {x.Value:N0}");
+        sb.AppendLine("CANDIDATE CATEGORY DISTRIBUTION (fusion proposals; not necessarily applied)");
+        foreach (var x in candidateCategories) sb.AppendLine($"{x.Key}: {x.Value:N0}");
         sb.AppendLine($"Failures: {failed:N0}");
         if (failureDetails.Count > 0)
         {
@@ -551,10 +571,10 @@ public sealed class WholeLibraryRootCauseAnalysisService
         sb.AppendLine(); sb.AppendLine("ACCOUNTING");
         sb.AppendLine($"Catalog == Processed + Failures: {catalog == recordsAnalyzed + failed}");
         sb.AppendLine($"Catalog == Resolved + Unresolved + Failures: {catalog == resolvedInferences + unresolvedInferences + failed}");
-        sb.AppendLine($"Records analyzed == outcomes exported: {recordsAnalyzed == inferredCategories.Values.Sum()}");
+        sb.AppendLine($"Records analyzed == outcomes exported: {recordsAnalyzed == appliedCategories.Values.Sum()}");
         sb.AppendLine($"Missing inference results == 0: {missingInferenceResults == 0}");
         sb.AppendLine($"Failures + conflict/review rows <= catalog: {failed + conflictReviewRowCount <= catalog}");
-        sb.AppendLine($"Unresolved inferences have root-cause rows: {rootCauseRows.Count(x => IsUnresolvedCategory(x.InferredCategory)) == unresolvedInferences}");
+        sb.AppendLine($"Unresolved applied categories have root-cause rows: {rootCauseRows.Count(x => IsUnresolvedCategory(x.AppliedCategory)) == unresolvedInferences}");
         sb.AppendLine("MODE: READ-ONLY FORENSIC PASS — no classifications, files, or database records were changed.");
         return sb.ToString();
     }

@@ -260,23 +260,50 @@ public sealed class ThreeMfAnalyzer
         var evidence=new List<string>();
         var semanticInputs = captureTrace ? new List<string>() : null;
         var sourceSemanticEvidence = new StringBuilder();
+        var sourceSemanticEvidenceItems = new List<SourceSemanticEvidenceItem>();
+        var primarySourceEvidenceCharacters = 0;
+        var secondarySourceEvidenceCharacters = 0;
+        var primarySourceEvidenceItems = 0;
+        var secondarySourceEvidenceItems = 0;
         XDocument? modelDocument = null;
         var modelMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var allText = new StringBuilder();
         var semanticText = new StringBuilder();
+        var semanticScoringText = NormalizeSemanticSeparators((name ?? string.Empty).ToLowerInvariant());
+        var compactSemanticScoringText = CompactForTokenMatching(semanticScoringText);
         var vertexBounds = new VertexBounds();
         var buildItems = 0;
         var modelUnit = "millimeter";
         var totalStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
-        void AppendSourceEvidence(string? value)
+        void AppendSourceEvidence(string field, string? value)
         {
-            if (string.IsNullOrWhiteSpace(value) || sourceSemanticEvidence.Length >= 2000) return;
+            if (string.IsNullOrWhiteSpace(value) || sourceSemanticEvidence.Length >= 2000 || sourceSemanticEvidenceItems.Count >= 40) return;
+            var isPrimary = field.Equals("object.name", StringComparison.OrdinalIgnoreCase) ||
+                           field.Equals("metadata.title", StringComparison.OrdinalIgnoreCase) ||
+                           field.Equals("metadata.name", StringComparison.OrdinalIgnoreCase) ||
+                           field.Equals("metadata.model_name", StringComparison.OrdinalIgnoreCase);
+            if (isPrimary ? primarySourceEvidenceItems >= 32 : secondarySourceEvidenceItems >= 8) return;
             var decoded = WebUtility.HtmlDecode(value);
             var normalized = Regex.Replace(Regex.Replace(decoded, @"<[^>]{1,200}>", " "), @"\s+", " ").Trim();
             if (normalized.Length == 0) return;
+            var totalRemaining = 2000 - sourceSemanticEvidence.Length - (sourceSemanticEvidence.Length > 0 ? 1 : 0);
+            var fieldBudget = isPrimary ? 1600 - primarySourceEvidenceCharacters : 400 - secondarySourceEvidenceCharacters;
+            var allowed = Math.Min(totalRemaining, fieldBudget);
+            if (allowed <= 0) return;
+            var bounded = normalized[..Math.Min(normalized.Length, allowed)];
             if (sourceSemanticEvidence.Length > 0) sourceSemanticEvidence.Append(' ');
-            var remaining = 2000 - sourceSemanticEvidence.Length;
-            sourceSemanticEvidence.Append(normalized.AsSpan(0, Math.Min(normalized.Length, remaining)));
+            sourceSemanticEvidence.Append(bounded);
+            sourceSemanticEvidenceItems.Add(new SourceSemanticEvidenceItem(field, bounded));
+            if (isPrimary)
+            {
+                primarySourceEvidenceCharacters += bounded.Length;
+                primarySourceEvidenceItems++;
+            }
+            else
+            {
+                secondarySourceEvidenceCharacters += bounded.Length;
+                secondarySourceEvidenceItems++;
+            }
         }
         var retainedSemanticInputCharacters = 0;
         void RecordSemanticInput(string label, string? value)
@@ -355,11 +382,13 @@ public sealed class ThreeMfAnalyzer
                 if (captureTrace) trace.PackageMetadataReadMilliseconds += (long)Stopwatch.GetElapsedTime(metadataReadStarted).TotalMilliseconds;
                 low=allText.ToString().ToLowerInvariant();
                 var semanticLow=semanticText.ToString().ToLowerInvariant();
-                special=DetectSpecialType(low, z);
+                // Special categories must be evidenced by the printable identity (filename,
+                // object name, or explicit title), not prose in a description or slicer text.
+                special=DetectSpecialType(semanticLow, z);
                 // Normalize common filename separators before semantic scoring. '+' and '_'
                 // are frequently used as spaces in model repositories.
-                var semanticScoringText = NormalizeSemanticSeparators(semanticLow);
-                var compactSemanticScoringText = CompactForTokenMatching(semanticScoringText);
+                semanticScoringText = NormalizeSemanticSeparators(semanticLow);
+                compactSemanticScoringText = CompactForTokenMatching(semanticScoringText);
                 var scoringStarted = captureTrace ? Stopwatch.GetTimestamp() : 0L;
                 var scored=Signals.Select(s=>(s,score:TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText))).Where(x=>x.score>0).GroupBy(x=>x.s.Category).Select(g=>new {g.Key,Score=g.Sum(x=>x.score),Hits=g.OrderByDescending(x=>x.score).Take(4).ToList()}).OrderByDescending(x=>x.Score).ToList();
                 if (captureTrace) trace.SemanticScoringMilliseconds += (long)Stopwatch.GetElapsedTime(scoringStarted).TotalMilliseconds;
@@ -448,7 +477,7 @@ public sealed class ThreeMfAnalyzer
             var pm = DetectPrintMethod(low, z, slicer, materials); printMethod=pm.Method; printMethodConfidence=pm.Confidence; printMethodEvidence=pm.Evidence; if(printMethod!="Unknown") { evidence.Add($"Print method: {printMethod} ({printMethodConfidence:P0})"); tags.Add(printMethod.ToLowerInvariant()); }
             if(ready) score+=0.12; else risk.Add("Structural review recommended");
             score=Math.Clamp(score + (category!="Uncategorized"
-                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(low,s.Phrase,s.Weight,compactName))*.008))
+                ? (special is not null ? Math.Min(.30, special.Score * .025) : Math.Min(.25,Signals.Where(s=>s.Category==category).Sum(s=>TokenScore(semanticScoringText,s.Phrase,s.Weight,compactSemanticScoringText))*.008))
                 : 0),0,0.99);
         }
         catch(Exception ex){risk.Add(ex.GetType().Name);ready=false;if(captureTrace){trace.FailureType=ex.GetType().Name;trace.FailureMessage=ex.Message.Length > 300 ? ex.Message[..300] : ex.Message;}}
@@ -460,7 +489,8 @@ public sealed class ThreeMfAnalyzer
         if (captureTrace) trace.TotalElapsedMilliseconds = (long)Stopwatch.GetElapsedTime(totalStarted).TotalMilliseconds;
         return new IntelligenceResult(category,score,reason,family,objects,dimensions,slicer,materials,ready,type,subtype,suggested,string.Join(", ",risk.Distinct(StringComparer.OrdinalIgnoreCase)),printMethod,printMethodConfidence,printMethodEvidence,specialType)
         {
-            SourceSemanticEvidence = sourceSemanticEvidence.ToString()
+            SourceSemanticEvidence = sourceSemanticEvidence.ToString(),
+            SourceSemanticEvidenceItems = sourceSemanticEvidenceItems
         };
     }
 
@@ -469,7 +499,7 @@ public sealed class ThreeMfAnalyzer
         string name,
         bool useStreamingReader,
         Action<string, string?> recordSemanticInput,
-        Action<string?> appendSourceEvidence)
+        Action<string, string?> appendSourceEvidence)
     {
         var allText = new StringBuilder().Append(name).Append(' ');
         var semanticText = new StringBuilder().Append(name).Append(' ');
@@ -497,13 +527,12 @@ public sealed class ThreeMfAnalyzer
                 {
                     semanticText.Append(' ').Append(nameAttribute);
                     recordSemanticInput($"{localName}.name", nameAttribute);
-                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence(nameAttribute);
+                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence("object.name", nameAttribute);
                 }
                 if (!string.IsNullOrWhiteSpace(partNumber))
                 {
-                    semanticText.Append(' ').Append(partNumber);
                     recordSemanticInput($"{localName}.partnumber", partNumber);
-                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence(partNumber);
+                    if (localName.Equals("object", StringComparison.OrdinalIgnoreCase)) appendSourceEvidence("object.partnumber", partNumber);
                 }
             }
         }
@@ -531,9 +560,9 @@ public sealed class ThreeMfAnalyzer
                     var value = element.Value?.Trim();
                     if (!string.IsNullOrWhiteSpace(value) && value.Length <= 500)
                     {
-                        semanticText.Append(' ').Append(value);
+                        if (IsPrimarySemanticMetadataName(nameAttribute)) semanticText.Append(' ').Append(value);
                         recordSemanticInput($"metadata[{nameAttribute ?? "unnamed"}]", value);
-                        if (nameAttribute is not null && IsCuratedSemanticMetadataName(nameAttribute)) appendSourceEvidence(value);
+                        if (nameAttribute is not null && IsCuratedSemanticMetadataName(nameAttribute)) appendSourceEvidence($"metadata.{nameAttribute.ToLowerInvariant()}", value);
                     }
                 }
             }
@@ -622,9 +651,9 @@ public sealed class ThreeMfAnalyzer
                         var metadataName = frame.MetadataName;
                         if (!string.IsNullOrWhiteSpace(value) && value.Length <= 500)
                         {
-                            semanticText.Append(' ').Append(value);
+                            if (IsPrimarySemanticMetadataName(metadataName)) semanticText.Append(' ').Append(value);
                             recordSemanticInput($"metadata[{metadataName ?? "unnamed"}]", value);
-                            if (metadataName is not null && IsCuratedSemanticMetadataName(metadataName)) appendSourceEvidence(value);
+                            if (metadataName is not null && IsCuratedSemanticMetadataName(metadataName)) appendSourceEvidence($"metadata.{metadataName.ToLowerInvariant()}", value);
                         }
                     }
                 }
@@ -641,6 +670,11 @@ public sealed class ThreeMfAnalyzer
            name.Equals("model_name", StringComparison.OrdinalIgnoreCase) ||
            name.Equals("partnumber", StringComparison.OrdinalIgnoreCase) ||
            name.Equals("part_number", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPrimarySemanticMetadataName(string? name)
+        => name is not null && (name.Equals("title", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("name", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("model_name", StringComparison.OrdinalIgnoreCase));
 
     private static double TokenScore(string text,string phrase,double weight,string? compactText = null)
     {

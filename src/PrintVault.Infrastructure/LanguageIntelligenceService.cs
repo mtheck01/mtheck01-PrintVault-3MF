@@ -136,7 +136,16 @@ public sealed class LanguageIntelligenceService
 
     public ModelRecord Apply(ModelRecord model)
     {
-        var source = string.Join(" ", model.Name ?? string.Empty, Path.GetFileNameWithoutExtension(model.Path ?? string.Empty), model.SourceSemanticEvidence ?? string.Empty);
+        var sourceItems = model.SourceSemanticEvidenceItems ?? Array.Empty<SourceSemanticEvidenceItem>();
+        var primarySourceEvidence = sourceItems.Count > 0
+            ? string.Join(" ", sourceItems.Where(item =>
+                item.Field.Equals("object.name", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.title", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.name", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.model_name", StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Text))
+            : model.SourceSemanticEvidence;
+        var source = string.Join(" ", model.Name ?? string.Empty, Path.GetFileNameWithoutExtension(model.Path ?? string.Empty), primarySourceEvidence ?? string.Empty);
         var result = Analyze(source);
 
         model.OriginalLanguage = result.Language;
