@@ -123,16 +123,17 @@ public sealed class LibraryEngine : ILibraryEngine
 
                 if (doIntelligence)
                 {
+                    // Preserve explicit custom/folder categories as the input state. Built-in
+                    // source-analyzer proposals are routed through the shared intelligence
+                    // arbitration stage below instead of overwriting the stored category first.
+                    if (preserveCustomCategory && !string.IsNullOrWhiteSpace(preservedCategory))
+                        m.Category = preservedCategory!;
                     ReportStage(path, "Analysis");
                     var analysisTimer = Stopwatch.StartNew();
                     var a = autonomousClassificationOnly ? analyzer.AnalyzeFilenameOnly(path, fi.Name) : analyzer.Analyze(path, fi.Name);
-                    // Deep analysis must never destroy a user-defined category.
-                    // Automatic classification is only allowed to choose a built-in category
-                    // when the item is currently Uncategorized or already using a built-in one.
-                    // A custom category is treated as user intent and remains authoritative.
-                    m.Category = preserveCustomCategory && !string.IsNullOrWhiteSpace(preservedCategory)
-                        ? preservedCategory!
-                        : a.Category;
+                    // Keep the pre-analysis category intact. IntelligenceReason and semantic
+                    // fields carry the analyzer proposal into the shared arbitration stage,
+                    // which decides whether that proposal is strong enough to apply.
                     m.IntelligenceScore = a.Confidence;
                     if (!m.PrintMethodOverride) { m.PrintMethod = a.PrintMethod; m.PrintMethodConfidence = a.PrintMethodConfidence; m.PrintMethodEvidence = a.PrintMethodEvidence; }
                     m.SpecialType = a.SpecialType;
@@ -143,6 +144,7 @@ public sealed class LibraryEngine : ILibraryEngine
                     m.Materials = a.Materials;
                     m.PrintReady = a.PrintReady;
                     m.SourceSemanticEvidence = a.SourceSemanticEvidence;
+                    m.SourceSemanticEvidenceItems = a.SourceSemanticEvidenceItems;
                     m.SemanticType = a.SemanticType; m.Subtype = a.Subtype; m.SuggestedTags = a.SuggestedTags; m.IntelligenceReason = a.Reason; m.RiskFlags = a.RiskFlags;
                     // Named-entity intelligence outranks generic analyzer metadata, while
                     // manual/custom categories remain protected. Raw analyzer evidence is
@@ -354,12 +356,6 @@ public sealed class LibraryEngine : ILibraryEngine
                     m.Category = customCategory!;
                     Interlocked.Increment(ref preservedCustom);
                 }
-                else
-                {
-                    m.Category = a.Category;
-                    if (!string.Equals(oldCategory, m.Category, StringComparison.OrdinalIgnoreCase))
-                        Interlocked.Increment(ref reclassified);
-                }
 
                 m.IntelligenceScore = a.Confidence;
                 if (!m.PrintMethodOverride) { m.PrintMethod = a.PrintMethod; m.PrintMethodConfidence = a.PrintMethodConfidence; m.PrintMethodEvidence = a.PrintMethodEvidence; }
@@ -370,6 +366,8 @@ public sealed class LibraryEngine : ILibraryEngine
                 m.Slicer = a.Slicer;
                 m.Materials = a.Materials;
                 m.PrintReady = a.PrintReady;
+                m.SourceSemanticEvidence = a.SourceSemanticEvidence;
+                m.SourceSemanticEvidenceItems = a.SourceSemanticEvidenceItems;
                 m.SemanticType = a.SemanticType;
                 m.Subtype = a.Subtype;
                 m.SuggestedTags = a.SuggestedTags;
@@ -381,6 +379,9 @@ public sealed class LibraryEngine : ILibraryEngine
                 // testing. Named entities and high-confidence role/source-derived evidence now
                 // participate in production classification during the actual rebuild.
                 intelligencePipeline.Apply(m);
+                if (string.IsNullOrWhiteSpace(customCategory) &&
+                    !string.Equals(oldCategory, m.Category, StringComparison.OrdinalIgnoreCase))
+                    Interlocked.Increment(ref reclassified);
                 // Optional enrichment must never be allowed to discard an otherwise valid model.
                 // A corrupt/unsupported thumbnail or hash is a property of the enrichment step,
                 // not a reason to lose the catalog record.
@@ -460,6 +461,8 @@ public sealed class LibraryEngine : ILibraryEngine
                     model.Slicer = a.Slicer;
                     model.Materials = a.Materials;
                     model.PrintReady = a.PrintReady;
+                    model.SourceSemanticEvidence = a.SourceSemanticEvidence;
+                    model.SourceSemanticEvidenceItems = a.SourceSemanticEvidenceItems;
                     model.SemanticType = a.SemanticType;
                     model.Subtype = a.Subtype;
                     model.SuggestedTags = a.SuggestedTags;

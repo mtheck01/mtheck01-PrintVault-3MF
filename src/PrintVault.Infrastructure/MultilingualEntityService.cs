@@ -201,7 +201,18 @@ public sealed class MultilingualEntityService
     };
 
     public MultilingualEntityMatch? Recognize(ModelRecord model)
-        => Recognize(string.Join(" ", model.Name ?? "", Path.GetFileNameWithoutExtension(model.Path ?? ""), model.TranslatedTitle ?? "", model.SourceSemanticEvidence ?? ""));
+    {
+        var sourceItems = model.SourceSemanticEvidenceItems ?? Array.Empty<SourceSemanticEvidenceItem>();
+        var primarySourceEvidence = sourceItems.Count > 0
+            ? string.Join(" ", sourceItems.Where(item =>
+                item.Field.Equals("object.name", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.title", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.name", StringComparison.OrdinalIgnoreCase) ||
+                item.Field.Equals("metadata.model_name", StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.Text))
+            : model.SourceSemanticEvidence;
+        return Recognize(string.Join(" ", model.Name ?? "", Path.GetFileNameWithoutExtension(model.Path ?? ""), model.TranslatedTitle ?? "", primarySourceEvidence ?? ""));
+    }
 
     public MultilingualEntityMatch? Recognize(string text)
     {

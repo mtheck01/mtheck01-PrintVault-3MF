@@ -20,6 +20,7 @@ public sealed record SemanticEvidenceFusionResult(
     public string SubjectIdentity { get; init; } = "";
     public string ArtifactRole { get; init; } = "";
     public IReadOnlyList<string> ContextSignals { get; init; } = Array.Empty<string>();
+    public bool HasStructuralEvidence { get; init; }
 }
 
 /// <summary>
@@ -274,7 +275,11 @@ public sealed class SemanticEvidenceFusionService
         // Only physical/source-derived identity text may drive lexical inference. Tags,
         // suggested tags, and IntelligenceReason are derived outputs of the classifier and
         // must never be fed back as evidence; doing so creates circular classification.
-        var text = Normalize(string.Join(" ", model.Name ?? "", model.TranslatedTitle ?? "", model.SourceSemanticEvidence ?? ""));
+        var sourceItems = model.SourceSemanticEvidenceItems ?? Array.Empty<SourceSemanticEvidenceItem>();
+        var primarySourceEvidence = sourceItems.Count > 0
+            ? string.Join(" ", sourceItems.Where(IsPrimarySourceEvidenceField).Select(x => x.Text))
+            : model.SourceSemanticEvidence; // Compatibility for callers that supply the legacy unstructured field.
+        var text = Normalize(string.Join(" ", model.Name ?? "", model.TranslatedTitle ?? "", primarySourceEvidence ?? ""));
         var evidence = new List<string>();
         var diagnostics = captureDiagnostics ? new List<string>() : null;
         diagnostics?.Add($"FUSION_INPUT: name_chars={(model.Name ?? "").Length}; translated_title_chars={(model.TranslatedTitle ?? "").Length}; source_semantic_chars={(model.SourceSemanticEvidence ?? "").Length}; normalized_chars={text.Length}; translation_confidence={model.TranslationConfidence}; language={model.OriginalLanguage}");
@@ -292,19 +297,26 @@ public sealed class SemanticEvidenceFusionService
         if (!string.IsNullOrWhiteSpace(model.SemanticType) || !string.IsNullOrWhiteSpace(model.Subtype))
             evidence.Add($"Stored classification: {model.Category} / {model.SemanticType} / {model.Subtype}");
 
-        var sourceText = Normalize(model.SourceSemanticEvidence ?? string.Empty);
-        var sourceCueHits = sourceText.Length == 0
-            ? Array.Empty<(string Category, string Label, string[] Hits)>()
-            : AllCues
-                .Select(c => (c.Category, c.Label, Hits: c.Terms.Where(t => ContainsPhrase(sourceText, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
-                .Where(x => x.Hits.Length > 0)
-                .OrderByDescending(x => x.Hits.Length)
-                .Take(12)
-                .ToArray();
+        var sourceEvidenceLines = sourceItems.Count > 0
+            ? sourceItems.Select(item => (Field: item.Field, Text: Normalize(item.Text))).Where(item => item.Text.Length > 0).ToArray()
+            : string.IsNullOrWhiteSpace(model.SourceSemanticEvidence)
+                ? Array.Empty<(string Field, string Text)>()
+                : new[] { (Field: "legacy.unstructured", Text: Normalize(model.SourceSemanticEvidence)) };
+        var sourceCueHits = sourceEvidenceLines
+            .SelectMany(line => AllCues.Select(c => (line.Field, c.Category, c.Label,
+                Hits: c.Terms.Where(t => ContainsPhrase(line.Text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray())))
+            .Where(x => x.Hits.Length > 0)
+            .OrderByDescending(x => IsPrimarySourceEvidenceField(x.Field) ? 1 : 0)
+            .ThenByDescending(x => x.Hits.Length)
+            .Take(12)
+            .ToArray();
         if (sourceCueHits.Length > 0)
-            evidence.Add("Embedded 3MF title/description/object-name evidence: " + string.Join("; ", sourceCueHits.Select(x => $"{x.Category} [{x.Label}] {string.Join(",", x.Hits.Take(3))}")));
-        diagnostics?.Add($"SOURCE_SEMANTIC_EVIDENCE: bounded_chars={sourceText.Length}; matched_rules={sourceCueHits.Length}; matches=" +
-            (sourceCueHits.Length == 0 ? "none" : string.Join("; ", sourceCueHits.Select(x => $"{x.Category} [{x.Label}] hits={string.Join(",", x.Hits.Take(3))}"))));
+            evidence.Add("Embedded 3MF source evidence (diagnostic only unless field is primary): " + string.Join("; ", sourceCueHits.Select(x => $"{x.Field}: {x.Category} [{x.Label}] {string.Join(",", x.Hits.Take(3))}")));
+        diagnostics?.Add(
+            $"SOURCE_SEMANTIC_EVIDENCE: fields={sourceEvidenceLines.Length}; primary_fields={sourceEvidenceLines.Count(x => IsPrimarySourceEvidenceField(x.Field))}; description_fields={sourceEvidenceLines.Count(x => IsDescriptionSourceEvidenceField(x.Field))}; matched_rules={sourceCueHits.Length}; matches=" +
+            (sourceCueHits.Length == 0
+                ? "none"
+                : string.Join("; ", sourceCueHits.Select(x => $"{x.Field}: {x.Category} [{x.Label}] hits={string.Join(",", x.Hits.Take(3))}"))));
         var cueHits = AllCues
             .Select(c => (Cue: c, Hits: c.Terms.Where(t => ContainsPhrase(text, t)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
             .Where(x => x.Hits.Length > 0)
@@ -721,7 +733,10 @@ public sealed class SemanticEvidenceFusionService
             evidence.Add("Classification established without a stored-category conflict");
         }
 
-        diagnostics?.Add($"FUSION_RESULT: category={category}; type={type}; subtype={subtype}; family={family}; basis={basis}; identity={Math.Clamp(identity, 0, 100)}; classification={Math.Clamp(classification, 0, 100)}; evidence_quality={quality}; review={review}");
+        var hasStructuralEvidence = isToolOrganizer || useExplicitRole || hasGeneralizedArtifactRole ||
+            strongSourceDerivedAnalyzer || aviationConvergence ||
+            (entity is not null && !IsContextualEntityWithArtifactCue(entity, best));
+        diagnostics?.Add($"FUSION_RESULT: category={category}; type={type}; subtype={subtype}; family={family}; basis={basis}; structural={hasStructuralEvidence}; identity={Math.Clamp(identity, 0, 100)}; classification={Math.Clamp(classification, 0, 100)}; evidence_quality={quality}; review={review}");
         return new SemanticEvidenceFusionResult(category, type, subtype, family,
             Math.Clamp(identity, 0, 100), Math.Clamp(classification, 0, 100), quality, basis, review,
             evidence.Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
@@ -729,9 +744,22 @@ public sealed class SemanticEvidenceFusionService
             Diagnostics = diagnostics is null ? Array.Empty<string>() : diagnostics,
             SubjectIdentity = subjectIdentity,
             ArtifactRole = artifactRole,
-            ContextSignals = contextSignals
+            ContextSignals = contextSignals,
+            HasStructuralEvidence = hasStructuralEvidence
         };
     }
+
+    private static bool IsPrimarySourceEvidenceField(SourceSemanticEvidenceItem item)
+        => IsPrimarySourceEvidenceField(item.Field);
+
+    private static bool IsPrimarySourceEvidenceField(string field)
+        => field.Equals("object.name", StringComparison.OrdinalIgnoreCase) ||
+           field.Equals("metadata.title", StringComparison.OrdinalIgnoreCase) ||
+           field.Equals("metadata.name", StringComparison.OrdinalIgnoreCase) ||
+           field.Equals("metadata.model_name", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDescriptionSourceEvidenceField(string field)
+        => field.Equals("metadata.description", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsContextualEntityWithArtifactCue(
         MultilingualEntityMatch entity,

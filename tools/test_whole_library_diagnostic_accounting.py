@@ -16,7 +16,7 @@ checks = {
         and re.search(r"AnalyzeSourceForForensics\(m,\s*(?:worker\.SourceAnalyzer,\s*)?out var sourceTrace\)", service) is not None
     ),
     "forensic evidence includes bounded source, fusion, arbitration, and timing trace": (
-        "evidenceTraceSchemaVersion = 2" in service
+        "evidenceTraceSchemaVersion = 3" in service
         and "evidenceTraces = orderedEvidenceTraces" in service
         and "stage.StageTrace" in service
         and "f.Diagnostics" in service
@@ -45,9 +45,9 @@ checks = {
         and "Stopwatch.GetElapsedTime(sourceStarted)" in service
         and "SOURCE_FORENSICS_ELAPSED_MS=" in service
     ),
-    "forensic source analysis cannot overwrite a resolved category": (
-        "var mayReplaceCategory = !source.CategoryOverride && currentIsUnresolved;" in service
-        and "analysis.Confidence >= 0.70" in service
+    "forensic source analyzer category is forwarded through arbitration": (
+        "SOURCE_ANALYZER_CATEGORY_CANDIDATE:" in service
+        and "model.Category = analysis.Category" not in service
     ),
     "unresolved records are included in root-cause rows": (
         "rootCauseRows.Add(row)" in service
@@ -69,7 +69,7 @@ checks = {
     ),
     "resolved and unresolved outcomes are counted": "resolvedInferences" in service and "unresolvedInferences" in service,
     "missing inference is tracked": "missingInferenceResults" in service and "MISSING_INFERENCE" in service,
-    "category distribution is exported": "inferredCategories" in service,
+    "candidate and applied category distributions are exported": "appliedCategories" in service and "candidateCategories" in service,
     "outcome fingerprint is deterministic": "SHA256.HashData" in service and "OutcomeFingerprint" in service,
     "processed count excludes failed records": "created, models.Count, recordsAnalyzed, conflicts" in service,
     "automation enforces inference accounting": "DIAGNOSTIC_ACCOUNTING=FAIL" in program,

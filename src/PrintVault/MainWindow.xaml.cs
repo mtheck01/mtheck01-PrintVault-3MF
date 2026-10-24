@@ -771,16 +771,16 @@ public partial class MainWindow : Window
         {
             Status.Text = "Analyzing model…";
             var a = await engine.AnalyzeAsync(m);
-            // A custom category is explicit user intent. Manual/deep analysis may update
-            // intelligence fields, but it must never replace that category.
-            var preserveCustomCategory = m.CategoryOverride || IsCustomCategory(m.Category);
-            if (!preserveCustomCategory) m.Category = a.Category;
+            // Keep the current category intact while the source analyzer supplies a
+            // candidate to the same arbitration stage used by library scans and rebuilds.
             m.IntelligenceScore = a.Confidence; m.Family = a.Family;
             if (!m.PrintMethodOverride) { m.PrintMethod = a.PrintMethod; m.PrintMethodConfidence = a.PrintMethodConfidence; m.PrintMethodEvidence = a.PrintMethodEvidence; }
             m.SpecialType = a.SpecialType; m.ObjectCount = a.ObjectCount;
-            m.Dimensions = a.Dimensions; m.Slicer = a.Slicer; m.Materials = a.Materials; m.PrintReady = a.PrintReady; m.SemanticType=a.SemanticType; m.Subtype=a.Subtype; m.SuggestedTags=a.SuggestedTags; m.IntelligenceReason=a.Reason; m.RiskFlags=a.RiskFlags; m.Tags = NormalizeTags(m.Category, m.Tags);
-            multilingual.Apply(m);
+            m.Dimensions = a.Dimensions; m.Slicer = a.Slicer; m.Materials = a.Materials; m.PrintReady = a.PrintReady;
+            m.SourceSemanticEvidence = a.SourceSemanticEvidence; m.SourceSemanticEvidenceItems = a.SourceSemanticEvidenceItems;
+            m.SemanticType=a.SemanticType; m.Subtype=a.Subtype; m.SuggestedTags=a.SuggestedTags; m.IntelligenceReason=a.Reason; m.RiskFlags=a.RiskFlags;
             var pipelineApplied = intelligencePipeline.Apply(m);
+            m.Tags = NormalizeTags(m.Category, m.Tags);
             engine.Repository.Upsert(m); UpdateDashboard(); RefreshFilter(); Select(m);
             Status.Text = pipelineApplied ? "Analysis and modular intelligence classification complete" : "Analysis and multilingual metadata complete";
         }
