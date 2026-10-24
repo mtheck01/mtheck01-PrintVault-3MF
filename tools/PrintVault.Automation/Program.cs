@@ -219,6 +219,16 @@ try
         }
 
         var report = JsonDocument.Parse(File.ReadAllText(reportPath));
+        var reportRoot = report.RootElement;
+        var reportCatalogValid = reportRoot.TryGetProperty("Catalog", out var reportCatalogNode) &&
+                                 reportCatalogNode.TryGetInt32(out var reportCatalog) && reportCatalog == models.Count;
+        var reportProcessedValid = reportRoot.TryGetProperty("Processed", out var reportProcessedNode) &&
+                                   reportProcessedNode.TryGetInt32(out var reportProcessed) && reportProcessed == models.Count;
+        if (!reportCatalogValid || !reportProcessedValid)
+        {
+            Console.Error.WriteLine($"REPAIR_ABORTED=REPORT_CATALOG_MISMATCH REPORT_CATALOG={reportCatalogNode} REPORT_PROCESSED={reportProcessedNode} DATABASE_CATALOG={models.Count}");
+            return 16;
+        }
         var rows = report.RootElement.GetProperty("rows");
         var byId = models.ToDictionary(m => m.Id);
         var changed = 0;
@@ -241,6 +251,7 @@ try
             var inferred = row.TryGetProperty("InferredCategory", out var inferredNode) ? inferredNode.GetString() ?? "" : "";
             var stored = row.TryGetProperty("StoredCategory", out var storedNode) ? storedNode.GetString() ?? "" : "";
             var disposition = row.TryGetProperty("Disposition", out var dispositionNode) ? dispositionNode.GetString() ?? "" : "";
+            var arbitrationDecision = row.TryGetProperty("ArbitrationDecision", out var decisionNode) ? decisionNode.GetString() ?? "" : "";
             var basis = row.TryGetProperty("Basis", out var basisNode) ? basisNode.GetString() ?? "" : "";
             var evidence = row.TryGetProperty("Evidence", out var evidenceNode) ? evidenceNode.GetString() ?? "" : "";
             var confidence = row.TryGetProperty("ClassificationConfidence", out var confidenceNode) && confidenceNode.TryGetInt32(out var c) ? c : 0;
@@ -252,6 +263,17 @@ try
             {
                 if (model.CategoryOverride) skippedProtected++;
                 continue;
+            }
+
+            // The release gate and writeback must share the same typed policy.
+            // REVIEW/protected/unknown decisions are evidence for a person, not
+            // authorization to persist a candidate category.
+            if (!string.Equals(arbitrationDecision, "ACTIONABLE", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!string.Equals(model.Category, stored, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"REPAIR_ABORTED=STALE_REPORT_RECORD ID={id} REPORT_STORED={stored} DATABASE_STORED={model.Category}");
+                return 17;
             }
 
             var storedUnresolved = string.IsNullOrWhiteSpace(stored) ||

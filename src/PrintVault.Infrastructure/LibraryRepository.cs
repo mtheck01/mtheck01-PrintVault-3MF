@@ -11,7 +11,14 @@ public sealed class LibraryRepository
 
     public string DatabasePath => db;
 
-    public LibraryRepository() : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "library.db")) { }
+    public LibraryRepository() : this(GetDefaultDatabasePath()) { }
+
+    private static string GetDefaultDatabasePath()
+    {
+        var configuredPath = Environment.GetEnvironmentVariable("PRINTVAULT_DATABASE_PATH");
+        if (!string.IsNullOrWhiteSpace(configuredPath)) return configuredPath;
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PrintVault", "library.db");
+    }
 
     public LibraryRepository(string databasePath)
     {

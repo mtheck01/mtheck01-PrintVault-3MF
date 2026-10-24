@@ -114,6 +114,10 @@ update a regression test when appropriate. Do not modify VERSION; the orchestrat
 Current whole-library report:
 """ + json.dumps(report, indent=2) + """
 
+If the report has SourceTestOnly=true, no whole-library report exists yet. Use only
+the independent source-test failures below; do not infer catalog defects from the
+empty placeholder report. Keep the repair limited to the demonstrated failed tests.
+
 Independent source-test failures recorded before the whole-library diagnostic:
 """ + json.dumps(source_failures, indent=2) + """
 

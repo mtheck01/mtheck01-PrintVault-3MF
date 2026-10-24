@@ -36,7 +36,7 @@ $arguments = @(
 )
 if ($InstallService) {
     Write-Host "The runner will be installed as a Windows service after registration."
-    Write-Host "IMPORTANT: configure the service to run as the Windows account that owns the PrintVault library."
+    Write-Host "Configure the service account to read the dedicated test library folder. Autonomous validation uses a separate PrintVault-Test database."
     $arguments += "--runasservice"
 }
 & (Join-Path $RunnerDirectory "config.cmd") @arguments
@@ -50,4 +50,4 @@ Write-Host "Runner name: $RunnerName"
 Write-Host "Label: printvault-validation"
 Write-Host "Directory: $RunnerDirectory"
 Write-Host "InstallService: $InstallService"
-if ($InstallService) { Write-Host "Verify the Windows service Log On account before the first autonomous run." }
+if ($InstallService) { Write-Host "Verify the Windows service Log On account can read D:\3d print files test before the first autonomous run." }
