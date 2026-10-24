@@ -88,9 +88,18 @@ checks = {
         "REGRESSION_GATE=FAIL_REASON=CANDIDATE_CATEGORY_DISTRIBUTION_MISSING" in workflow
         and "REGRESSION_GATE=FAIL_REASON=APPLIED_CATEGORY_DISTRIBUTION_MISSING" in workflow
     ),
-    "regression gate prioritizes a clean baseline-or-better result over improvement labeling": (
-        workflow.find("if ($r.Conflicts -le $baseline.conflicts)") >= 0
-        and workflow.find("if ($r.Conflicts -le $baseline.conflicts)") < workflow.find("return \"IMPROVEMENT\"")
+    "regression gate uses typed arbitration decisions for blocking conflicts": (
+        "$row.ArbitrationDecision" in workflow
+        and '"REVIEW", "CATEGORY_OVERRIDE_PROTECTED", "CUSTOM_CATEGORY_PROTECTED"' in workflow
+        and "REGRESSION_GATE=FAIL_REASON=ACTIONABLE_CONFLICTS_REMAIN" in workflow
+    ),
+    "regression gate reconciles raw conflict rows before arbitration": (
+        "REGRESSION_GATE=FAIL_REASON=CONFLICT_ROW_ACCOUNTING" in workflow
+        and "$reportedConflictRows -ne [int]$r.Conflicts" in workflow
+    ),
+    "baseline conflict count is diagnostic only": (
+        "comparison=INFORMATIONAL_ONLY" in workflow
+        and "if ($r.Conflicts -le $baseline.conflicts)" not in workflow
     ),
     "zero conflicts alone cannot bypass coverage": "REGRESSION_GATE=FAIL_REASON=NON_INFORMATIVE_ANALYSIS" in workflow,
     "outcome CSV is uploaded as a diagnostic artifact": 'Filter "whole-library-outcomes.*.csv"' in workflow,
