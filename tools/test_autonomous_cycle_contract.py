@@ -23,7 +23,7 @@ required = [
     "PROMOTION_GUARD_START_SHA=",
     "Promotion blocked: origin/main changed during validation.",
     "Invoke-WholeLibrary",
-    "VALIDATION=PASS_NO_CONFLICTS",
+    "VALIDATION=PASS_NO_ACTIONABLE_CONFLICTS",
     "actions/upload-artifact@v4",
 ]
 
@@ -51,7 +51,19 @@ assert 'cron: "*/15 * * * *"' not in workflow
 assert "AUTO_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_repair || false }}" in workflow
 assert "AUTO_REPAIR: ${{ inputs.auto_repair || true }}" not in workflow
 assert "PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_repair == false }}" in workflow
-assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '1' }}" in workflow
+assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '3' }}" in workflow
+assert "default: true" in workflow[workflow.index("      deterministic_repair:"):workflow.index("      auto_repair:")]
+assert "DETERMINISTIC_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.deterministic_repair || false }}" in workflow
+assert "deterministic repair requires at least 2 whole-library validation passes" in workflow
+assert "AI repair requires at least 3 whole-library validation passes" in workflow
+assert "$needsRepair = $actionableConflicts -gt 0" in workflow
+assert 'AUTONOMOUS_REPAIR=DISABLED' in workflow
+assert 'AUTONOMOUS_REPAIR=ATTEMPT_LIMIT_REACHED' in workflow
+assert 'AUTONOMOUS_REPAIR=DETERMINISTIC_WRITEBACK_APPLIED' in workflow
+assert 'AUTONOMOUS_REPAIR=SOURCE_TEST_REPAIR_DISABLED' in workflow
+assert 'AUTONOMOUS_REPAIR=EXHAUSTED' not in workflow
+assert 'VALIDATION=PASS_NO_ACTIONABLE_CONFLICTS' in workflow
+assert 'VALIDATION=PASS_NO_CONFLICTS' not in workflow
 
 assert 'python ".\\tools\\forensic_repository_audit.py"' in workflow
 assert "FORENSIC_AUDIT_PASS=$auditPass/2" in workflow
