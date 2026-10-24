@@ -34,8 +34,7 @@ for item in required:
 # The contract should validate the command semantics, not a fragile exact substring.
 assert "rootcause" in workflow and "$reportDir" in workflow and "$expectedCatalog" in workflow, \
     "Missing autonomous whole-library rootcause invocation"
-assert "repair $report $expectedCatalog" in workflow or \
-       'repair $report $expectedCatalog' in workflow, \
+assert "repair $report1 $expectedCatalog" in workflow, \
     "Missing autonomous repair invocation"
 
 # The workflow is intentionally manual-only while runner and whole-library
@@ -54,8 +53,20 @@ assert "PRINTVAULT_ZERO_CREDIT: ${{ github.event_name != 'workflow_dispatch' || 
 assert "MAX_ATTEMPTS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_attempts || '3' }}" in workflow
 assert "default: true" in workflow[workflow.index("      deterministic_repair:"):workflow.index("      auto_repair:")]
 assert "DETERMINISTIC_REPAIR: ${{ github.event_name == 'workflow_dispatch' && inputs.deterministic_repair || false }}" in workflow
-assert "deterministic repair requires at least 2 whole-library validation passes" in workflow
-assert "AI repair requires at least 3 whole-library validation passes" in workflow
+assert "$maxAttempts = [Math]::Max($requestedAttempts, $requiredAttempts)" in workflow, \
+    "Incompatible dispatch settings must be normalized to the minimum safe validation-pass count"
+assert "ATTEMPTS_REQUESTED=$requestedAttempts ATTEMPTS_EFFECTIVE=$maxAttempts" in workflow
+assert 'Join-Path $env:APPDATA "PrintVault-Test\\library.db"' in workflow, \
+    "Autonomous validation must use an explicit test-only database path"
+assert '$env:PRINTVAULT_DATABASE_PATH = $testDatabasePath' in workflow
+assert 'cycle-settings.json' in workflow and 'cycle-failure.json' in workflow, \
+    "Settings and early failures must leave machine-readable diagnostics"
+assert 'Write-Error $failureMessage -ErrorAction Continue' in workflow and 'state = "failure"' in workflow, \
+    "Every terminating cycle failure must publish failure status"
+assert 'ReadLineAsync()' in workflow and '$stdoutWriter.WriteLine($line)' in workflow and '$stderrWriter.WriteLine($line)' in workflow, \
+    "External process stdout and stderr must be streamed while running"
+assert 'SOURCE_TEST_GATE=REPAIR_REQUIRED' in workflow and 'SourceTestOnly=$true' in workflow and 'Invoke-AiRepair $sourceOnlyReport' in workflow, \
+    "Opt-in AI repair must be reachable for source-test failures without installing a failing candidate"
 assert "$needsRepair = $actionableConflicts -gt 0" in workflow
 assert 'AUTONOMOUS_REPAIR=DISABLED' in workflow
 assert 'AUTONOMOUS_REPAIR=ATTEMPT_LIMIT_REACHED' in workflow
@@ -85,9 +96,9 @@ runner_end = workflow.index('Write-CycleStatus "FORENSIC_AUDIT"', runner_start)
 process_runner = workflow[runner_start:runner_end]
 assert "$pollIntervalMilliseconds = 500" in process_runner, "External process completion must be polled promptly"
 assert "$heartbeatIntervalMilliseconds = 15000" in process_runner, "Long-running processes must retain 15-second heartbeats"
-assert "while (-not $proc.WaitForExit($pollIntervalMilliseconds))" in process_runner, \
-    "The process runner must wait interruptibly for exit rather than sleep for a full heartbeat interval"
-heartbeat_gate_start = process_runner.index("if ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds)")
+assert "while (-not ($proc.HasExited -and $stdoutDone -and $stderrDone))" in process_runner, \
+    "The process runner must stream both output pipes through process completion"
+heartbeat_gate_start = process_runner.index("if (-not $processExited -and ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds)")
 heartbeat_gate_end = process_runner.index("if ($processTimer.Elapsed.TotalSeconds -ge $timeoutSeconds)", heartbeat_gate_start)
 heartbeat_block = process_runner[heartbeat_gate_start:heartbeat_gate_end]
 assert 'Write-CycleStatus "EXTERNAL_RUNNING"' in heartbeat_block, "Long-running processes must publish live stage status"
@@ -193,6 +204,14 @@ assert '--force-with-lease=refs/heads/${branch}:${expectedBranchSha}' in workflo
 assert 'Never use an unleased force push.' in workflow
 assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
 assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
+program = (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
+repository = (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryRepository.cs").read_text(encoding="utf-8")
+assert 'string.Equals(arbitrationDecision, "ACTIONABLE", StringComparison.OrdinalIgnoreCase)' in program, \
+    "Deterministic writeback must honor typed arbitration decisions"
+assert 'REPAIR_ABORTED=STALE_REPORT_RECORD' in program and 'REPAIR_ABORTED=REPORT_CATALOG_MISMATCH' in program, \
+    "Writeback must reject stale or wrong-catalog reports"
+assert 'PRINTVAULT_DATABASE_PATH' in repository, \
+    "All app and automation processes must honor the same explicit isolated database path"
 
 # Candidate build prerequisites must fail closed. A native-process failure cannot
 # be allowed to have its exit code overwritten by the next audit command.

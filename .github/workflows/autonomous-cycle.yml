@@ -159,16 +159,62 @@ jobs:
           PUBLISH_ON_PASS: ${{ inputs.publish_on_pass }}
         run: |
           $ErrorActionPreference = "Stop"
-          $maxAttempts = [int]$env:MAX_ATTEMPTS
+          New-Item -ItemType Directory -Force -Path (Join-Path $PWD "build_logs") | Out-Null
+          trap {
+            $failureMessage = $_.Exception.Message
+            try {
+              $statusDir = Join-Path $PWD "build_logs"
+              New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
+              $failure = [pscustomobject]@{
+                TimestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+                RunId = $env:GITHUB_RUN_ID
+                Attempt = $script:CurrentAttempt
+                Stage = "FAILED"
+                Detail = $failureMessage
+              }
+              $failure | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $statusDir "cycle-failure.json")
+              if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
+                $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
+                $description = "FAILED: $failureMessage"
+                if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
+                $body = @{ state = "failure"; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
+                Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA" -Headers $headers -Method Post -Body $body -ContentType "application/json" | Out-Null
+              }
+            } catch { Write-Warning "Unable to persist failure telemetry: $($_.Exception.Message)" }
+            Write-Error $failureMessage -ErrorAction Continue
+            exit 1
+          }
+
+          $requestedAttempts = [int]$env:MAX_ATTEMPTS
           $applyDeterministicRepair = $env:DETERMINISTIC_REPAIR -eq "true"
           $autoRepair = $env:AUTO_REPAIR -eq "true"
           $publish = $env:PUBLISH_ON_PASS -eq "true"
-          if ($applyDeterministicRepair -and $maxAttempts -lt 2) {
-            throw "Invalid cycle policy: deterministic repair requires at least 2 whole-library validation passes (initial analysis and post-repair verification)."
+          $requiredAttempts = if ($autoRepair) { 3 } elseif ($applyDeterministicRepair) { 2 } else { 1 }
+          $maxAttempts = [Math]::Max($requestedAttempts, $requiredAttempts)
+          Write-Host "ATTEMPTS_REQUESTED=$requestedAttempts ATTEMPTS_EFFECTIVE=$maxAttempts ATTEMPT_FLOOR=$requiredAttempts"
+
+          # Keep autonomous scans and repairs in a dedicated, persistent test DB.
+          # Never let the service account's normal PrintVault profile DB become the
+          # implicit target when the runner is reconfigured under a user's account.
+          $testDatabasePath = [System.IO.Path]::GetFullPath((Join-Path $env:APPDATA "PrintVault-Test\library.db"))
+          $productionDatabasePath = [System.IO.Path]::GetFullPath((Join-Path $env:APPDATA "PrintVault\library.db"))
+          if ([string]::Equals($testDatabasePath, $productionDatabasePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to use the production PrintVault database for autonomous validation."
           }
-          if ($autoRepair -and $maxAttempts -lt 3) {
-            throw "Invalid cycle policy: AI repair requires at least 3 whole-library validation passes (initial analysis, repair iteration, and final verification)."
+          $env:PRINTVAULT_DATABASE_PATH = $testDatabasePath
+          New-Item -ItemType Directory -Force -Path (Split-Path $testDatabasePath) | Out-Null
+          Write-Host "PRINTVAULT_DATABASE_PATH=$testDatabasePath"
+          $cycleSettings = [pscustomobject]@{
+            RunId = $env:GITHUB_RUN_ID
+            RequestedAttempts = $requestedAttempts
+            EffectiveAttempts = $maxAttempts
+            DeterministicRepair = $applyDeterministicRepair
+            AiRepair = $autoRepair
+            PublishOnPass = $publish
+            DatabasePath = $testDatabasePath
+            TestLibraryRoot = "D:\3d print files test"
           }
+          $cycleSettings | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $PWD "build_logs\cycle-settings.json")
           $expectedCatalog = $null
           $baselinePath = Join-Path $PWD "automation/baseline-9.0.44.json"
           $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
@@ -334,16 +380,34 @@ jobs:
             $proc.StartInfo = $psi
             $processTimer = [System.Diagnostics.Stopwatch]::StartNew()
             if (-not $proc.Start()) { throw "Unable to start external process: $filePath" }
-
-            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-            $stderrTask = $proc.StandardError.ReadToEndAsync()
+            New-Item -ItemType Directory -Force -Path (Split-Path $logPath) | Out-Null
+            $stdoutWriter = [System.IO.StreamWriter]::new($logPath, $false, [System.Text.Encoding]::UTF8)
+            $stderrWriter = [System.IO.StreamWriter]::new($errPath, $false, [System.Text.Encoding]::UTF8)
+            $stdoutWriter.AutoFlush = $true
+            $stderrWriter.AutoFlush = $true
+            $stdoutTask = $proc.StandardOutput.ReadLineAsync()
+            $stderrTask = $proc.StandardError.ReadLineAsync()
+            $stdoutDone = $false
+            $stderrDone = $false
+            $timedOut = $false
             $lastHeartbeat = [TimeSpan]::Zero
             $pollIntervalMilliseconds = 500
             $heartbeatIntervalMilliseconds = 15000
-            while (-not $proc.WaitForExit($pollIntervalMilliseconds)) {
+            while (-not ($proc.HasExited -and $stdoutDone -and $stderrDone)) {
+              $processExited = $proc.WaitForExit($pollIntervalMilliseconds)
+              if (-not $stdoutDone -and $stdoutTask.IsCompleted) {
+                $line = $stdoutTask.GetAwaiter().GetResult()
+                if ($null -eq $line) { $stdoutDone = $true }
+                else { $stdoutWriter.WriteLine($line); Write-Host $line; $stdoutTask = $proc.StandardOutput.ReadLineAsync() }
+              }
+              if (-not $stderrDone -and $stderrTask.IsCompleted) {
+                $line = $stderrTask.GetAwaiter().GetResult()
+                if ($null -eq $line) { $stderrDone = $true }
+                else { $stderrWriter.WriteLine($line); Write-Host $line; $stderrTask = $proc.StandardError.ReadLineAsync() }
+              }
               $elapsed = $processTimer.Elapsed
-              if ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds) -or
-                  ($elapsed.TotalSeconds -ge $timeoutSeconds)) {
+              if (-not $processExited -and ((($elapsed - $lastHeartbeat).TotalMilliseconds -ge $heartbeatIntervalMilliseconds) -or
+                  ($elapsed.TotalSeconds -ge $timeoutSeconds))) {
                 $elapsedSeconds = [int]$elapsed.TotalSeconds
                 $elapsedMilliseconds = [long]$elapsed.TotalMilliseconds
                 Write-Host "EXTERNAL_HEARTBEAT=$filePath ELAPSED_SECONDS=$elapsedSeconds ELAPSED_MS=$elapsedMilliseconds PID=$($proc.Id)"
@@ -353,48 +417,33 @@ jobs:
               if ($processTimer.Elapsed.TotalSeconds -ge $timeoutSeconds) {
                 # The process may have exited while the heartbeat was being published.
                 # Recheck before terminating so status latency cannot turn a pass into a timeout.
-                if ($proc.WaitForExit(0)) { break }
+                if ($proc.WaitForExit(0)) { $lastHeartbeat = $processTimer.Elapsed; continue }
+                $timedOut = $true
                 $elapsedMilliseconds = [long]$processTimer.Elapsed.TotalMilliseconds
                 Write-Warning "EXTERNAL_TIMEOUT=$filePath PID=$($proc.Id) elapsed_ms=$elapsedMilliseconds; terminating process tree."
                 try { $proc.Kill() } catch {}
                 try { $proc.WaitForExit(10000) | Out-Null } catch {}
                 try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | ForEach-Object { Write-Host "EXTERNAL_KILL=$_"} } catch { Write-Warning "Process-tree termination failed: $($_.Exception.Message)" }
-
-                # Preserve child output BEFORE throwing. Previously timeout exited this
-                # function without awaiting redirected streams, discarding progress and
-                # exception evidence needed to diagnose slow whole-library runs.
-                try { $proc.WaitForExit() } catch {}
-                try { $stdout = $stdoutTask.GetAwaiter().GetResult() } catch { $stdout = "EXTERNAL_STDOUT_CAPTURE_FAILED: $($_.Exception.Message)" }
-                try { $stderr = $stderrTask.GetAwaiter().GetResult() } catch { $stderr = "EXTERNAL_STDERR_CAPTURE_FAILED: $($_.Exception.Message)" }
-                New-Item -ItemType Directory -Force -Path (Split-Path $logPath) | Out-Null
-                Set-Content -Path $logPath -Value $stdout -NoNewline -Encoding UTF8
-                Set-Content -Path $errPath -Value $stderr -NoNewline -Encoding UTF8
-                Write-Host "EXTERNAL_TIMEOUT_LOG_SAVED=$logPath"
-                Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN"
-                if (-not [string]::IsNullOrWhiteSpace($stdout)) {
-                  $stdout -split '\r?\n' | Select-Object -Last 200 | ForEach-Object { Write-Host $_ }
-                }
-                Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_END"
-                Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_BEGIN"
-                if (-not [string]::IsNullOrWhiteSpace($stderr)) {
-                  $stderr -split '\r?\n' | Select-Object -Last 100 | ForEach-Object { Write-Host $_ }
-                }
-                Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_END"
-                $proc.Dispose()
-                throw "External process timed out after $timeoutSeconds seconds: $filePath (captured logs: $logPath, $errPath)"
+                $lastHeartbeat = $processTimer.Elapsed
               }
             }
 
             $proc.WaitForExit()
-            $stdout = $stdoutTask.GetAwaiter().GetResult()
-            $stderr = $stderrTask.GetAwaiter().GetResult()
-            Set-Content -Path $logPath -Value $stdout -NoNewline -Encoding UTF8
-            Set-Content -Path $errPath -Value $stderr -NoNewline -Encoding UTF8
+            $stdoutWriter.Dispose()
+            $stderrWriter.Dispose()
+
+            if ($timedOut) {
+              Write-Host "EXTERNAL_TIMEOUT_LOG_SAVED=$logPath"
+              $stdoutTail = Get-Content $logPath -Tail 200 -ErrorAction SilentlyContinue
+              $stderrTail = Get-Content $errPath -Tail 100 -ErrorAction SilentlyContinue
+              Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_BEGIN"; $stdoutTail | ForEach-Object { Write-Host $_ }; Write-Host "EXTERNAL_TIMEOUT_STDOUT_TAIL_END"
+              Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_BEGIN"; $stderrTail | ForEach-Object { Write-Host $_ }; Write-Host "EXTERNAL_TIMEOUT_STDERR_TAIL_END"
+              $proc.Dispose()
+              throw "External process timed out after $timeoutSeconds seconds: $filePath (captured logs: $logPath, $errPath)"
+            }
 
             $exitCode = [int]$proc.ExitCode
             $elapsedMilliseconds = [long]$processTimer.Elapsed.TotalMilliseconds
-            if (Test-Path $logPath) { Get-Content $logPath | ForEach-Object { Write-Host $_ } }
-            if (Test-Path $errPath) { Get-Content $errPath | ForEach-Object { Write-Host $_ } }
             Write-Host "EXTERNAL_EXIT=$exitCode FILE=$filePath ELAPSED_MS=$elapsedMilliseconds"
             $proc.Dispose()
             return $exitCode
@@ -624,13 +673,37 @@ jobs:
             # continued, allowing a false-green Autonomous Cycle.
             if ($script:SourceTestFailures.Count -ne 0) {
               $failedNames = ($script:SourceTestFailures | ForEach-Object { "$($_.Test) [pass=$($_.Pass) exit=$($_.ExitCode)]" }) -join "; "
-              throw "SOURCE_TEST_GATE_FAILED: $($script:SourceTestFailures.Count) required module test failure(s): $failedNames"
+              if (-not $autoRepair) {
+                throw "SOURCE_TEST_GATE_FAILED: $($script:SourceTestFailures.Count) required module test failure(s): $failedNames"
+              }
+              Write-Host "SOURCE_TEST_GATE=REPAIR_REQUIRED COUNT=$($script:SourceTestFailures.Count)"
+              return @($script:SourceTestFailures)
             }
             if ($script:SourceModuleLocks.Count -ne $script:SourceModuleCount) {
               throw "SOURCE_MODULE_LOCK_GATE_FAILED: expected $($script:SourceModuleCount) module locks after two-pass validation, found $($script:SourceModuleLocks.Count)."
             }
             Write-Host "SOURCE_TEST_GATE=PASS"
             Write-Host "SOURCE_MODULE_LOCK_GATE=PASS"
+            return @()
+          }
+
+          function Invoke-AiRepair($reportPath, $sourceFailuresPath) {
+            if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {
+              throw "AI repair boundary reached while PRINTVAULT_ZERO_CREDIT=1. Refusing any OpenAI request."
+            }
+            if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
+              throw "OPENAI_API_KEY is required for automatic repair."
+            }
+            $repairExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_repair.py", $reportPath, $sourceFailuresPath) (Join-Path $PWD "build_logs\autonomous-repair.log") 300
+            if ($repairExit -ne 0) { throw "Repair agent failed with exit code $repairExit." }
+            $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
+            if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
+            git apply --check $patch
+            if ($LASTEXITCODE -ne 0) { throw "Repair patch failed git apply --check." }
+            git apply $patch
+            if ($LASTEXITCODE -ne 0) { throw "Repair patch failed to apply." }
+            if (git diff --name-only | Select-String "^VERSION$") { git checkout -- VERSION }
+            Write-Host "AUTONOMOUS_REPAIR=APPLIED"
           }
 
           function Invoke-CandidateBuild {
@@ -649,7 +722,10 @@ jobs:
               throw "Forensic repository audit failed after candidate source changes. Exit code $LASTEXITCODE."
             }
 
-            Invoke-SourceTests
+            $sourceFailures = Invoke-SourceTests
+            if (@($sourceFailures).Count -gt 0) {
+              return @{ SourceTestFailures=@($sourceFailures) }
+            }
             python ".\tools\forensic_repository_audit.py"
             if ($LASTEXITCODE -ne 0) { throw "Forensic repository audit failed after module verification." }
             $candidateBuildLog = Join-Path $PWD "build_logs\\candidate-build.log"
@@ -904,6 +980,20 @@ jobs:
             }
             Write-CycleStatus "BUILD"
             $candidate = Invoke-CandidateBuild
+            if ($null -ne $candidate.SourceTestFailures -and @($candidate.SourceTestFailures).Count -gt 0) {
+              $sourceTestFailures = @($candidate.SourceTestFailures)
+              Write-Host "SOURCE_TEST_REPAIR_TARGETS=$($sourceTestFailures.Count)"
+              if ($attempt -eq $maxAttempts) {
+                throw "Required source tests still fail on the final repair pass ($($sourceTestFailures.Count) failure(s)); no candidate will be installed or promoted."
+              }
+              $sourceFailurePath = Join-Path $PWD "build_logs\source-test-failures.json"
+              $sourceOnlyReport = Join-Path $PWD "build_logs\source-test-only-report.json"
+              @{ Failures=0; Catalog=0; Processed=0; rows=@(); SourceTestOnly=$true } |
+                ConvertTo-Json -Depth 5 | Set-Content -Path $sourceOnlyReport -Encoding UTF8
+              Write-CycleStatus "SOURCE_TEST_REPAIR" "failures=$($sourceTestFailures.Count)"
+              Invoke-AiRepair $sourceOnlyReport $sourceFailurePath
+              continue
+            }
             Write-CycleStatus "INSTALL" "version=$($candidate.Version)"
             $candidate = Install-Candidate $candidate
             Write-Host "APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS"
@@ -966,9 +1056,28 @@ jobs:
 
             Write-CycleStatus "WHOLE_LIBRARY_DIAGNOSTIC" "two-pass reproducibility gate"
             $report1 = Invoke-WholeLibrary -Pass 1
+            $reportData = Get-Content $report1 -Raw | ConvertFrom-Json
+            $firstPassGate = Test-RegressionGate $report1
+            if ($firstPassGate -eq "FAIL") {
+              throw "First whole-library pass failed accounting or coverage gates; no repair or release is permitted."
+            }
+            $firstPassActionable = Get-ActionableConflictCount $reportData
+            if ($firstPassGate -eq "REPAIR_REQUIRED" -and
+                $applyDeterministicRepair -and
+                $attempt -lt $maxAttempts -and
+                -not $deterministicRepairAttempted) {
+              Write-CycleStatus "DETERMINISTIC_REPAIR" "actionable=$firstPassActionable; initial analysis pass only"
+              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=DETERMINISTIC_WRITEBACK"
+              Write-Host "REMAINING_ACTIONABLE_CONFLICTS=$firstPassActionable TOTAL_CANDIDATE_CONFLICTS=$($reportData.Conflicts)"
+              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair $report1 $expectedCatalog
+              if ($LASTEXITCODE -ne 0) { throw "Deterministic full-library repair failed with exit code $LASTEXITCODE." }
+              $deterministicRepairAttempted = $true
+              Write-Host "AUTONOMOUS_REPAIR=DETERMINISTIC_WRITEBACK_APPLIED"
+              Write-Host "DETERMINISTIC_REPAIR_REPRODUCIBILITY=DEFERRED_TO_POST_REPAIR_TWO_PASS_GATE"
+              continue
+            }
             $report2 = Invoke-WholeLibrary -Pass 2
 
-            $reportData = Get-Content $report1 -Raw | ConvertFrom-Json
             $reportData2 = Get-Content $report2 -Raw | ConvertFrom-Json
             if ($reportData.Catalog -ne $reportData2.Catalog -or
                 $reportData.Processed -ne $reportData2.Processed -or
@@ -1019,48 +1128,13 @@ jobs:
             # Only actionable arbitration decisions trigger deterministic writeback or AI
             # repair. Rejected/protected candidates remain visible as review evidence.
 
-            if ($needsRepair -and $applyDeterministicRepair -and $attempt -lt $maxAttempts -and -not $deterministicRepairAttempted) {
-              Write-CycleStatus "DETERMINISTIC_REPAIR" "actionable=$actionableConflicts total=$remainingConflicts"
-              Write-Host "AUTONOMOUS_REPAIR_TRIGGER=DETERMINISTIC_WRITEBACK"
-              Write-Host "REMAINING_ACTIONABLE_CONFLICTS=$actionableConflicts TOTAL_CANDIDATE_CONFLICTS=$remainingConflicts"
-              & dotnet run --project ".\tools\PrintVault.Automation\PrintVault.Automation.csproj" -c Release --no-build -- repair $report $expectedCatalog
-              $repairExit = $LASTEXITCODE
-              if ($repairExit -ne 0) { throw "Deterministic full-library repair failed with exit code $repairExit." }
-              $deterministicRepairAttempted = $true
-              Write-Host "AUTONOMOUS_REPAIR=DETERMINISTIC_WRITEBACK_APPLIED"
-              continue
-            }
-
             if (($needsRepair -or $sourceTestFailures.Count -gt 0) -and $autoRepair -and $attempt -lt $maxAttempts) {
               Write-CycleStatus "AI_REPAIR" "actionable=$actionableConflicts total=$remainingConflicts"
               Write-Host "AUTONOMOUS_REPAIR_TRIGGER=AI_PATCH"
               Write-Host "REMAINING_ACTIONABLE_CONFLICTS=$actionableConflicts TOTAL_CANDIDATE_CONFLICTS=$remainingConflicts"
 
-              # Defense-in-depth: zero-credit mode must never reach the AI repair boundary,
-              # even if a future change accidentally enables $autoRepair in this branch.
-              if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {
-                throw "AI repair boundary reached while PRINTVAULT_ZERO_CREDIT=1. Refusing any OpenAI request."
-              }
-              if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) {
-                throw "OPENAI_API_KEY is required for automatic repair."
-              }
-
               $sourceFailuresPath = Join-Path $PWD "build_logs\source-test-failures.json"
-              $repairExit = Invoke-ExternalWithHeartbeat "python" @(".\tools\autonomous_repair.py", $report, $sourceFailuresPath) (Join-Path $PWD "build_logs\autonomous-repair.log") 300
-              if ($repairExit -ne 0) { throw "Repair agent failed with exit code $repairExit." }
-
-              $patch = Join-Path $PWD "build_logs\autonomous-repair.patch"
-              if (-not (Test-Path $patch)) { throw "Repair patch was not produced." }
-              git apply --check $patch
-              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed git apply --check." }
-              git apply $patch
-              if ($LASTEXITCODE -ne 0) { throw "Repair patch failed to apply." }
-
-              if (git diff --name-only | Select-String "^VERSION$") {
-                git checkout -- VERSION
-              }
-
-              Write-Host "AUTONOMOUS_REPAIR=APPLIED"
+              Invoke-AiRepair $report $sourceFailuresPath
               continue
             }
 
