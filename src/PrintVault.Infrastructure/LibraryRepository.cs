@@ -5,7 +5,7 @@ namespace PrintVault.Infrastructure;
 
 public sealed class LibraryRepository
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
     private readonly string db;
     private readonly object gate = new();
 
@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS Models(
  CategoryOverride INTEGER DEFAULT 0,
  PrintMethodOverride INTEGER DEFAULT 0,
  OriginalLanguage TEXT DEFAULT 'Unknown',
+ LanguageConfidence INTEGER DEFAULT 0,
  TranslatedTitle TEXT DEFAULT '',
  TranslationConfidence INTEGER DEFAULT 0,
  TranslationEvidence TEXT DEFAULT ''
@@ -137,6 +138,7 @@ CREATE TABLE IF NOT EXISTS Models(
             ("CategoryOverride", "INTEGER DEFAULT 0"),
             ("PrintMethodOverride", "INTEGER DEFAULT 0"),
             ("OriginalLanguage", "TEXT DEFAULT 'Unknown'"),
+            ("LanguageConfidence", "INTEGER DEFAULT 0"),
             ("TranslatedTitle", "TEXT DEFAULT ''"),
             ("TranslationConfidence", "INTEGER DEFAULT 0"),
             ("TranslationEvidence", "TEXT DEFAULT ''")
@@ -170,7 +172,7 @@ CREATE INDEX IF NOT EXISTS IX_Models_Name ON Models(Name);");
         cmd.ExecuteNonQuery();
     }
 
-    private const string SelectColumns = "Id,Path,Name,Category,Size,ModifiedUtc,ThumbnailPath,Favorite,Tags,Family,Slicer,Materials,ObjectCount,Dimensions,IntelligenceScore,PrintReady,DuplicateGroup,Hash,SemanticType,Subtype,SuggestedTags,IntelligenceReason,RiskFlags,PrintMethod,PrintMethodConfidence,PrintMethodEvidence,SpecialType,CategoryOverride,PrintMethodOverride,OriginalLanguage,TranslatedTitle,TranslationConfidence,TranslationEvidence";
+    private const string SelectColumns = "Id,Path,Name,Category,Size,ModifiedUtc,ThumbnailPath,Favorite,Tags,Family,Slicer,Materials,ObjectCount,Dimensions,IntelligenceScore,PrintReady,DuplicateGroup,Hash,SemanticType,Subtype,SuggestedTags,IntelligenceReason,RiskFlags,PrintMethod,PrintMethodConfidence,PrintMethodEvidence,SpecialType,CategoryOverride,PrintMethodOverride,OriginalLanguage,TranslatedTitle,TranslationConfidence,TranslationEvidence,LanguageConfidence";
 
     public IReadOnlyDictionary<string, ModelRecord> GetAllMap()
     {
@@ -216,12 +218,12 @@ CREATE INDEX IF NOT EXISTS IX_Models_Name ON Models(Name);");
             using var x = c.CreateCommand();
             x.Transaction = tx;
             x.CommandText = @"
-INSERT INTO Models(Path,Name,Category,Size,ModifiedUtc,ThumbnailPath,Favorite,Tags,Family,Slicer,Materials,ObjectCount,Dimensions,IntelligenceScore,PrintReady,DuplicateGroup,Hash,SemanticType,Subtype,SuggestedTags,IntelligenceReason,RiskFlags,PrintMethod,PrintMethodConfidence,PrintMethodEvidence,SpecialType,CategoryOverride,PrintMethodOverride,OriginalLanguage,TranslatedTitle,TranslationConfidence,TranslationEvidence)
-VALUES($p,$n,$c,$s,$d,$t,$f,$tags,$fam,$sl,$mat,$oc,$dim,$score,$ready,$dup,$hash,$stype,$subtype,$suggested,$reason,$risk,$pm,$pmc,$pme,$special,$co,$pmo,$lang,$translated,$tc,$te)
+INSERT INTO Models(Path,Name,Category,Size,ModifiedUtc,ThumbnailPath,Favorite,Tags,Family,Slicer,Materials,ObjectCount,Dimensions,IntelligenceScore,PrintReady,DuplicateGroup,Hash,SemanticType,Subtype,SuggestedTags,IntelligenceReason,RiskFlags,PrintMethod,PrintMethodConfidence,PrintMethodEvidence,SpecialType,CategoryOverride,PrintMethodOverride,OriginalLanguage,TranslatedTitle,TranslationConfidence,TranslationEvidence,LanguageConfidence)
+VALUES($p,$n,$c,$s,$d,$t,$f,$tags,$fam,$sl,$mat,$oc,$dim,$score,$ready,$dup,$hash,$stype,$subtype,$suggested,$reason,$risk,$pm,$pmc,$pme,$special,$co,$pmo,$lang,$translated,$tc,$te,$languageConfidence)
 ON CONFLICT(Path) DO UPDATE SET
-Name=$n,Category=$c,Size=$s,ModifiedUtc=$d,ThumbnailPath=$t,Favorite=$f,Tags=$tags,Family=$fam,Slicer=$sl,Materials=$mat,ObjectCount=$oc,Dimensions=$dim,IntelligenceScore=$score,PrintReady=$ready,DuplicateGroup=$dup,Hash=$hash,SemanticType=$stype,Subtype=$subtype,SuggestedTags=$suggested,IntelligenceReason=$reason,RiskFlags=$risk,PrintMethod=$pm,PrintMethodConfidence=$pmc,PrintMethodEvidence=$pme,SpecialType=$special,CategoryOverride=$co,PrintMethodOverride=$pmo,OriginalLanguage=$lang,TranslatedTitle=$translated,TranslationConfidence=$tc,TranslationEvidence=$te;";
+Name=$n,Category=$c,Size=$s,ModifiedUtc=$d,ThumbnailPath=$t,Favorite=$f,Tags=$tags,Family=$fam,Slicer=$sl,Materials=$mat,ObjectCount=$oc,Dimensions=$dim,IntelligenceScore=$score,PrintReady=$ready,DuplicateGroup=$dup,Hash=$hash,SemanticType=$stype,Subtype=$subtype,SuggestedTags=$suggested,IntelligenceReason=$reason,RiskFlags=$risk,PrintMethod=$pm,PrintMethodConfidence=$pmc,PrintMethodEvidence=$pme,SpecialType=$special,CategoryOverride=$co,PrintMethodOverride=$pmo,OriginalLanguage=$lang,TranslatedTitle=$translated,TranslationConfidence=$tc,TranslationEvidence=$te,LanguageConfidence=$languageConfidence;";
 
-            var lang = x.Parameters.Add("$lang", SqliteType.Text); var translated = x.Parameters.Add("$translated", SqliteType.Text); var tc = x.Parameters.Add("$tc", SqliteType.Integer); var te = x.Parameters.Add("$te", SqliteType.Text);
+            var lang = x.Parameters.Add("$lang", SqliteType.Text); var translated = x.Parameters.Add("$translated", SqliteType.Text); var tc = x.Parameters.Add("$tc", SqliteType.Integer); var te = x.Parameters.Add("$te", SqliteType.Text); var languageConfidence = x.Parameters.Add("$languageConfidence", SqliteType.Integer);
             var p = x.Parameters.Add("$p", SqliteType.Text);
             var n = x.Parameters.Add("$n", SqliteType.Text);
             var cat = x.Parameters.Add("$c", SqliteType.Text);
@@ -247,7 +249,7 @@ Name=$n,Category=$c,Size=$s,ModifiedUtc=$d,ThumbnailPath=$t,Favorite=$f,Tags=$ta
                 date.Value = m.ModifiedUtc.ToString("O"); thumb.Value = (object?)m.ThumbnailPath ?? DBNull.Value;
                 fav.Value = m.Favorite ? 1 : 0; tags.Value = m.Tags ?? ""; fam.Value = m.Family ?? ""; sl.Value = m.Slicer ?? "";
                 mat.Value = m.Materials ?? ""; oc.Value = m.ObjectCount; dim.Value = m.Dimensions ?? ""; score.Value = m.IntelligenceScore;
-                ready.Value = m.PrintReady ? 1 : 0; dup.Value = m.DuplicateGroup ?? ""; hash.Value = m.Hash ?? ""; stype.Value=m.SemanticType??""; subtype.Value=m.Subtype??""; suggested.Value=m.SuggestedTags??""; reason.Value=m.IntelligenceReason??""; risk.Value=m.RiskFlags??""; pm.Value=m.PrintMethod??"Unknown"; pmc.Value=m.PrintMethodConfidence; pme.Value=m.PrintMethodEvidence??""; special.Value=m.SpecialType??""; co.Value=m.CategoryOverride?1:0; pmo.Value=m.PrintMethodOverride?1:0; lang.Value=m.OriginalLanguage??"Unknown"; translated.Value=m.TranslatedTitle??""; tc.Value=m.TranslationConfidence; te.Value=m.TranslationEvidence??"";
+                ready.Value = m.PrintReady ? 1 : 0; dup.Value = m.DuplicateGroup ?? ""; hash.Value = m.Hash ?? ""; stype.Value=m.SemanticType??""; subtype.Value=m.Subtype??""; suggested.Value=m.SuggestedTags??""; reason.Value=m.IntelligenceReason??""; risk.Value=m.RiskFlags??""; pm.Value=m.PrintMethod??"Unknown"; pmc.Value=m.PrintMethodConfidence; pme.Value=m.PrintMethodEvidence??""; special.Value=m.SpecialType??""; co.Value=m.CategoryOverride?1:0; pmo.Value=m.PrintMethodOverride?1:0; lang.Value=m.OriginalLanguage??"Unknown"; translated.Value=m.TranslatedTitle??""; tc.Value=m.TranslationConfidence; te.Value=m.TranslationEvidence??""; languageConfidence.Value=m.LanguageConfidence;
                 x.ExecuteNonQuery();
             }
 
@@ -341,7 +343,7 @@ Name=$n,Category=$c,Size=$s,ModifiedUtc=$d,ThumbnailPath=$t,Favorite=$f,Tags=$ta
             Materials = Text(r, 11), ObjectCount = ToInt32(r, 12),
             Dimensions = Text(r, 13), IntelligenceScore = ToDouble(r, 14),
             PrintReady = ToInt64(r, 15) != 0, DuplicateGroup = Text(r, 16), Hash = Text(r, 17), SemanticType=Text(r, 18), Subtype=Text(r, 19), SuggestedTags=Text(r, 20), IntelligenceReason=Text(r, 21), RiskFlags=Text(r, 22), PrintMethod=string.IsNullOrWhiteSpace(Text(r, 23))?"Unknown":Text(r, 23), PrintMethodConfidence=ToDouble(r, 24), PrintMethodEvidence=Text(r, 25), SpecialType=Text(r, 26), CategoryOverride=ToInt64(r, 27)!=0, PrintMethodOverride=ToInt64(r, 28)!=0,
-            OriginalLanguage=string.IsNullOrWhiteSpace(Text(r, 29))?"Unknown":Text(r, 29), TranslatedTitle=Text(r, 30), TranslationConfidence=ToInt32(r, 31), TranslationEvidence=Text(r, 32)
+            OriginalLanguage=string.IsNullOrWhiteSpace(Text(r, 29))?"Unknown":Text(r, 29), TranslatedTitle=Text(r, 30), TranslationConfidence=ToInt32(r, 31), TranslationEvidence=Text(r, 32), LanguageConfidence=ToInt32(r, 33)
         };
     }
 

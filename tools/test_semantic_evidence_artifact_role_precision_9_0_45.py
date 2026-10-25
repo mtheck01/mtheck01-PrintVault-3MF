@@ -32,7 +32,7 @@ required_suffixes = [
 checks = [
     ("bounded artifact-role grammar exists", "ArtifactRoleSuffixes" in fusion),
     ("generalized role matcher exists", "TryGetFunctionalArtifactRole" in fusion),
-    ("role grammar requires a subject", 'subjectTokens.Length == 0 || subjectTokens.Length > 6' in fusion),
+    ("role grammar requires a subject and bounds local context", 'subjectTokens.Length == 0' in fusion and 'subjectTokens = subjectTokens[^6..]' in fusion),
     ("role matcher uses Unicode token boundaries", "\\p{{L}}" in fusion and "\\p{{N}}" in fusion),
     ("high-impact role suffixes are represented", all(term in fusion for term in required_suffixes if term not in ['"case"', '"cover"', '"support"', '"base"'])),
     ("ambiguous role suffixes are explicitly contextualized", "ContextualArtifactRoleSuffixes" in fusion and "HasContextualArtifactRole" in fusion),

@@ -200,7 +200,7 @@ public sealed class EntitySemanticRegressionChallengeService
         Id = x.Id, Path = x.Path, Name = x.Name, Category = x.Category, Size = x.Size, ModifiedUtc = x.ModifiedUtc,
         Tags = x.Tags, Family = x.Family, SemanticType = x.SemanticType, Subtype = x.Subtype, SuggestedTags = x.SuggestedTags,
         IntelligenceReason = x.IntelligenceReason, IntelligenceScore = x.IntelligenceScore, CategoryOverride = x.CategoryOverride,
-        TranslatedTitle = x.TranslatedTitle, OriginalLanguage = x.OriginalLanguage, TranslationConfidence = x.TranslationConfidence,
+        TranslatedTitle = x.TranslatedTitle, OriginalLanguage = x.OriginalLanguage, LanguageConfidence = x.LanguageConfidence, TranslationConfidence = x.TranslationConfidence,
         TranslationEvidence = x.TranslationEvidence, Hash = x.Hash
     };
 

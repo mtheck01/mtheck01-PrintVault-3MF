@@ -15,7 +15,9 @@ public sealed class TranslationAliasNormalizationModule
     public sealed record Result(
         string NormalizedText,
         string TranslatedText,
-        IReadOnlyList<string> Terms);
+        IReadOnlyList<string> Terms,
+        int CoveragePercent,
+        bool TranslationApplied);
 
     internal static readonly IReadOnlyDictionary<string, string> ChineseGlossary =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -36,7 +38,14 @@ public sealed class TranslationAliasNormalizationModule
             ["桌面收纳"]="desk organizer", ["理线器"]="cable organizer",
             ["蝙蝠车"]="batmobile", ["蝙蝠車"]="batmobile", ["千年隼"]="millennium falcon", ["霍格沃茨"]="hogwarts",
             ["蝙蝠俠"]="batman", ["蜘蛛人"]="spider-man", ["鋼鐵人"]="iron man",
-            ["打印模型"]="3d printed model", ["3D打印"]="3d printing", ["模型打印"]="model printing"
+            ["打印模型"]="3d printed model", ["3D打印"]="3d printing", ["模型打印"]="model printing",
+            ["红桃"]="hearts", ["国王"]="king", ["浮雕"]="relief", ["卡牌"]="playing card",
+            ["冰箱贴"]="fridge magnet", ["无需支撑"]="no supports", ["满改"]="fully modified",
+            ["精细分件"]="detailed multipart", ["三角洲行动"]="Delta Force", ["突击步枪"]="assault rifle",
+            ["步枪"]="rifle", ["攻击机"]="attack aircraft", ["拦截机"]="interceptor",
+            ["猎鹰"]="Falcon", ["美西螈"]="axolotl", ["钥匙扣"]="keychain", ["史迪奇"]="Stitch",
+            ["木乃伊"]="mummy", ["乌龟"]="turtle", ["躲避屋"]="reptile hide", ["遮眼版"]="blindfolded",
+            ["单色"]="single color", ["针织"]="knit", ["光滑"]="smooth", ["扑克牌"]="playing cards"
         };
 
     internal static readonly IReadOnlyDictionary<string, string> JapaneseGlossary =
@@ -84,21 +93,37 @@ public sealed class TranslationAliasNormalizationModule
     {
         var normalized = Normalize(text);
         if (normalized.Length == 0)
-            return new Result(string.Empty, string.Empty, Array.Empty<string>());
+            return new Result(string.Empty, string.Empty, Array.Empty<string>(), 0, false);
 
         var glossary = GetGlossary(language);
         var translated = normalized;
         var hits = new List<string>();
+        var covered = new bool[normalized.Length];
 
         foreach (var pair in glossary.OrderByDescending(x => x.Key.Length))
         {
             if (!translated.Contains(pair.Key, StringComparison.Ordinal)) continue;
             translated = translated.Replace(pair.Key, $" {pair.Value} ", StringComparison.Ordinal);
             hits.Add($"{pair.Key} → {pair.Value}");
+            for (var index = normalized.IndexOf(pair.Key, StringComparison.Ordinal);
+                 index >= 0;
+                 index = normalized.IndexOf(pair.Key, index + pair.Key.Length, StringComparison.Ordinal))
+            {
+                for (var offset = index; offset < index + pair.Key.Length; offset++)
+                    if (IsCjk(normalized[offset])) covered[offset] = true;
+            }
         }
 
-        return new Result(normalized, Normalize(translated), hits);
+        var totalCjk = normalized.Count(IsCjk);
+        var coveredCjk = normalized.Where((character, index) => IsCjk(character) && covered[index]).Count();
+        var coverage = totalCjk == 0 ? 0 : (int)Math.Round(coveredCjk * 100d / totalCjk);
+        var normalizedTranslation = Normalize(translated);
+        var applied = hits.Count > 0 && !string.Equals(normalized, normalizedTranslation, StringComparison.Ordinal);
+        return new Result(normalized, normalizedTranslation, hits, coverage, applied);
     }
+
+    private static bool IsCjk(char c)
+        => c is >= '\u3400' and <= '\u9FFF' or >= '\u3040' and <= '\u30FF' or >= '\uAC00' and <= '\uD7AF';
 
     public static string? CanonicalizeAlias(string? text)
     {
