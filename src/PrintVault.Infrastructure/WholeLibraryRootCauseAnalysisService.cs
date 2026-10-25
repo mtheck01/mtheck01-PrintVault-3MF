@@ -21,7 +21,7 @@ public sealed record RootCauseOutcome(
 
 public sealed record WholeLibraryEvidenceTrace(
     long Id, string Name, string Path, string StoredCategory,
-    string InputTitle, string TranslatedTitle, string OriginalLanguage, int TranslationConfidence,
+    string InputTitle, string TranslatedTitle, string OriginalLanguage, int LanguageConfidence, int TranslationConfidence,
     long SourceAnalyzerElapsedMilliseconds, IntelligenceResult? SourceAnalyzer,
     ThreeMfAnalysisTrace? SourceDetails, IReadOnlyList<ModelIntelligenceStageTrace> IntelligenceStages,
     IReadOnlyList<string> FusionDiagnostics);
@@ -167,7 +167,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
                     evidenceTraces.Add(new WholeLibraryEvidenceTrace(
                         m.Id, m.Name, m.Path, stored, sourceModel.Name ?? string.Empty,
                         sourceModel.TranslatedTitle ?? string.Empty, sourceModel.OriginalLanguage ?? string.Empty,
-                        sourceModel.TranslationConfidence, sourceElapsedMs, sourceTrace.Analysis, sourceTrace.Details,
+                        sourceModel.LanguageConfidence, sourceModel.TranslationConfidence, sourceElapsedMs, sourceTrace.Analysis, sourceTrace.Details,
                         stage.StageTrace, f.Diagnostics));
                 }
                 if (conflict || needsReview || inferenceMissing || candidateUnresolved || appliedUnresolved)
@@ -398,7 +398,7 @@ public sealed class WholeLibraryRootCauseAnalysisService
         RiskFlags = source.RiskFlags, PrintMethod = source.PrintMethod, PrintMethodConfidence = source.PrintMethodConfidence,
         PrintMethodEvidence = source.PrintMethodEvidence, SpecialType = source.SpecialType,
         CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
-        OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
+        OriginalLanguage = source.OriginalLanguage, LanguageConfidence = source.LanguageConfidence, TranslatedTitle = source.TranslatedTitle,
         TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence,
         SourceSemanticEvidence = source.SourceSemanticEvidence,
         SourceSemanticEvidenceItems = source.SourceSemanticEvidenceItems

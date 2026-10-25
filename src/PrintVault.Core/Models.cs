@@ -32,7 +32,10 @@ public sealed class ModelRecord
     public bool CategoryOverride { get; set; }
     public bool PrintMethodOverride { get; set; }
     public string OriginalLanguage { get; set; } = "Unknown";
+    /// <summary>Confidence in the detected source language; never semantic identity confidence.</summary>
+    public int LanguageConfidence { get; set; }
     public string TranslatedTitle { get; set; } = "";
+    /// <summary>Percentage of recognized CJK source characters covered by glossary translations.</summary>
     public int TranslationConfidence { get; set; }
     public string TranslationEvidence { get; set; } = "";
     // Transient, bounded text extracted from curated 3MF title/description/object-name

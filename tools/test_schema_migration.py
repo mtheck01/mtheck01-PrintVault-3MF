@@ -22,13 +22,13 @@ MIGRATIONS = [
     ('SpecialType', "TEXT DEFAULT ''"), ('CategoryOverride', 'INTEGER DEFAULT 0'),
     ('PrintMethodOverride', 'INTEGER DEFAULT 0'), ('OriginalLanguage', "TEXT DEFAULT 'Unknown'"),
     ('TranslatedTitle', "TEXT DEFAULT ''"), ('TranslationConfidence', 'INTEGER DEFAULT 0'),
-    ('TranslationEvidence', "TEXT DEFAULT ''")
+    ('TranslationEvidence', "TEXT DEFAULT ''"), ('LanguageConfidence', 'INTEGER DEFAULT 0')
 ]
 
 # Keep this SQLite migration fixture aligned with the production migration declaration.
 for name, _ in MIGRATIONS:
     assert re.search(r'\(\s*"' + re.escape(name) + r'"\s*,', REPOSITORY_SOURCE), f"production migration declaration missing: {name}"
-assert 'private const int CurrentSchemaVersion = 5;' in REPOSITORY_SOURCE
+assert 'private const int CurrentSchemaVersion = 6;' in REPOSITORY_SOURCE
 
 # Windows-safe SQLite temp handling: close the temp file before SQLite opens it.
 with tempfile.TemporaryDirectory(prefix='PrintVaultSchemaTest_') as temp_dir:

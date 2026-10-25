@@ -92,7 +92,7 @@ public sealed class ModelIntelligencePipeline
         RiskFlags = source.RiskFlags, PrintMethod = source.PrintMethod, PrintMethodConfidence = source.PrintMethodConfidence,
         PrintMethodEvidence = source.PrintMethodEvidence, SpecialType = source.SpecialType,
         CategoryOverride = source.CategoryOverride, PrintMethodOverride = source.PrintMethodOverride,
-        OriginalLanguage = source.OriginalLanguage, TranslatedTitle = source.TranslatedTitle,
+        OriginalLanguage = source.OriginalLanguage, LanguageConfidence = source.LanguageConfidence, TranslatedTitle = source.TranslatedTitle,
         TranslationConfidence = source.TranslationConfidence, TranslationEvidence = source.TranslationEvidence,
         SourceSemanticEvidence = source.SourceSemanticEvidence,
         SourceSemanticEvidenceItems = source.SourceSemanticEvidenceItems

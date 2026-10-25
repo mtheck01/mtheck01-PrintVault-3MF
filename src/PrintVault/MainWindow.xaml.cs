@@ -570,7 +570,7 @@ public partial class MainWindow : Window
             Models.SelectedItem = m;
         InspectorName.Text = m.Name;
         var entity = entities.Recognize(m);
-        var translationLine = string.IsNullOrWhiteSpace(m.TranslatedTitle) ? "" : $"{m.OriginalLanguage}: {m.TranslatedTitle} ({m.TranslationConfidence}% translation confidence)";
+        var translationLine = string.IsNullOrWhiteSpace(m.TranslatedTitle) ? "" : $"{m.OriginalLanguage} • language ID {m.LanguageConfidence}% • glossary coverage {m.TranslationConfidence}%: {m.TranslatedTitle}";
         InspectorTranslated.Text = entity is null
             ? translationLine
             : $"{translationLine}{(string.IsNullOrWhiteSpace(translationLine) ? "" : "\n") }Entity: {entity.EntityName} • {entity.Domain} • {entity.Subtype} ({entity.Confidence}% entity confidence)";

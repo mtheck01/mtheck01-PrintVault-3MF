@@ -18,10 +18,9 @@ public sealed class ModelIntelligenceService
         var relationshipSet = FindRelatedInternal(model, catalog, 20);
         var duplicate = relationshipSet.Results.Any(x => x.Relationship == "Possible duplicate");
 
-        var identityConfidence = entity?.Confidence ??
-            (!string.Equals(model.OriginalLanguage, "Unknown", StringComparison.OrdinalIgnoreCase) && model.TranslationConfidence > 0
-                ? model.TranslationConfidence
-                : ClampPercent(model.IntelligenceScore));
+        // Detecting a language or translating a title does not establish what an
+        // object depicts. Identity confidence comes from identity evidence only.
+        var identityConfidence = entity?.Confidence ?? ClampPercent(model.IntelligenceScore);
         var classificationConfidence = entity?.Confidence ?? ClampPercent(model.IntelligenceScore);
 
         var tags = SplitTags(model.Tags)

@@ -24,10 +24,16 @@ public sealed class LanguageIntelligenceService
         string Language,
         string NormalizedText,
         string TranslatedText,
-        int Confidence,
+        int LanguageConfidence,
+        int TranslationCoverage,
+        bool TranslationApplied,
         string Evidence,
         IReadOnlyList<string> Terms,
-        bool MixedLanguage);
+        bool MixedLanguage)
+    {
+        // Compatibility for callers that used the former language-ID confidence.
+        public int Confidence => LanguageConfidence;
+    }
 
     private static readonly Dictionary<string, string[]> ScriptHints = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -45,7 +51,7 @@ public sealed class LanguageIntelligenceService
         var source = text ?? string.Empty;
         var normalized = Normalize(source);
         if (normalized.Length == 0)
-            return new("Unknown", string.Empty, string.Empty, 0, "LANGUAGE:EMPTY", Array.Empty<string>(), false);
+            return new("Unknown", string.Empty, string.Empty, 0, 0, false, "LANGUAGE:EMPTY", Array.Empty<string>(), false);
 
         var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in ScriptHints)
@@ -116,22 +122,16 @@ public sealed class LanguageIntelligenceService
         var secondScore = scores.Where(x => !string.Equals(x.Key, language, StringComparison.OrdinalIgnoreCase))
             .Select(x => x.Value).DefaultIfEmpty(0).Max();
 
-        var glossary = language switch
-        {
-            "Chinese" => Chinese,
-            "Japanese" => Japanese,
-            "Korean" => Korean,
-            _ => null
-        };
-
         var translation = TranslationAliasNormalizationModule.Translate(source, language);
         var translated = translation.TranslatedText;
         var hits = translation.Terms.ToList();
 
-        var confidence = CalculateConfidence(language, topScore, secondScore, hits.Count, mixed);
-        var evidence = BuildEvidence(language, script, scores, hits, mixed);
+        var languageConfidence = CalculateConfidence(language, topScore, secondScore, hits.Count, mixed);
+        var evidence = BuildEvidence(language, script, scores, hits, mixed) +
+                       $"; language_confidence={languageConfidence}; translation_coverage_pct={translation.CoveragePercent}; translation_applied={translation.TranslationApplied.ToString().ToLowerInvariant()}";
 
-        return new LanguageResult(language, normalized, translated, confidence, evidence, hits, mixed);
+        return new LanguageResult(language, normalized, translated, languageConfidence,
+            translation.CoveragePercent, translation.TranslationApplied, evidence, hits, mixed);
     }
 
     public ModelRecord Apply(ModelRecord model)
@@ -149,8 +149,9 @@ public sealed class LanguageIntelligenceService
         var result = Analyze(source);
 
         model.OriginalLanguage = result.Language;
+        model.LanguageConfidence = result.LanguageConfidence;
         model.TranslatedTitle = result.TranslatedText;
-        model.TranslationConfidence = result.Confidence;
+        model.TranslationConfidence = result.TranslationCoverage;
         model.TranslationEvidence = result.Evidence;
 
         return model;
