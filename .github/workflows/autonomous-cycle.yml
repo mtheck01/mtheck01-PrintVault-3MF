@@ -894,7 +894,7 @@ jobs:
             $count = 0
             foreach ($row in $r.rows) {
               $stored = [string]$row.StoredCategory
-              $inferred = [string]$row.InferredCategory
+              $inferred = [string]$row.CandidateCategory
               if ([string]::IsNullOrWhiteSpace($inferred) -or $inferred -in @("Uncategorized","Unknown")) { continue }
               if ($stored -in @("","Uncategorized","Unknown") -or
                   [string]::Equals($stored, $inferred, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -922,7 +922,7 @@ jobs:
             if ([int]$r.Conflicts -lt 0 -or $null -eq $r.rows) { Write-Host "REGRESSION_GATE=FAIL_REASON=CONFLICT_ACCOUNTING_MISSING"; return "FAIL" }
             $reportedConflictRows = @($r.rows | Where-Object {
               $storedCategory = [string]$_.StoredCategory
-              $candidateCategory = [string]$_.InferredCategory
+              $candidateCategory = [string]$_.CandidateCategory
               -not [string]::IsNullOrWhiteSpace($storedCategory) -and
                 $storedCategory -notin @("Uncategorized", "Unknown") -and
                 -not [string]::IsNullOrWhiteSpace($candidateCategory) -and
