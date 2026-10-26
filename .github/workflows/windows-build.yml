@@ -148,6 +148,10 @@ jobs:
         shell: pwsh
         run: dotnet run --project ".\\tools\\PrintVault.Automation\\PrintVault.Automation.csproj" --configuration Release -- selftest-category-registry
 
+      - name: Test whole-library repair report contract
+        shell: pwsh
+        run: dotnet run --project ".\\tools\\PrintVault.Automation\\PrintVault.Automation.csproj" --configuration Release -- selftest-repair-report-contract
+
       - name: Test autonomous cycle contract
         shell: pwsh
         run: python ".\\tools\\test_autonomous_cycle_contract.py"
