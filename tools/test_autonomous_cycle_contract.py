@@ -193,6 +193,7 @@ current_modular_tests = [
     "test_semantic_intelligence.py", "test_semantic_relationship_integration_9_0_20.py",
     "test_smart_category_engine.py", "test_smart_category_review.py",
     "test_whole_library_entity_coverage_v1.py",
+    "test_whole_library_repair_report_contract.py",
     "test_autonomous_engineering_intake.py"
 ]
 for test_name in current_modular_tests:
@@ -205,10 +206,11 @@ assert 'Never use an unleased force push.' in workflow
 assert "if ($arg -match '\\s' -or $arg -match '[&|;<>]')" in workflow, "External-process wrapper must quote whitespace/shell-sensitive arguments"
 assert 'if ($env:PRINTVAULT_ZERO_CREDIT -eq "1") {' in workflow, "AI repair boundary must hard-block zero-credit execution"
 program = (ROOT / "tools" / "PrintVault.Automation" / "Program.cs").read_text(encoding="utf-8")
+repair_contract = (ROOT / "tools" / "PrintVault.Automation" / "RepairReportContract.cs").read_text(encoding="utf-8")
 repository = (ROOT / "src" / "PrintVault.Infrastructure" / "LibraryRepository.cs").read_text(encoding="utf-8")
 assert 'string.Equals(arbitrationDecision, "ACTIONABLE", StringComparison.OrdinalIgnoreCase)' in program, \
     "Deterministic writeback must honor typed arbitration decisions"
-assert 'REPAIR_ABORTED=STALE_REPORT_RECORD' in program and 'REPAIR_ABORTED=REPORT_CATALOG_MISMATCH' in program, \
+assert 'REPAIR_ABORTED=STALE_REPORT_RECORD' in program and 'REPORT_CATALOG_MISMATCH' in repair_contract, \
     "Writeback must reject stale or wrong-catalog reports"
 assert 'PRINTVAULT_DATABASE_PATH' in repository, \
     "All app and automation processes must honor the same explicit isolated database path"

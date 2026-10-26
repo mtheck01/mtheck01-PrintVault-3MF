@@ -8,7 +8,8 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     !string.Equals(args[0], "organize", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "cleanup", StringComparison.OrdinalIgnoreCase) &&
     !string.Equals(args[0], "selftest-category-registry", StringComparison.OrdinalIgnoreCase) &&
-    !string.Equals(args[0], "selftest-semantic-cues", StringComparison.OrdinalIgnoreCase)))
+    !string.Equals(args[0], "selftest-semantic-cues", StringComparison.OrdinalIgnoreCase) &&
+    !string.Equals(args[0], "selftest-repair-report-contract", StringComparison.OrdinalIgnoreCase)))
 {
     Console.Error.WriteLine("Usage: PrintVault.Automation rootcause [outputDirectory] [expectedCatalog]");
     Console.Error.WriteLine("   or: PrintVault.Automation scan [libraryRoot] [mode]");
@@ -18,6 +19,7 @@ if (args.Length == 0 || (!string.Equals(args[0], "rootcause", StringComparison.O
     Console.Error.WriteLine("   or: PrintVault.Automation cleanup [libraryRoot]");
     Console.Error.WriteLine("   or: PrintVault.Automation selftest-category-registry");
     Console.Error.WriteLine("   or: PrintVault.Automation selftest-semantic-cues");
+    Console.Error.WriteLine("   or: PrintVault.Automation selftest-repair-report-contract");
     return 2;
 }
 
@@ -27,6 +29,8 @@ if (string.Equals(command, "selftest-category-registry", StringComparison.Ordina
     return CategoryRegistrySelfTest.Run();
 if (string.Equals(command, "selftest-semantic-cues", StringComparison.OrdinalIgnoreCase))
     return SemanticCueSelfTest.Run();
+if (string.Equals(command, "selftest-repair-report-contract", StringComparison.OrdinalIgnoreCase))
+    return RepairReportContractSelfTest.Run();
 
 var configuredTestRoot = Environment.GetEnvironmentVariable("PRINTVAULT_TEST_LIBRARY_ROOT");
 var scanRoot = string.Equals(command, "scan", StringComparison.OrdinalIgnoreCase)
@@ -218,18 +222,23 @@ try
             return 13;
         }
 
-        var report = JsonDocument.Parse(File.ReadAllText(reportPath));
-        var reportRoot = report.RootElement;
-        var reportCatalogValid = reportRoot.TryGetProperty("Catalog", out var reportCatalogNode) &&
-                                 reportCatalogNode.TryGetInt32(out var reportCatalog) && reportCatalog == models.Count;
-        var reportProcessedValid = reportRoot.TryGetProperty("Processed", out var reportProcessedNode) &&
-                                   reportProcessedNode.TryGetInt32(out var reportProcessed) && reportProcessed == models.Count;
-        if (!reportCatalogValid || !reportProcessedValid)
+        RepairReportDocument repairReport;
+        try
         {
-            Console.Error.WriteLine($"REPAIR_ABORTED=REPORT_CATALOG_MISMATCH REPORT_CATALOG={reportCatalogNode} REPORT_PROCESSED={reportProcessedNode} DATABASE_CATALOG={models.Count}");
+            repairReport = RepairReportContract.Deserialize(File.ReadAllText(reportPath));
+        }
+        catch (JsonException ex)
+        {
+            Console.Error.WriteLine($"REPAIR_ABORTED=REPORT_INVALID_JSON MESSAGE={ex.Message}");
             return 16;
         }
-        var rows = report.RootElement.GetProperty("rows");
+        var reportError = RepairReportContract.Validate(repairReport, models, expectedCatalog);
+        if (reportError is not null)
+        {
+            Console.Error.WriteLine($"REPAIR_ABORTED={reportError} DATABASE_CATALOG={models.Count} EXPECTED_CATALOG={expectedCatalog}");
+            return 16;
+        }
+        var rows = repairReport.Rows!;
         var byId = models.ToDictionary(m => m.Id);
         var changed = 0;
         var unresolvedLexical = 0;
@@ -243,19 +252,19 @@ try
         Console.WriteLine("REPAIR_MODE=REPORT_DRIVEN_DETERMINISTIC_WRITEBACK");
         Console.WriteLine($"REPAIR_REPORT={reportPath}");
 
-        foreach (var row in rows.EnumerateArray())
+        foreach (var row in rows)
         {
-            if (!row.TryGetProperty("Id", out var idNode) || !idNode.TryGetInt32(out var id) || !byId.TryGetValue(id, out var model))
+            if (!byId.TryGetValue(row.Id, out var model))
                 continue;
 
-            var inferred = row.TryGetProperty("InferredCategory", out var inferredNode) ? inferredNode.GetString() ?? "" : "";
-            var stored = row.TryGetProperty("StoredCategory", out var storedNode) ? storedNode.GetString() ?? "" : "";
-            var disposition = row.TryGetProperty("Disposition", out var dispositionNode) ? dispositionNode.GetString() ?? "" : "";
-            var arbitrationDecision = row.TryGetProperty("ArbitrationDecision", out var decisionNode) ? decisionNode.GetString() ?? "" : "";
-            var basis = row.TryGetProperty("Basis", out var basisNode) ? basisNode.GetString() ?? "" : "";
-            var evidence = row.TryGetProperty("Evidence", out var evidenceNode) ? evidenceNode.GetString() ?? "" : "";
-            var confidence = row.TryGetProperty("ClassificationConfidence", out var confidenceNode) && confidenceNode.TryGetInt32(out var c) ? c : 0;
-            var evidenceQuality = row.TryGetProperty("EvidenceQuality", out var evidenceNode2) && evidenceNode2.TryGetInt32(out var eq) ? eq : 0;
+            var inferred = row.CandidateCategory ?? "";
+            var stored = row.StoredCategory ?? "";
+            var disposition = row.Disposition ?? "";
+            var arbitrationDecision = row.ArbitrationDecision ?? "";
+            var basis = row.Basis ?? "";
+            var evidence = row.Evidence ?? "";
+            var confidence = row.ClassificationConfidence;
+            var evidenceQuality = row.EvidenceQuality;
 
             if (string.IsNullOrWhiteSpace(inferred) ||
                 string.Equals(inferred, "Uncategorized", StringComparison.OrdinalIgnoreCase) ||
@@ -272,7 +281,7 @@ try
                 continue;
             if (!string.Equals(model.Category, stored, StringComparison.OrdinalIgnoreCase))
             {
-                Console.Error.WriteLine($"REPAIR_ABORTED=STALE_REPORT_RECORD ID={id} REPORT_STORED={stored} DATABASE_STORED={model.Category}");
+                Console.Error.WriteLine($"REPAIR_ABORTED=STALE_REPORT_RECORD ID={row.Id} REPORT_STORED={stored} DATABASE_STORED={model.Category}");
                 return 17;
             }
 
