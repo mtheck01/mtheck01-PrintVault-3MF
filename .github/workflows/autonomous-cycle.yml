@@ -249,6 +249,9 @@ jobs:
             if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN) -and -not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
               $statusState = if ($stage -eq "DONE") { "success" } elseif ($stage -eq "FAILED") { "failure" } else { "pending" }
               $description = "$stage" + $(if ([string]::IsNullOrWhiteSpace($detail)) { "" } else { ": $detail" })
+              if ($stage -eq "DONE" -and $null -ne $script:FinalAppUiSmoke -and $script:FinalAppUiSmoke.Status -eq "NOT_VERIFIED") {
+                $description = "DONE; whole-library passed; UI smoke NOT VERIFIED (session $($script:FinalAppUiSmoke.SessionId))"
+              }
               if ($description.Length -gt 140) { $description = $description.Substring(0,140) }
               $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2026-03-10"; "User-Agent" = "PrintVault-Autonomous-Cycle" }
               $body = @{ state = $statusState; context = "printvault/autonomous-cycle"; description = $description; target_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json
@@ -810,38 +813,46 @@ jobs:
             Set-Content -Path $rootFile -Value $libraryRoot -NoNewline
 
             $proc = Start-Process -FilePath $candidate.Path -PassThru
+            $sessionId = $proc.SessionId
             $windowDeadline = [DateTime]::UtcNow.AddSeconds(30)
             $mainWindowHandle = [IntPtr]::Zero
             $responding = $false
-            do {
-              $proc.Refresh()
-              if ($proc.HasExited) { throw "Final PrintVault smoke launch exited with code $($proc.ExitCode)." }
-              $mainWindowHandle = $proc.MainWindowHandle
-              if ($mainWindowHandle -ne [IntPtr]::Zero) {
-                try { $responding = $proc.Responding } catch { $responding = $false }
-                if ($responding) { break }
-              }
-              Start-Sleep -Milliseconds 500
-            } while ([DateTime]::UtcNow -lt $windowDeadline)
+            if ($sessionId -ne 0) {
+              do {
+                $proc.Refresh()
+                if ($proc.HasExited) { throw "Final PrintVault smoke launch exited with code $($proc.ExitCode)." }
+                $mainWindowHandle = $proc.MainWindowHandle
+                if ($mainWindowHandle -ne [IntPtr]::Zero) {
+                  try { $responding = $proc.Responding } catch { $responding = $false }
+                  if ($responding) { break }
+                }
+                Start-Sleep -Milliseconds 500
+              } while ([DateTime]::UtcNow -lt $windowDeadline)
+            }
 
             $windowValue = $mainWindowHandle.ToInt64()
-            Write-Host "APPLICATION=OPEN VERSION=$($candidate.Version) PID=$($proc.Id) MAIN_WINDOW=$windowValue RESPONDING=$responding"
+            Write-Host "APPLICATION=PROCESS_LAUNCH=PASS VERSION=$($candidate.Version) PID=$($proc.Id) SESSION_ID=$sessionId"
+            Write-Host "APPLICATION=WINDOW_CHECK VERSION=$($candidate.Version) PID=$($proc.Id) MAIN_WINDOW=$windowValue RESPONDING=$responding"
             if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding) {
+              $script:FinalAppUiSmoke = [pscustomobject]@{ Status="PASS"; Reason="RESPONSIVE_MAIN_WINDOW"; SessionId=$sessionId }
               Write-Host "APPLICATION=OPEN_READY=PASS"
             }
             else {
+              $reason = if ($sessionId -eq 0) { "NON_INTERACTIVE_SESSION_0" } else { "NO_RESPONSIVE_MAIN_WINDOW" }
+              $script:FinalAppUiSmoke = [pscustomobject]@{ Status="NOT_VERIFIED"; Reason=$reason; SessionId=$sessionId }
               $smokeLog = Join-Path $PWD "build_logs\ui-smoke-not-verified.txt"
               New-Item -ItemType Directory -Force -Path (Split-Path $smokeLog) | Out-Null
               @(
                 "APPLICATION=OPEN_READY=NOT_VERIFIED"
-                "REASON=NO_RESPONSIVE_MAIN_WINDOW"
+                "REASON=$reason"
                 "PID=$($proc.Id)"
-                "SESSION_ID=$($proc.SessionId)"
+                "SESSION_ID=$sessionId"
                 "MAIN_WINDOW=$windowValue"
                 "RESPONDING=$responding"
                 "RUNNER_IDENTITY=$([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
               ) | Set-Content -Path $smokeLog
               Get-Content $smokeLog | ForEach-Object { Write-Host $_ }
+              Write-Warning "WPF UI smoke was not verified ($reason). The process launch is recorded separately; no UI-ready pass is claimed."
             }
             return $proc
           }
@@ -1151,9 +1162,35 @@ jobs:
               if ($currentMainSha -ne $startingMainSha) { throw "Promotion blocked: origin/main changed during validation." }
               Write-Host "VALIDATION=PASS_NO_ACTIONABLE_CONFLICTS"
               Write-CycleStatus "FINAL_APP_SMOKE" "version=$version"
+              $script:FinalAppUiSmoke = [pscustomobject]@{ Status="NOT_VERIFIED"; Reason="SMOKE_NOT_COMPLETED"; SessionId=$null }
               $finalApp = Start-FinalApp $candidate $testLibraryRoot
+              $uiSmoke = $script:FinalAppUiSmoke
               Close-PrintVault $finalApp
-              Write-Host "FINAL_APP_SMOKE_CLOSED=PASS"
+              Write-Host "FINAL_APP_PROCESS_CLOSED=PASS"
+              if ($uiSmoke.Status -eq "PASS") {
+                Write-Host "FINAL_APP_UI_SMOKE=PASS"
+                Write-CycleStatus "FINAL_APP_UI_SMOKE_PASS" "session_id=$($uiSmoke.SessionId)"
+              }
+              else {
+                Write-Host "FINAL_APP_UI_SMOKE=NOT_VERIFIED REASON=$($uiSmoke.Reason) SESSION_ID=$($uiSmoke.SessionId)"
+                Write-CycleStatus "FINAL_APP_UI_SMOKE_NOT_VERIFIED" "reason=$($uiSmoke.Reason); session_id=$($uiSmoke.SessionId)"
+              }
+
+              $uiSummary = @(
+                "## Autonomous validation result",
+                "",
+                "- Whole-library validation: **PASS** (no actionable conflicts; see the retained per-record diagnostics).",
+                "- Installed app process: **started and closed**.",
+                "- Interactive WPF UI smoke: **$($uiSmoke.Status)** (reason: $($uiSmoke.Reason); session: $($uiSmoke.SessionId)).",
+                "- A NOT_VERIFIED UI result is not a UI pass; a service runner in session 0 cannot verify an interactive window.",
+                ""
+              ) -join [Environment]::NewLine
+              if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
+                Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $uiSummary
+              }
+              if ($publish -and $uiSmoke.Status -ne "PASS") {
+                throw "Publishing blocked: final interactive UI smoke was not verified ($($uiSmoke.Reason), session $($uiSmoke.SessionId))."
+              }
 
               if ($publish) {
                 Write-CycleStatus "PUBLISH" "version=$version"
