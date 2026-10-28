@@ -126,7 +126,16 @@ assert workflow.index("$startingMainSha = (git rev-parse origin/main).Trim()") <
 assert 'Install-Candidate' in workflow
 assert 'Start-FinalApp' in workflow
 assert 'Close-PrintVault $finalApp' in workflow
-assert 'FINAL_APP_SMOKE_CLOSED=PASS' in workflow
+assert 'APPLICATION=PROCESS_LAUNCH=PASS' in workflow
+assert 'FINAL_APP_PROCESS_CLOSED=PASS' in workflow
+assert 'FINAL_APP_UI_SMOKE=PASS' in workflow
+assert 'FINAL_APP_UI_SMOKE=NOT_VERIFIED' in workflow
+assert 'GITHUB_STEP_SUMMARY' in workflow
+assert 'whole-library passed; UI smoke NOT VERIFIED' in workflow, \
+    'Final commit status must distinguish successful library validation from an unverified UI smoke'
+assert 'Publishing blocked: final interactive UI smoke was not verified' in workflow
+assert 'FINAL_APP_SMOKE_CLOSED=PASS' not in workflow, \
+    'Closing the process must not make an unverified UI smoke look like a pass'
 assert 'Cleanup PrintVault process' in workflow
 assert 'PRINTVAULT_PROCESS_CLEANUP=PASS' in workflow
 assert 'APPLICATION=DEFERRED_UNTIL_VALIDATION_PASS' in workflow
@@ -141,6 +150,12 @@ assert 'if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding)' in final_app
     'OPEN_READY=PASS must be conditional on a responsive main window'
 assert 'APPLICATION=OPEN_READY=NOT_VERIFIED' in final_app and 'ui-smoke-not-verified.txt' in final_app, \
     'Headless service sessions must retain an explicit not-verified UI result'
+assert '$sessionId -eq 0' in final_app and 'NON_INTERACTIVE_SESSION_0' in final_app, \
+    'Session 0 must be identified as a non-interactive UI environment'
+assert 'if ($sessionId -ne 0)' in final_app, \
+    'Do not waste the 30-second window wait when session 0 cannot display an interactive window'
+assert 'no UI-ready pass is claimed' in final_app, \
+    'A live process without an interactive window must not be described as UI-ready'
 assert final_app.index('if ($mainWindowHandle -ne [IntPtr]::Zero -and $responding)') < final_app.index('APPLICATION=OPEN_READY=PASS')
 assert 'Write-Host "APPLICATION=OPEN_READY=PASS"' not in workflow.replace(final_app, ''), \
     'No unconditional UI readiness success may appear outside the guarded smoke path'
