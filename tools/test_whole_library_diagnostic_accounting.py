@@ -62,6 +62,11 @@ checks = {
         and re.search(r"(?:orderedRootCauseRows|rootCauseRows)\.GroupBy\(x => x\.Disposition\)", service) is not None
     ),
     "unresolved outcomes get an actionable diagnostic disposition": 'return "UNRESOLVED_ENGINE_GAP";' in service,
+    "unresolved title gaps are distinguished from absent evidence": (
+        'return "UNRESOLVED_PRIMARY_TITLE_NO_RULE_MATCH";' in service
+        and "HasPrimarySourceTitle(analyzed) && HasNoLexicalCueMatch(f)" in service
+        and all(field in service for field in ["metadata.title", "metadata.model_name", "object.name"])
+    ),
     "report separately preserves conflict-review counts": "conflictReviewRowCount" in service and "rootCauseRecords = rootCauseRows.Count" in service,
     "full outcome CSV is written": (
         re.search(r"File\.WriteAllText\(outcomesCsv,\s*BuildOutcomesCsv\((?:orderedOutcomes|outcomes)\)", service) is not None

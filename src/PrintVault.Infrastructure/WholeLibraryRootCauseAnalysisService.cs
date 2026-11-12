@@ -439,6 +439,8 @@ public sealed class WholeLibraryRootCauseAnalysisService
             if (string.IsNullOrWhiteSpace(analyzed.IntelligenceReason) ||
                 analyzed.IntelligenceReason.Contains("No strong semantic signal", StringComparison.OrdinalIgnoreCase))
                 return "UNRESOLVED_NO_STRONG_ANALYZER_SIGNAL";
+            if (HasPrimarySourceTitle(analyzed) && HasNoLexicalCueMatch(f))
+                return "UNRESOLVED_PRIMARY_TITLE_NO_RULE_MATCH";
             if (f.EvidenceQuality < 50) return "UNRESOLVED_LOW_EVIDENCE_QUALITY";
             return "UNRESOLVED_OTHER_CLASSIFICATION_GAP";
         }
@@ -454,6 +456,19 @@ public sealed class WholeLibraryRootCauseAnalysisService
         if (conflict) return "TAXONOMY_OR_CLASSIFIER_DISAGREEMENT";
         return "OTHER_REVIEW";
     }
+
+    private static bool HasPrimarySourceTitle(ModelRecord model)
+        => (model.SourceSemanticEvidenceItems ?? Array.Empty<SourceSemanticEvidenceItem>()).Any(item =>
+            !string.IsNullOrWhiteSpace(item.Text) &&
+            (string.Equals(item.Field, "object.name", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(item.Field, "metadata.title", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(item.Field, "metadata.name", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(item.Field, "metadata.model_name", StringComparison.OrdinalIgnoreCase)));
+
+    private static bool HasNoLexicalCueMatch(SemanticEvidenceFusionResult fusion)
+        => fusion.Diagnostics.Any(diagnostic =>
+            diagnostic.StartsWith("LEXICAL_CUES:", StringComparison.OrdinalIgnoreCase) &&
+            diagnostic.Contains("matched_rules=0", StringComparison.OrdinalIgnoreCase));
 
     private static string DetermineDisposition(ModelRecord m, SemanticEvidenceFusionResult f, string cause, bool conflict, string arbitrationDecision)
     {

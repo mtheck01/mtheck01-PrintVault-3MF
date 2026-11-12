@@ -51,6 +51,15 @@ internal sealed class EvidenceArbitrationStage : IModelIntelligenceStage
             return;
         }
 
+        if (result.Conflicts.Count > 0)
+        {
+            var conflicts = string.Join(" | ", result.Conflicts.Select(conflict =>
+                $"{conflict.Kind}:{conflict.SelectedCategory} ({conflict.SelectedEvidence}) vs {conflict.ConflictingCategory} ({conflict.ConflictingEvidence})"));
+            context.StageEvidence.Add($"EVIDENCE:{result.EvidenceQuality}:REVIEW_CHANNEL_CONFLICT");
+            AddDiagnostic(context, $"decision=REVIEW; reason=EVIDENCE_CHANNEL_CONFLICT; conflicts={conflicts}; category_unchanged={model.Category}");
+            return;
+        }
+
         // Arbitration consumes a typed evidence property. Display labels are for humans;
         // coupling acceptance gates to their wording caused valid source-derived artifact
         // evidence to be rejected when the basis label changed during fusion.

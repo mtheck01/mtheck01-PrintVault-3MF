@@ -17,7 +17,7 @@ checks = [
     ("entity is retained as subject identity", "Subject identity:" in fusion),
     ("unresolved stored categories are explicitly recognized", "storedCategoryIsUnresolved" in fusion),
     ("actionable category conflicts exclude unresolved stored categories", "!storedCategoryIsUnresolved" in fusion),
-    ("entity mismatch is not automatically an artifact conflict", "semanticChannelsAgree = strongSourceDerivedAnalyzer" in fusion),
+    ("entity mismatch is only exempted when the selected artifact role or category agrees", "selectedArtifactRole ||" in fusion and "string.Equals(entity.Category, category" in fusion and "semanticChannelsAgree = strongSourceDerivedAnalyzer ||" not in fusion),
     ("semantic-channel agreement is explicit", "semanticChannelsAgree" in fusion),
     ("strong alternatives require actionable disagreement", "strongAlternative && categoriesDiffer && !storedCategoryIsUnresolved" in fusion),
     ("unresolved stored and candidate categories are excluded from forensic conflicts", bool(re.search(r"conflict\s*=\s*!IsUnresolvedCategory\(stored\)\s*&&\s*!candidateUnresolved\s*&&", root_cause))),
